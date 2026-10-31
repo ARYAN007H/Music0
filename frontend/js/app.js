@@ -1301,8 +1301,11 @@ const App = (() => {
     if (String(song?.id || '').startsWith('yt:')) {
       fetchSuggested(String(song.id).slice(3));
     } else {
+      // Local track: restore the taste-engine recommendation cards.  The pane
+      // may still hold another song's Suggested rows, so re-render — but never
+      // blank it with the online empty-state over a populated panel (#50).
       state.suggested = null;
-      renderNpExtra();
+      renderRecommendations();
     }
   }
 
@@ -1321,6 +1324,16 @@ const App = (() => {
       const current = state.currentSong;
       if (!current || String(current.id) !== `yt:${videoId}`) return;
       state.suggested = { videoId, rows: list };
+      renderNpExtra();
+    }).catch((err) => {
+      // Airplane mode fast-fails / endpoint errors must not strand the
+      // "Finding songs like this…" spinner until the next song (#49).
+      console.error('[musico] online_related failed:', err);
+      if (seq !== suggestedSeq) return;
+      const current = state.currentSong;
+      if (!current || String(current.id) !== `yt:${videoId}`) return;
+      // Not cached — the next play of this song retries.
+      state.suggested = { videoId, rows: [], error: true };
       renderNpExtra();
     });
   }
@@ -1387,7 +1400,9 @@ const App = (() => {
     if (!rows.length) {
       const msg = document.createElement('div');
       msg.className = 'np-empty';
-      msg.textContent = 'No suggestions right now — like a few songs and they will come.';
+      msg.textContent = state.suggested?.error
+        ? 'Couldn\'t load suggestions — check your connection.'
+        : 'No suggestions right now — like a few songs and they will come.';
       container.appendChild(msg);
       return;
     }
@@ -1433,10 +1448,19 @@ const App = (() => {
       loading.className = 'lyric-line lyric-plain';
       loading.textContent = 'Fetching lyrics…';
       list.appendChild(loading);
-      const text = await Bridge.invoke('online_lyrics', { videoId });
-      lyricsTextCache.set(videoId, text);
-      if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
-        renderPlainLyrics(text);
+      try {
+        const text = await Bridge.invoke('online_lyrics', { videoId });
+        lyricsTextCache.set(videoId, text);
+        if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
+          renderPlainLyrics(text);
+        }
+      } catch (err) {
+        // Offline / endpoint failure: same empty state as a lyric-less song,
+        // never a stranded "Fetching lyrics…" (#49).
+        console.error('[musico] online_lyrics failed:', err);
+        if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
+          renderPlainLyrics('');
+        }
       }
     } else {
       loadLyrics(song);

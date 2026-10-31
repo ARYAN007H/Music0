@@ -172,9 +172,11 @@ fn advance_from(handle: &AppHandle, ended: Option<&PlaybackEvent>, allow_online_
     //    library picks — continue with YouTube Music related tracks.  The
     //    fetch + download run on a worker thread (seconds of blocking work
     //    must not stall the 50 ms event loop); failure falls back to the
-    //    local branches below.
+    //    local branches below.  Gated on autoplay like Smart Radio below
+    //    (C1.3): autoplay off means the music stops when the queue ends.
     if allow_online_radio
         && repeat != 1
+        && autoplay
         && !state
             .offline
             .load(std::sync::atomic::Ordering::Relaxed)

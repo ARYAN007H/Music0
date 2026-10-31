@@ -78,6 +78,28 @@ fn acquire_yt_dlp_slot() -> YtDlpSlot {
     YtDlpSlot { _private: () }
 }
 
+/// Bounded variant: gives up instead of parking indefinitely.  The
+/// interactive path needs this — with three background resolves (120 s × 2
+/// attempts) ahead of it, an unbounded wait pinned "resolving" for minutes
+/// even though the click's own download budget was 90 s.
+fn acquire_yt_dlp_slot_bounded(bound: Duration) -> Option<YtDlpSlot> {
+    let (lock, cv) = &*YT_DLP_SLOTS;
+    let deadline = Instant::now() + bound;
+    let mut free = lock.lock().unwrap_or_else(|e| e.into_inner());
+    while *free == 0 {
+        let now = Instant::now();
+        if now >= deadline {
+            return None;
+        }
+        let (guard, _) = cv
+            .wait_timeout(free, deadline - now)
+            .unwrap_or_else(|e| e.into_inner());
+        free = guard;
+    }
+    *free -= 1;
+    Some(YtDlpSlot { _private: () })
+}
+
 /// Runtime cap override set from the storage settings UI (MB).  Precedence
 /// in [`cap_from`]: `MUSICO_ONLINE_CACHE_MB` env > this override > default.
 static CAP_OVERRIDE_MB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -126,7 +148,15 @@ pub fn cache_usage_bytes() -> u64 {
 }
 
 /// Disk cache for downloaded streams: ~/.cache/musico-online/online/{videoId}.*
+/// `MUSICO_CACHE_DIR` overrides the root entirely — tests MUST point it at a
+/// tempdir, because prune/usage code paths genuinely delete files and a test
+/// that ran against the real cache deleted a user's downloads once (#48).
 pub fn cache_dir() -> PathBuf {
+    if let Ok(root) = std::env::var("MUSICO_CACHE_DIR") {
+        if !root.trim().is_empty() {
+            return PathBuf::from(root);
+        }
+    }
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join(crate::identity::DATA_SUBDIR)
@@ -227,19 +257,21 @@ pub fn yt_dlp_available() -> bool {
 /// serialized; one retry covers transient extractor failures.  Blocks —
 /// call from a worker thread.
 pub fn resolve_stream(video_id: &str, budget: Duration) -> Result<PathBuf, String> {
-    resolve_with(video_id, RESOLVE_ATTEMPTS, budget / RESOLVE_ATTEMPTS)
+    resolve_with(video_id, RESOLVE_ATTEMPTS, budget / RESOLVE_ATTEMPTS, None)
 }
 
 /// Track-aware resolve: hides the cover-art fetch under the download (the
 /// thumbnail URL is in hand here, and the art must be on disk before the
 /// `Playing` event — the frontend caches a null cover forever on a miss).
-/// `interactive` selects the one-attempt bounded budget for click-to-play.
+/// `interactive` selects the one-attempt bounded budget for click-to-play;
+/// the slot wait counts against that budget too, so a click fails honestly
+/// when all three children are busy instead of pinning "resolving".
 pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, String> {
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let result = if interactive {
-        resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET)
+        resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
     } else {
-        resolve_with(&track.video_id, RESOLVE_ATTEMPTS, BG_PER_ATTEMPT)
+        resolve_with(&track.video_id, RESOLVE_ATTEMPTS, BG_PER_ATTEMPT, None)
     };
     cover.join();
     result
@@ -266,7 +298,12 @@ impl CoverJob {
     }
 }
 
-fn resolve_with(video_id: &str, attempts: u32, per_attempt: Duration) -> Result<PathBuf, String> {
+fn resolve_with(
+    video_id: &str,
+    attempts: u32,
+    per_attempt: Duration,
+    slot_wait: Option<Duration>,
+) -> Result<PathBuf, String> {
     let _guard = video_lock(video_id);
 
     if !yt_dlp_available() {
@@ -287,7 +324,13 @@ fn resolve_with(video_id: &str, attempts: u32, per_attempt: Duration) -> Result<
             std::thread::sleep(Duration::from_millis(600));
         }
         // Held for the attempt's whole run — the process-wide child cap.
-        let _slot = acquire_yt_dlp_slot();
+        // Interactive resolves bound the wait; background work parks.
+        let _slot = match slot_wait {
+            Some(bound) => acquire_yt_dlp_slot_bounded(bound).ok_or_else(|| {
+                "resolve budget exhausted waiting for a free downloader (other downloads in progress?)".to_string()
+            })?,
+            None => acquire_yt_dlp_slot(),
+        };
         match run_yt_dlp(&url, &template, per_attempt) {
             Ok(()) => {}
             Err(e) => {
@@ -328,8 +371,11 @@ fn run_yt_dlp(url: &str, template: &Path, timeout: Duration) -> Result<(), Strin
         ])
         .arg(template)
         .arg(url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        // Output is unused (--quiet, --no-progress): piping without reading
+        // can fill the 64 KB pipe buffer and wedge a chatty child until the
+        // timeout kill turns a would-be success into a failure.
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("failed to launch yt-dlp: {e}"))?;
 
@@ -571,15 +617,38 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// These tests share the REAL cache dir with each other (and the prune
-    /// test's byte-count assertions) — cargo runs test threads in parallel,
-    /// so every test that writes or counts cache files holds this gate.
+    /// `MUSICO_CACHE_DIR` is process-global, so cache-touching tests hold
+    /// this gate while each one points it at a fresh tempdir — no test ever
+    /// sees another's files, and the REAL user cache is unreachable (#48).
     static CACHE_DIR_GATE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    /// Isolated cache root for one test: holds the gate + sets the env
+    /// override.  Drop order matters: the `Drop` impl removes the env var
+    /// while the gate is still held, then the tempdir is deleted.
+    struct TestCache {
+        _gate: std::sync::MutexGuard<'static, ()>,
+        _dir: tempfile::TempDir,
+    }
+
+    impl TestCache {
+        fn acquire() -> Self {
+            let gate = CACHE_DIR_GATE.lock().unwrap_or_else(|e| e.into_inner());
+            let dir = tempfile::tempdir().expect("tempdir for cache test");
+            std::env::set_var("MUSICO_CACHE_DIR", dir.path());
+            Self { _gate: gate, _dir: dir }
+        }
+    }
+
+    impl Drop for TestCache {
+        fn drop(&mut self) {
+            std::env::remove_var("MUSICO_CACHE_DIR");
+        }
+    }
 
     #[test]
     fn cached_file_matches_exact_prefix_only() {
-        let _gate = CACHE_DIR_GATE.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = cache_dir();
+        let tc = TestCache::acquire();
+        let dir = tc._dir.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("exactmatch1.m4a");
         let b = dir.join("exactmatch12.m4a");
@@ -603,7 +672,7 @@ mod tests {
 
     #[test]
     fn stale_sidecars_are_swept_fresh_survive() {
-        let _gate = CACHE_DIR_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        let _tc = TestCache::acquire();
         let dir = cache_dir();
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -663,7 +732,7 @@ mod tests {
 
     #[test]
     fn prune_cache_respects_cap_and_removes_oldest() {
-        let _gate = CACHE_DIR_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        let _tc = TestCache::acquire();
         let dir = cache_dir();
         std::fs::create_dir_all(&dir).unwrap();
         let old = dir.join("pruneold.m4a");
