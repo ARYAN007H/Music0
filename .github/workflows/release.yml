@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual runs verify platform jobs on a branch (publish skips itself
+  # below) — e.g. before merging cross-platform changes.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -61,9 +64,56 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  macos:
+    name: macOS universal (dmg / app)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable (both darwin targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Tests
+        run: cargo test --workspace --exclude musico_playback
+        # Native arm64 run — also type-checks the cfg(target_os = "macos")
+        # blocks (menu, media controls) that the Linux job compiles out.
+        # Engine e2e excluded as on Linux: no audio device on CI runners.
+
+      - name: Install Tauri CLI
+        run: npm install --global "@tauri-apps/cli@^2"
+
+      - name: Build universal bundles
+        run: tauri build --target universal-apple-darwin --bundles dmg,app
+        # Unsigned: no Apple Developer identity in CI. macOS Gatekeeper
+        # blocks unsigned apps on first open — documented in the release
+        # body and README (right-click → Open, or `xattr -cr`).
+
+      - name: Collect packages
+        run: |
+          mkdir -p dist
+          B=target/universal-apple-darwin/release/bundle
+          cp "$B"/dmg/*.dmg dist/
+          tar czf dist/musico-online-macos-universal.app.tar.gz \
+            -C "$B/macos" "Musico Online.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: [linux]
+    needs: [linux, macos]
+    # Dispatch runs exist to VERIFY the platform jobs; only tags release
+    # (a dispatch ref has no tag — action-gh-release errors harmlessly,
+    # but skipping keeps the verification run green).
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -75,7 +125,7 @@ jobs:
       - name: Checksums
         run: |
           cd dist
-          sha256sum musico-online-* *.deb *.rpm *.AppImage > SHA256SUMS.txt
+          sha256sum musico-online-* *.deb *.rpm *.AppImage *.dmg > SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -93,6 +143,11 @@ jobs:
             **Linux** — `.deb` / `.rpm` / `.AppImage`, or the bare binary in the
             `.tar.gz`. Install yt-dlp first (`pacman -S yt-dlp` or
             `pip install yt-dlp`) — the Browse screen warns if it's missing.
+
+            **macOS** — universal `.dmg` (Apple Silicon + Intel). The build is
+            unsigned: on first open, right-click the app → **Open** (or run
+            `xattr -cr /Applications/Musico\ Online.app`). Native menu bar,
+            traffic-light window controls, ⌘-shortcuts included.
 
             Streams cache to `~/.cache/musico-online/online/` (1 GB LRU cap).
             Personal-use build: the streaming layer is ToS-gray-area and stays

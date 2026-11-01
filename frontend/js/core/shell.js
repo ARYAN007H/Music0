@@ -128,6 +128,35 @@ function Sidebar() {
     <div class="side-footer">Your music. Everywhere.</div>`;
 }
 
+// ─── WindowChrome (macOS traffic-light space / Windows drawn controls) ────────
+// No extra title bar (Aryan, 2026-11-02): the strip sits fixed over the
+// sidebar's top-left. macOS paints its native traffic lights there
+// (tauri.conf.json Overlay + trafficLightPosition) — the strip only reserves
+// space and provides the drag surface. Windows removes its native title bar
+// at runtime (main.rs) and these drawn buttons ARE the chrome. On Linux
+// native.css hides the strip entirely (system decorations stay).
+function WindowChrome() {
+  // Guarded: browser suites and the dev server have no __TAURI__.
+  const win = () => window.__TAURI__?.window?.getCurrentWindow?.();
+  return html`
+    <div class="window-chrome" data-tauri-drag-region="deep">
+      <div class="win-controls">
+        <button class="win-btn" id="win-minimize" title="Minimize" aria-label="Minimize window"
+                onClick=${() => win()?.minimize?.()}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 12h14"/></svg>
+        </button>
+        <button class="win-btn" id="win-maximize" title="Maximize" aria-label="Maximize window"
+                onClick=${() => win()?.toggleMaximize?.()}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+        </button>
+        <button class="win-btn win-close" id="win-close" title="Close" aria-label="Close window"
+                onClick=${() => win()?.close?.()}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
 // ─── TopBar (the LCD) ─────────────────────────────────────────────────────────
 
 function fmtTime(secs) {
@@ -151,7 +180,7 @@ function SlimTopBar() {
   const canBack = Router.canGoBack();
   const canFwd = Router.canGoForward();
   return html`
-    <header class="topbar" role="banner" data-view=${view}>
+    <header class="topbar" role="banner" data-view=${view} data-tauri-drag-region="deep">
       <div class="topbar-left">
         <button class="lcd-btn" id="nav-back" title="Back" aria-label="Go back"
                 disabled=${!canBack || undefined} onClick=${() => Router.back()}>
@@ -2064,6 +2093,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const homeRoot = document.getElementById('home-root');
   const detailRoot = document.getElementById('detail-root');
   const genresRoot = document.getElementById('genres-root');
+  const chromeRoot = document.getElementById('window-chrome-root');
+  if (chromeRoot) render(html`<${WindowChrome} />`, chromeRoot);
   if (sidebarRoot) render(html`<${Sidebar} />`, sidebarRoot);
   if (topbarRoot) render(html`<${SlimTopBar} />`, topbarRoot);
   if (panelRoot) render(html`<${QueuePanel} />`, panelRoot);

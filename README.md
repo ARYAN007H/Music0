@@ -119,14 +119,38 @@ cargo test --workspace   # ~73 tests incl. live audio-device e2e
 
 ## Releases
 
-Tag a `v*` version and GitHub Actions builds it (Linux only — macOS Actions
-minutes bill 10×, and the streaming layer targets the Linux
-daily driver):
+Tag a `v*` version and GitHub Actions builds it for Linux **and macOS**:
 
 ```sh
-git tag v0.5.1-online && git push origin v0.5.1-online
+git tag v0.6.1-online && git push origin v0.6.1-online
 ```
 
-`release.yml`: tests → `tauri build` (deb/rpm/AppImage) → bare binary
-tar.gz + SHA256SUMS → GitHub Release. Tags containing `-` publish as
-**prerelease**. `ci.yml` runs the workspace tests on every push to main.
+`release.yml`: Linux job (deb/rpm/AppImage + bare binary) and a macOS job
+(universal `.dmg` + `.app.tar.gz` — the mac runner also re-runs the
+workspace tests, which type-checks the macOS-only Rust) → SHA256SUMS →
+GitHub Release. Tags containing `-` publish as **prerelease**. `ci.yml`
+runs the workspace tests on every push to main.
+
+### macOS & Windows notes
+
+- **No extra title bar, anywhere.** The window controls live in the
+  sidebar's top-left, above the "Music" brand (Apple Music layout).
+  macOS paints its native traffic lights there (`titleBarStyle: "Overlay"`
+  + `trafficLightPosition`); Windows drops its native title bar at runtime
+  and gets drawn min/max/close wired to the Tauri window API (resize still
+  works via the window edges; known limitation: the native title bar is
+  briefly visible during Windows launch before the runtime removal lands).
+  Linux keeps the system title bar.
+- **macOS menu bar**: native App/Edit/View/Window menus — without the Edit
+  roles, ⌘C/⌘V/⌘A never reach the webview. On mac the UI renders in the
+  SF Pro system stack instead of the webfont.
+- **The macOS build is unsigned** (no Apple Developer identity in CI):
+  on first open, right-click the app → **Open**, or run
+  `xattr -cr /Applications/Musico\ Online.app`.
+- **Build from source on an Apple Silicon Mac:**
+  ```sh
+  rustup target add aarch64-apple-darwin
+  cargo install tauri-cli --version '^2'
+  cargo tauri build            # or: tauri build --target universal-apple-darwin
+  ```
+  yt-dlp (`brew install yt-dlp`) is required for playback, same as Linux.

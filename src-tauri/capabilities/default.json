@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main-window capability. Grants the core plugins their default permissions — without `core:event` the runtime ACL-denies `plugin:event|listen`, so every Bridge.listen() registration rejects and no backend event (playback-event, queue-changed, online-status, …) ever reaches the UI. App-defined commands bypass the ACL, which is why invoke() worked while events were dead.",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Main-window capability. Grants the core plugins their default permissions \u2014 without `core:event` the runtime ACL-denies `plugin:event|listen`, so every Bridge.listen() registration rejects and no backend event (playback-event, queue-changed, online-status, \u2026) ever reaches the UI. App-defined commands bypass the ACL, which is why invoke() worked while events were dead. The window:allow-* additions drive the drawn Windows controls (shell.js WindowChrome); start-dragging is explicitly granted (NOT in core:window:default for tauri 2.12.5 \u2014 without it the drag regions silently no-op).",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
+  ]
 }

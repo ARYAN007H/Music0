@@ -113,8 +113,79 @@ await page.waitForTimeout(150);
 check('transport pill renders on browse pages', await page.evaluate(() =>
   !!document.querySelector('#transport-root .transport-bar')));
 
+// T10 native window chrome. Stubbed pages exercise both platform layers
+// pre-paint (addInitScript): MacIntel → native traffic lights (chrome strip
+// is a drag-safe spacer), Win32 → drawn min/max/close. The first page (Linux)
+// must stay untouched: no platform class, no chrome strip, no sidebar pad.
+check('non-mac page has no platform class', await page.evaluate(() =>
+  !document.documentElement.classList.contains('is-mac') &&
+  !document.documentElement.classList.contains('is-windows')));
+check('non-mac window chrome hidden', await page.evaluate(() =>
+  getComputedStyle(document.querySelector('.window-chrome')).display === 'none'));
+
+const macErrors = [];
+const macPage = await browser.newPage();
+macPage.on('pageerror', (e) => macErrors.push(e.message));
+await macPage.addInitScript(() => {
+  Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' });
+});
+await macPage.goto('http://127.0.0.1:8143/index.html');
+await macPage.waitForTimeout(800);
+const mcheck = (n, c) => results.push(`${c ? 'PASS' : 'FAIL'} ${n}`);
+mcheck('is-mac class set pre-paint', await macPage.evaluate(() =>
+  document.documentElement.classList.contains('is-mac')));
+mcheck('SF Pro stack on mac', await macPage.evaluate(() =>
+  getComputedStyle(document.documentElement).getPropertyValue('--font-display').includes('-apple-system')));
+mcheck('mac chrome strip: fixed drag space, no drawn controls', await macPage.evaluate(() => {
+  const s = getComputedStyle(document.querySelector('.window-chrome'));
+  return s.display === 'block' && s.position === 'fixed' && s.pointerEvents === 'auto';
+}));
+mcheck('mac sidebar clears the traffic lights', await macPage.evaluate(() =>
+  getComputedStyle(document.getElementById('sidebar')).paddingTop === '58px'));
+mcheck('deep drag regions on topbar + chrome strip (logo rides the topbar)', await macPage.evaluate(() =>
+  document.querySelector('.topbar').getAttribute('data-tauri-drag-region') === 'deep' &&
+  document.querySelector('.window-chrome').getAttribute('data-tauri-drag-region') === 'deep' &&
+  !document.querySelector('.topbar-logo').hasAttribute('data-tauri-drag-region')));
+mcheck('mac hides drawn controls', await macPage.evaluate(() =>
+  getComputedStyle(document.querySelector('.win-controls')).display === 'none'));
+await macPage.setViewportSize({ width: 700, height: 800 });
+await macPage.waitForTimeout(200);
+mcheck('mac compact: content clears the floating lights', await macPage.evaluate(() =>
+  getComputedStyle(document.getElementById('content-area')).paddingTop === '44px'));
+await macPage.close();
+
+const winErrors = [];
+const winPage = await browser.newPage();
+winPage.on('pageerror', (e) => winErrors.push(e.message));
+await winPage.addInitScript(() => {
+  Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'Win32' });
+});
+await winPage.goto('http://127.0.0.1:8143/index.html');
+await winPage.waitForTimeout(800);
+const wcheck = (n, c) => results.push(`${c ? 'PASS' : 'FAIL'} ${n}`);
+wcheck('is-windows class set pre-paint', await winPage.evaluate(() =>
+  document.documentElement.classList.contains('is-windows')));
+wcheck('windows chrome strip interactive', await winPage.evaluate(() => {
+  const s = getComputedStyle(document.querySelector('.window-chrome'));
+  return s.display === 'block' && s.position === 'fixed' && s.pointerEvents === 'auto';
+}));
+wcheck('windows drawn controls visible', await winPage.evaluate(() =>
+  getComputedStyle(document.querySelector('.win-controls')).display === 'flex'));
+wcheck('three window buttons wired (no-op without __TAURI__)', await winPage.evaluate(() => {
+  const ids = ['win-minimize', 'win-maximize', 'win-close'];
+  if (!ids.every((id) => document.getElementById(id))) return false;
+  ids.forEach((id) => document.getElementById(id).click());
+  return true;
+}));
+wcheck('windows sidebar clears the drawn controls', await winPage.evaluate(() =>
+  getComputedStyle(document.getElementById('sidebar')).paddingTop === '58px'));
+await winPage.close();
+
+console.log('mac page JS errors:', macErrors.length ? macErrors : 'none');
+console.log('win page JS errors:', winErrors.length ? winErrors : 'none');
+
 console.log(results.join('\n'));
 console.log('JS errors:', errors.length ? errors : 'none');
 await browser.close();
 const failed = results.filter(r => r.startsWith('FAIL'));
-process.exit(failed.length || errors.length ? 1 : 0);
+process.exit(failed.length || errors.length || macErrors.length || winErrors.length ? 1 : 0);
