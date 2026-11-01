@@ -328,10 +328,10 @@ body.player-fullscreen .fs-close { display: flex; }
 .browse-load-more:disabled { opacity: 0.6; cursor: wait; }
 
 /* ─── Download badges (C3.3) ────────────────────────────────────────────────── */
-.browse-row, .shelf-card, .lib-row { position: relative; }
+.browse-row, .shelf-card, .dt-row { position: relative; }
 .browse-row.dl-busy::after,
 .shelf-card.dl-busy::after,
-.lib-row.dl-busy::after {
+.dt-row.dl-busy::after {
   content: '';
   position: absolute;
   top: 10px;
@@ -348,7 +348,7 @@ body.player-fullscreen .fs-close { display: flex; }
 }
 .browse-row.dl-done::after,
 .shelf-card.dl-done::after,
-.lib-row.dl-done::after {
+.dt-row.dl-done::after {
   content: '✓';
   position: absolute;
   top: 4px;

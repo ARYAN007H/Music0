@@ -691,7 +691,7 @@ function HomeFeed() {
       return html`<div class="home-skeleton" aria-hidden="true">
         ${[0, 1, 2].map((i) => html`
           <div class="sk-shelf" key=${i}>
-            <div class="sk-line sk-title" />
+            <div class="sk-line" />
             <div class="sk-cards">${[0, 1, 2, 3].map((j) => html`<div class="sk-card" key=${j} />`)}</div>
           </div>`)}
       </div>`;

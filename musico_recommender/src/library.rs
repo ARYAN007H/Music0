@@ -169,7 +169,9 @@ mod tests {
         let elapsed = t0.elapsed();
         assert_eq!(all.len(), 10_000);
         assert_eq!(all[0].title, "Song 00000", "added_at desc wins");
+        // Wall-clock is reported, not asserted: the correctness asserts
+        // above catch real regressions, and the bound flaked under
+        // parallel cargo IO (#72 review).
         println!("10k list took {elapsed:?}");
-        assert!(elapsed.as_secs() < 5, "10k listing took {elapsed:?}");
     }
 }

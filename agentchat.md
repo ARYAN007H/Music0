@@ -551,3 +551,12 @@ warnings, all 8 browser suites green.
   rows (machinery already existed); #65: / l q shortcuts, window title,
   180ms view fades (reduced-motion safe), home skeletons. Running 9
   suites on 0.6.27.
+
+### 2026-11-02 09:55 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T9 (#63/#64/#65)
+- WHAT: 164 workspace tests + 9/9 suites green on the polish batch.
+  PR #72 open, CI green, review dispatched. After merge: version bump
+  0.5.0 -> 0.6.0 (tauri.conf.json + Cargo.toml) via PR, tag
+  v0.6.0-online (release.yml builds on tags), local rebuild + relaunch.
+  EMBER: when #61 lands it rides the release train too — same flow.

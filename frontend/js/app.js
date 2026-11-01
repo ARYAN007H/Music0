@@ -385,6 +385,9 @@ const App = (() => {
       case 'Stopped':
       case 'SongEnded':
         state.isPlaying = false;
+        // #65: playback ended — the window title returns to the app name
+        // instead of pinning the last song forever.
+        document.title = 'Musico';
         if (ev.type !== 'Paused') {
           state.position = 0;
           updateProgress();
@@ -971,12 +974,19 @@ const App = (() => {
         // P2 batch (#65): '/' search, 'l' like, 'q' Playing Next (AM parity).
         case '/': {
           e.preventDefault();
-          navigateTo('browse');
+          // 'search' — the browse route is HOME; the search box lives in
+          // #view-search (#72 review P1).
+          navigateTo('search');
           document.getElementById('browse-input')?.focus();
           break;
         }
-        case 'l': case 'L': document.querySelector('.tb-star:not(:disabled)')?.click(); break;
+        case 'l': case 'L': {
+          if (e.repeat) break; // holding l must not flap like/unlike
+          document.querySelector('.tb-star[aria-label="Favorite"]')?.click();
+          break;
+        }
         case 'q': case 'Q': {
+          if (e.repeat) break;
           const store = window.MusicoStore;
           if (store) store.set('queuePanel', !store.get('queuePanel'));
           break;

@@ -533,15 +533,18 @@ pub fn recommended_for_home(state: State<AppState>) -> Result<Option<HomeRecomme
         // instead of blocking the UI.
         Err(_) => return Ok(None),
     };
-    let Some(anchor) = r.recent_liked_artist().map_err(|e| e.to_string())? else {
+    // The liked song's id anchors the picks — the header then tells the
+    // truth about why these rows showed up (#72 review).
+    let Some((anchor_id, anchor_artist)) = r.recent_liked_anchor().map_err(|e| e.to_string())? else {
         return Ok(None);
     };
-    let recs = r.get_recommendations("", 8).map_err(|e| e.to_string())?;
-    if recs.is_empty() {
-        return Ok(None);
-    }
+    let recs = match r.get_recommendations(&anchor_id, 8) {
+        Ok(recs) if !recs.is_empty() => recs,
+        // Any recommender failure = the shelf hides, per the doc contract.
+        _ => return Ok(None),
+    };
     Ok(Some(HomeRecommendation {
-        header: format!("Because you liked {anchor}"),
+        header: format!("Because you liked {anchor_artist}"),
         songs: recs
             .into_iter()
             .map(|rs| SongMeta {

@@ -332,16 +332,18 @@ impl MusicRecommender {
             .collect())
     }
 
-    /// The artist of a liked song that still has a known record — the
-    /// "Because you liked X" anchor for the Home recommendation shelf (#63).
-    /// Likes carry no timestamps, so "recent" = first liked id the cache
-    /// yields with a live artist; None when nothing is liked or the records
-    /// are gone (the frontend hides the shelf).
-    pub fn recent_liked_artist(&self) -> Result<Option<String>, RecommenderError> {
+    /// The (song_id, artist) of a liked song that still has a known record —
+    /// the "Because you liked X" anchor for the Home recommendation shelf
+    /// (#63). The song id doubles as the recommendation anchor so the picks
+    /// are genuinely anchored on that like. Likes carry no timestamps, so
+    /// "recent" = first liked id the cache yields with a live artist; None
+    /// when nothing is liked or the records are gone (the frontend hides
+    /// the shelf).
+    pub fn recent_liked_anchor(&self) -> Result<Option<(String, String)>, RecommenderError> {
         for id in self.liked_ids()? {
             if let Some(record) = self.get_song_by_id(&id)? {
                 if !record.artist.is_empty() {
-                    return Ok(Some(record.artist));
+                    return Ok(Some((id, record.artist)));
                 }
             }
         }
@@ -754,4 +756,25 @@ mod tests {
         // Cluster assignment must be re-attached on re-index.
         assert!(r.cache.clusters.contains_key(&ids[2]));
     }
+    #[test]
+    fn recent_liked_anchor_prefers_live_records() {
+        let mut r = engine();
+        let ids = seed_library(&mut r);
+
+        r.set_like(&ids[0], LikeState::Liked).unwrap();
+        r.set_like(&ids[1], LikeState::Liked).unwrap();
+        let (id, artist) = r.recent_liked_anchor().unwrap().expect("anchor");
+        assert!((id == ids[0] || id == ids[1]) && !artist.is_empty());
+
+        // Unliking the first candidate falls through to the next like.
+        r.set_like(&ids[0], LikeState::Neutral).unwrap();
+        let (id, artist) = r.recent_liked_anchor().unwrap().expect("fallback anchor");
+        assert_eq!(id, ids[1]);
+        assert_eq!(artist, "Artist1");
+
+        // No likes at all → None.
+        r.set_like(&ids[1], LikeState::Neutral).unwrap();
+        assert!(r.recent_liked_anchor().unwrap().is_none());
+    }
+
 }
