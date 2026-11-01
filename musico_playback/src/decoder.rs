@@ -288,10 +288,10 @@ impl AudioDecoder {
         md: &symphonia::core::meta::MetadataRevision,
         cover_art: &mut Option<Vec<u8>>,
     ) {
-        for visual in md.visuals() {
-            // Prefer front cover, but accept anything.
+        // Prefer front cover, but accept anything (first visual wins).
+        // Was a for+break loop — clippy ≥1.99 denies it as never_loop.
+        if let Some(visual) = md.visuals().first() {
             *cover_art = Some(visual.data.to_vec());
-            break;
         }
     }
 }
