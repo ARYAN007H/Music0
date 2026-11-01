@@ -411,7 +411,7 @@ const Online = (() => {
     // Surface yt-dlp availability once (helps first-run setup).
     Bridge.invoke('online_available').then((ok) => {
       if (!ok) {
-        setStatus('yt-dlp is not installed — online playback needs it (pacman -S yt-dlp).');
+        setStatus('yt-dlp is not installed (pacman -S yt-dlp) — playback still works via the direct-source fast path while instances are healthy.');
       }
     });
   }
