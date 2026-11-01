@@ -1122,29 +1122,52 @@ function likedOnlineMap() {
 
 function rememberOnlineLike(song, liked) {
   try {
+    const id = String(song?.id || '');
+    // LOCAL songs share likedIds with online ones — persisting a ref under
+    // a bare local id rendered a second, dead "• streamed" row in Favorites
+    // whose click tried to stream a local id (#78 review P0).  Only
+    // namespaced online ids belong in this map.
+    if (!/^(yt|saavn):/.test(id)) return;
     const map = likedOnlineMap();
     if (liked) {
-      const id = String(song?.id || '');
       const ns = id.match(/^(yt|saavn):(.+)$/);
       map[id] = {
-        source: ns ? ns[1] : 'yt',
-        id: ns ? ns[2] : id,
+        source: ns[1],
+        id: ns[2],
         title: song?.title || '', artist: song?.artist || '',
         album: song?.album || '', duration_secs: song?.duration_secs || null,
         thumbnail: song?.thumb || song?.thumbnail || song?.cover_art || null,
         file_path: song?.file_path || null,
       };
     } else {
-      delete map[String(song?.id || '')];
+      delete map[id];
     }
     localStorage.setItem(LIKED_ONLINE_KEY, JSON.stringify(map));
     Store.set('likedOnlineRev', (Store.get('likedOnlineRev') || 0) + 1);
   } catch { /* storage unavailable — Favorites degrades to local likes */ }
 }
 
+// One-time heal for maps written by pre-fix builds (#78 review P0): bare
+// local ids landed here as bogus "streamed" refs and survive restarts.
+(function pruneLikedOnline() {
+  try {
+    const raw = localStorage.getItem(LIKED_ONLINE_KEY);
+    if (!raw) return;
+    const map = JSON.parse(raw);
+    let dirty = false;
+    for (const k of Object.keys(map)) {
+      if (!/^(yt|saavn):/.test(k)) { delete map[k]; dirty = true; }
+    }
+    if (dirty) localStorage.setItem(LIKED_ONLINE_KEY, JSON.stringify(map));
+  } catch { /* ignore — Favorites degrades to local likes */ }
+})();
+
 // ─── Playlist name modal (#75) — replaces window.prompt ──────────────────────
 // Store contract: plModal = { title, value, onOk(name) } | null.
+// The invoking element gets focus back on close (#78 review P2).
+let modalReturnFocus = null;
 function openPlaylistModal(title, value, onOk) {
+  modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   Store.set('plModal', { title, value: value || '', onOk });
 }
 
@@ -1158,7 +1181,11 @@ function PlaylistNameModal() {
     }
   }, [modal]);
   if (!modal) return null;
-  const close = () => Store.set('plModal', null);
+  const close = () => {
+    Store.set('plModal', null);
+    modalReturnFocus?.focus?.();
+    modalReturnFocus = null;
+  };
   const submit = () => {
     const name = (inputRef.current?.value || '').trim();
     if (!name) return;
@@ -1169,8 +1196,10 @@ function PlaylistNameModal() {
     <div class="modal-overlay" onClick=${(e) => { if (e.target === e.currentTarget) close(); }}>
       <div class="modal-card" role="dialog" aria-modal="true" aria-label=${modal.title}
            onKeyDown=${(e) => {
-             if (e.key === 'Escape') { e.preventDefault(); close(); }
-             if (e.key === 'Enter') { e.preventDefault(); submit(); }
+             // stopPropagation: the document-level ctx-menu Escape handler
+             // must not react to a modal-local Escape (#78 review P2).
+             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+             if (e.key === 'Enter' && !e.repeat) { e.preventDefault(); submit(); }
            }}>
         <div class="modal-title">${modal.title}</div>
         <input ref=${inputRef} class="modal-input" type="text" maxLength="200"
@@ -1829,7 +1858,7 @@ function MadeForYouView() {
       ${!loading && !songs.length ? html`
         <div class="lib-empty">
           No local picks yet — like songs and this sharpens as you listen.<br/>
-          Meanwhile, your streamed picks: ${homeMfy ? html`
+          Meanwhile, your streamed picks: ${Array.isArray(homeMfy?.items) && homeMfy.items.length ? html`
             <div class="lib-rows" style=${{ marginTop: 'var(--space-8)' }}>
               ${homeMfy.items.slice(0, 6).map((it) => html`
                 <div class="lib-row" key=${it.video_id || it.browse_id} role="button" tabindex="0"

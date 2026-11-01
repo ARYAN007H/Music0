@@ -956,6 +956,10 @@ const App = (() => {
       // so Favorites can render them.
       window.MusicoRememberLike?.(state.currentSong, state.isLiked);
       try { localStorage.setItem('musico-likes', JSON.stringify([...likedSongs])); } catch (e) {}
+      // Publish to the reactive store too — Favorites reconciliation and
+      // the pill's star read it; without this a like from the expanded
+      // player stayed invisible until restart (#78 review P1).
+      window.MusicoStore?.set('likedIds', [...likedSongs]);
       const btn = document.getElementById('btn-like');
       btn.classList.toggle('liked', state.isLiked);
       btn.setAttribute('aria-pressed', String(state.isLiked));
