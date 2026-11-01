@@ -520,6 +520,8 @@ const App = (() => {
   // Push the song's identity into the Now Playing surfaces
   function setNowPlayingUi(song) {
     document.getElementById('np-title').textContent = song.title;
+    // Window title parity (#65): the OS taskbar says what's playing.
+    document.title = `${song.title} — ${song.artist || 'Musico'}`;
     // The artist half becomes a real link when we know where it leads (#62).
     const artistEl = document.getElementById('np-artist');
     state.artistNav = resolveArtistNav(song);
@@ -966,6 +968,19 @@ const App = (() => {
         case 'r': case 'R': cycleRepeat(); break;
         case 'ArrowUp': e.preventDefault(); Knob.setVolume(Math.min(1, state.volume + 0.05)); break;
         case 'ArrowDown': e.preventDefault(); Knob.setVolume(Math.max(0, state.volume - 0.05)); break;
+        // P2 batch (#65): '/' search, 'l' like, 'q' Playing Next (AM parity).
+        case '/': {
+          e.preventDefault();
+          navigateTo('browse');
+          document.getElementById('browse-input')?.focus();
+          break;
+        }
+        case 'l': case 'L': document.querySelector('.tb-star:not(:disabled)')?.click(); break;
+        case 'q': case 'Q': {
+          const store = window.MusicoStore;
+          if (store) store.set('queuePanel', !store.get('queuePanel'));
+          break;
+        }
       }
     });
   }

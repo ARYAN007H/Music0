@@ -237,6 +237,16 @@
   /* Queue becomes a permanent side panel while Now Playing is active */
   #main-content { display: flex; }
   #main-content .view.active { flex: 1; min-width: 0; }
+  /* #65: 180 ms cross-fade on view switches (AM-parity); killed entirely
+     for prefers-reduced-motion users below. */
+  .view.active { animation: view-fade 180ms var(--ease-out); }
+  @keyframes view-fade {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .view.active { animation: none; }
+  }
   #view-now-playing.active ~ #view-queue:not(.active) {
     display: flex;
     flex-direction: column;
