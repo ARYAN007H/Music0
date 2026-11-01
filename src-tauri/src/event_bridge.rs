@@ -349,13 +349,14 @@ fn warm_radio_next(state: &tauri::State<AppState>, current_id: &str) {
     let Some(seed) = current_id.strip_prefix("yt:").filter(|s| !s.is_empty()) else {
         return;
     };
-    let repeat_one = state
-        .settings
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .repeat_mode
-        == 1;
-    if repeat_one {
+    let (repeat_one, autoplay) = {
+        let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+        (s.repeat_mode == 1, s.autoplay)
+    };
+    if repeat_one || !autoplay {
+        // Symmetric with the advance gate below: with autoplay off the
+        // advance can never run, so warming a pick would be pure waste
+        // (a full speculative download into the cache).
         return;
     }
     let queued_next = state

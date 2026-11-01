@@ -325,13 +325,30 @@ fn resolve_with(
         }
         // Held for the attempt's whole run — the process-wide child cap.
         // Interactive resolves bound the wait; background work parks.
+        let mut waited = Duration::ZERO;
         let _slot = match slot_wait {
-            Some(bound) => acquire_yt_dlp_slot_bounded(bound).ok_or_else(|| {
-                "resolve budget exhausted waiting for a free downloader (other downloads in progress?)".to_string()
-            })?,
+            Some(bound) => {
+                let t0 = Instant::now();
+                match acquire_yt_dlp_slot_bounded(bound) {
+                    Some(slot) => {
+                        waited = t0.elapsed();
+                        slot
+                    }
+                    None => {
+                        return Err(
+                            "resolve budget exhausted waiting for a free downloader (other downloads in progress?)"
+                                .into(),
+                        )
+                    }
+                }
+            }
             None => acquire_yt_dlp_slot(),
         };
-        match run_yt_dlp(&url, &template, per_attempt) {
+        // The interactive budget covers the slot wait: whatever waiting
+        // consumed comes off this attempt's timeout, so the click's total
+        // stays ≤ the budget (the doc on resolve_track promises this).
+        let attempt_timeout = per_attempt.saturating_sub(waited);
+        match run_yt_dlp(&url, &template, attempt_timeout) {
             Ok(()) => {}
             Err(e) => {
                 last_err = e;
@@ -620,6 +637,8 @@ mod tests {
     /// `MUSICO_CACHE_DIR` is process-global, so cache-touching tests hold
     /// this gate while each one points it at a fresh tempdir — no test ever
     /// sees another's files, and the REAL user cache is unreachable (#48).
+    /// ANY test that reads `cache_dir()` (directly or transitively) MUST go
+    /// through `TestCache` — a bare read outside the gate races `set_var`.
     static CACHE_DIR_GATE: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     /// Isolated cache root for one test: holds the gate + sets the env
