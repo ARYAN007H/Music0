@@ -8,6 +8,7 @@
 //! - [`radio`]   — related tracks via the `next` endpoint
 //! - [`saavn`]   — JioSaavn catalog: independent search + 320 kbps direct URLs
 //! - [`stream`]  — yt-dlp resolve/download/verify/prune + duration/cover polish
+//! - [`sources`] — Piped/Invidious direct-URL fast path (tried before yt-dlp)
 //!
 //! Search and radio talk to YouTube Music's InnerTube API with the `WEB_REMIX`
 //! client identity (the same technique Metrolist/InnerTune use).  The client
@@ -37,6 +38,7 @@ pub mod parse;
 pub mod radio;
 pub mod saavn;
 pub mod search;
+pub mod sources;
 pub mod stream;
 
 pub use catalog::{browse, genres, home_feed};

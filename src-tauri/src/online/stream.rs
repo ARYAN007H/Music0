@@ -2,6 +2,13 @@
 //! size-capped LRU disk cache, and post-download polish (duration probe +
 //! cover-art caching).  All blocking — callers must be on worker threads.
 //!
+//! Resolution order in [`resolve_with`]: cache hit → Piped/Invidious
+//! direct-URL fast path ([`super::sources`], own ~10 s budget, no child
+//! process, works without yt-dlp installed) → the yt-dlp attempts below.
+//! The fast path spends its budget BEFORE the yt-dlp budgets start; on any
+//! fast-path failure the yt-dlp loop runs unchanged and remains the honest
+//! last resort.
+//!
 //! Resource discipline:
 //! - one process-wide cap on concurrent yt-dlp children (batch self-limits,
 //!   but interactive play, pre-resolve and radio warmup spawn independently)
@@ -266,6 +273,8 @@ pub fn resolve_stream(video_id: &str, budget: Duration) -> Result<PathBuf, Strin
 /// `interactive` selects the one-attempt bounded budget for click-to-play;
 /// the slot wait counts against that budget too, so a click fails honestly
 /// when all three children are busy instead of pinning "resolving".
+/// Worst interactive case ≈ fast-path budget (10 s, spent first by design,
+/// #53) + [`PLAY_RESOLVE_BUDGET`] (90 s).
 pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, String> {
     // Multi-source dispatch (#54): saavn tracks resolve through the direct-URL
     // path (no yt-dlp anywhere); the yt-dlp flow below is untouched for YT ids.
@@ -311,11 +320,28 @@ fn resolve_with(
 ) -> Result<PathBuf, String> {
     let _guard = video_lock(video_id);
 
-    if !yt_dlp_available() {
-        return Err("yt-dlp is not installed — install it (e.g. pacman -S yt-dlp) to play online music".into());
-    }
+    // Cache hit: instant, and independent of any extractor being installed.
     if let Some(path) = cached_file(video_id) {
         return Ok(path);
+    }
+
+    // Fast path first: Piped/Invidious direct URLs — no child process, no
+    // extraction API on our IP, no yt-dlp requirement. It spends its own
+    // ~10 s budget BEFORE the budgets below start; any failure falls
+    // through, leaving the yt-dlp loop (and its semantics from PR #52)
+    // untouched as the last resort.
+    match super::sources::try_fast_path(video_id) {
+        Ok(path) => {
+            prune_cache(cache_cap_bytes());
+            return Ok(path);
+        }
+        Err(e) => {
+            log::debug!("fast path exhausted for {video_id}: {e} — falling back to yt-dlp");
+        }
+    }
+
+    if !yt_dlp_available() {
+        return Err("yt-dlp is not installed and the direct-URL sources failed — install yt-dlp (e.g. pacman -S yt-dlp) to play online music".into());
     }
 
     let dir = cache_dir();
@@ -638,10 +664,11 @@ mod cap_tests {
     }
 }
 
+/// Shared test cache isolation. `sources` (and the JioSaavn source) reuse
+/// this gate so NO test anywhere can ever read the real user cache (#48).
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+pub(crate) mod test_support {
+    use std::sync::{LazyLock, Mutex};
 
     /// `MUSICO_CACHE_DIR` is process-global, so cache-touching tests hold
     /// this gate while each one points it at a fresh tempdir — no test ever
@@ -657,7 +684,7 @@ pub(crate) mod tests {
     /// `MUSICO_CACHE_DIR`, one gate for all of them).
     pub(crate) struct TestCache {
         _gate: std::sync::MutexGuard<'static, ()>,
-        _dir: tempfile::TempDir,
+        pub(crate) dir: tempfile::TempDir,
     }
 
     impl TestCache {
@@ -665,7 +692,7 @@ pub(crate) mod tests {
             let gate = CACHE_DIR_GATE.lock().unwrap_or_else(|e| e.into_inner());
             let dir = tempfile::tempdir().expect("tempdir for cache test");
             std::env::set_var("MUSICO_CACHE_DIR", dir.path());
-            Self { _gate: gate, _dir: dir }
+            Self { _gate: gate, dir }
         }
     }
 
@@ -674,11 +701,18 @@ pub(crate) mod tests {
             std::env::remove_var("MUSICO_CACHE_DIR");
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::test_support::TestCache;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn cached_file_matches_exact_prefix_only() {
         let tc = TestCache::acquire();
-        let dir = tc._dir.path().to_path_buf();
+        let dir = tc.dir.path().to_path_buf();
         std::fs::create_dir_all(&dir).unwrap();
         let a = dir.join("exactmatch1.m4a");
         let b = dir.join("exactmatch12.m4a");

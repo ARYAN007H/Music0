@@ -43,10 +43,15 @@ Everything from the main app (Tauri shell, playback engine, recommender v2) plus
 - **InnerTube search** (`src-tauri/src/online.rs`) — talks to `music.youtube.com/youtubei/v1/search`
   with the `WEB_REMIX` client identity, Songs/Videos filters, tolerant parsing of
   `musicResponsiveListItemRenderer` items (title, videoId, artist, album, duration, thumbnails).
-- **Stream resolution via yt-dlp** — resolves the AAC `m4a` variant (itag 140, falls back to
-  best-audio), downloads into `~/.cache/musico/online/{videoId}.m4a`, then hands the file to the
-  **existing offline playback engine** (symphonia) — no streaming plumbing, no new audio path.
-  Cached files replay instantly; hard timeout kills wedged downloads.
+- **Stream resolution — direct-URL fast path, then yt-dlp** — YouTube rate-limits extraction
+  per IP, so resolution is tiered: a Piped/Invidious instance pool serves the same catalog's
+  AAC stream URLs in ~1–2 s (no extraction API call on our IP, no child process), failing over
+  instance-by-instance under a ~10 s budget; only when every instance fails does `yt-dlp` run
+  (itag 140, falls back to best-audio). Both paths download into
+  `~/.cache/musico/online/{videoId}.m4a` and hand the file to the **existing offline playback
+  engine** (symphonia) — no streaming plumbing, no new audio path. Cached files replay
+  instantly; hard timeout kills wedged downloads. Instances are env-overridable
+  (`MUSICO_PIPED_INSTANCES`, `MUSICO_INVIDIOUS_INSTANCES`).
 - **Browse home screen** — search-first home view (`frontend/js/online.js`, `css/online.css`)
   with skeleton shimmer, quick-pick chips, and click-to-play rows. Now Playing shows a compact
   gradient/thumbnail art square.
@@ -55,7 +60,8 @@ Everything from the main app (Tauri shell, playback engine, recommender v2) plus
 
 ## Requirements
 
-- yt-dlp on `$PATH` (`pacman -S yt-dlp`). The Browse screen warns when it's missing.
+- yt-dlp on `$PATH` (`pacman -S yt-dlp`) — the fallback resolver; playback works without it
+  while a Piped/Invidious instance is healthy. The Browse screen warns when it's missing.
 - Network access to `music.youtube.com` (search) and `youtube.com` (stream).
 
 ## Commands added

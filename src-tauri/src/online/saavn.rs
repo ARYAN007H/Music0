@@ -466,7 +466,7 @@ fn upscale_image(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::online::stream::tests::TestCache;
+    use crate::online::stream::test_support::TestCache;
 
     /// Real ciphertext captured live 2026-11-01 (Believer — Imagine Dragons),
     /// decrypts to the exact URL HEAD-verified at HTTP 200 / audio/mp4.

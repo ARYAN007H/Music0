@@ -27,7 +27,8 @@ pub(crate) const NEXT_URL: &str = "https://music.youtube.com/youtubei/v1/next";
 pub(crate) const BROWSE_URL: &str = "https://music.youtube.com/youtubei/v1/browse";
 const HOME_URL: &str = "https://music.youtube.com/";
 
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0";
+pub(crate) const USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0";
 
 /// Total request budget (connect + body read).  20 s because YouTube's
 /// `next` (radio) endpoint has been observed taking >12 s end-to-end under
