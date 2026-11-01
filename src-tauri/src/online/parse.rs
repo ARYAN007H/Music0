@@ -149,6 +149,7 @@ fn parse_list_item(renderer: &serde_json::Value) -> Option<OnlineTrack> {
         duration_secs,
         thumbnail,
         cached,
+        source: String::new(),
     })
 }
 
@@ -238,6 +239,7 @@ pub(crate) fn parse_radio_response(json: &serde_json::Value) -> Vec<OnlineTrack>
             duration_secs,
             thumbnail,
             cached: cached_file(video_id).is_some(),
+            source: String::new(),
         });
     }
     tracks

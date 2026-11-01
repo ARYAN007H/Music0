@@ -25,7 +25,7 @@ const CACHE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 /// After pruning kicks in, shrink to this fraction of the cap (hysteresis).
 const CACHE_PRUNE_TARGET: f64 = 0.8;
 /// A downloaded file smaller than this is considered broken.
-const MIN_FILE_BYTES: u64 = 10 * 1024;
+pub(crate) const MIN_FILE_BYTES: u64 = 10 * 1024;
 /// Partial-download sidecars older than this are residue from killed runs
 /// (the timeout path kills yt-dlp mid-download by design) — swept by prune.
 const SIDECAR_MAX_AGE: Duration = Duration::from_secs(24 * 3600);
@@ -267,6 +267,11 @@ pub fn resolve_stream(video_id: &str, budget: Duration) -> Result<PathBuf, Strin
 /// the slot wait counts against that budget too, so a click fails honestly
 /// when all three children are busy instead of pinning "resolving".
 pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, String> {
+    // Multi-source dispatch (#54): saavn tracks resolve through the direct-URL
+    // path (no yt-dlp anywhere); the yt-dlp flow below is untouched for YT ids.
+    if track.source == "saavn" {
+        return super::saavn::resolve_track(track, interactive);
+    }
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let result = if interactive {
         resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
@@ -278,10 +283,10 @@ pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, 
 }
 
 /// Joins a background cover fetch spawned alongside a download.
-struct CoverJob(Option<std::thread::JoinHandle<()>>);
+pub(crate) struct CoverJob(Option<std::thread::JoinHandle<()>>);
 
 impl CoverJob {
-    fn spawn(song_id: &str, thumbnail: Option<&str>) -> Self {
+    pub(crate) fn spawn(song_id: &str, thumbnail: Option<&str>) -> Self {
         let sid = song_id.to_string();
         let url = thumbnail.map(str::to_string);
         let handle = std::thread::Builder::new()
@@ -291,7 +296,7 @@ impl CoverJob {
         CoverJob(handle)
     }
 
-    fn join(self) {
+    pub(crate) fn join(self) {
         if let Some(handle) = self.0 {
             let _ = handle.join();
         }
@@ -539,15 +544,19 @@ pub fn probe_duration_secs(path: &Path) -> Option<f32> {
         .filter(|d| *d > 0.0)
 }
 
-/// Art may only come from YouTube's image CDN over https — the URL arrives
-/// from response JSON, and this client must never be pointed elsewhere.
+/// Art may only come from the YouTube or JioSaavn image CDNs over https —
+/// the URL arrives from response JSON, and this client must never be
+/// pointed elsewhere.
 fn is_safe_art_url(url: &str) -> bool {
     match reqwest::Url::parse(url) {
         Ok(parsed) => {
             parsed.scheme() == "https"
-                && parsed
-                    .host_str()
-                    .is_some_and(|h| h == "ytimg.com" || h.ends_with(".ytimg.com"))
+                && parsed.host_str().is_some_and(|h| {
+                    h == "ytimg.com"
+                        || h.ends_with(".ytimg.com")
+                        || h == "saavncdn.com"
+                        || h.ends_with(".saavncdn.com")
+                })
         }
         Err(_) => false,
     }
@@ -559,7 +568,7 @@ fn is_safe_art_url(url: &str) -> bool {
 pub fn cache_cover_art(song_id: &str, thumbnail: Option<&str>) {
     let Some(url) = thumbnail else { return };
     if !is_safe_art_url(url) {
-        log::debug!("cover art url rejected (not an https ytimg url)");
+        log::debug!("cover art url rejected (not an allowlisted https art url)");
         return;
     }
     let cover = crate::scanner::cover_path(song_id);
@@ -630,7 +639,7 @@ mod cap_tests {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -644,13 +653,15 @@ mod tests {
     /// Isolated cache root for one test: holds the gate + sets the env
     /// override.  Drop order matters: the `Drop` impl removes the env var
     /// while the gate is still held, then the tempdir is deleted.
-    struct TestCache {
+    /// `pub(crate)`: the saavn tests share this gate (single process-wide
+    /// `MUSICO_CACHE_DIR`, one gate for all of them).
+    pub(crate) struct TestCache {
         _gate: std::sync::MutexGuard<'static, ()>,
         _dir: tempfile::TempDir,
     }
 
     impl TestCache {
-        fn acquire() -> Self {
+        pub(crate) fn acquire() -> Self {
             let gate = CACHE_DIR_GATE.lock().unwrap_or_else(|e| e.into_inner());
             let dir = tempfile::tempdir().expect("tempdir for cache test");
             std::env::set_var("MUSICO_CACHE_DIR", dir.path());
@@ -747,6 +758,10 @@ mod tests {
         assert!(!is_safe_art_url("not a url"));
         // A lookalike host must not pass the suffix check.
         assert!(!is_safe_art_url("https://evilytimg.com/a.jpg"));
+        // JioSaavn cover CDN (#54).
+        assert!(is_safe_art_url("https://c.saavncdn.com/248/Evolve-English-2018-150x150.jpg"));
+        assert!(!is_safe_art_url("https://evil-saavncdn.com/a.jpg"), "lookalike suffix fails");
+        assert!(!is_safe_art_url("http://c.saavncdn.com/a.jpg"), "https only");
     }
 
     #[test]

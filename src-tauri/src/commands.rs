@@ -793,7 +793,19 @@ pub async fn online_search(
 ) -> Result<crate::online::SearchResultPage, String> {
     ensure_online(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::online::search(&query, videos.unwrap_or(false), continuation.as_deref())
+        let mut page =
+            crate::online::search(&query, videos.unwrap_or(false), continuation.as_deref())?;
+        // JioSaavn rides along as an independent source block on the first
+        // page only (#54) — continuation pages are pure YT.  search_songs
+        // contains its own failures (returns [] on any error), so the YT
+        // results can never be poisoned by the saavn side.
+        if continuation.is_none() {
+            page.tracks.extend(crate::online::search_songs(
+                &query,
+                crate::online::SEARCH_MERGE_LIMIT,
+            ));
+        }
+        Ok(page)
     })
     .await
     .map_err(|e| format!("search task failed: {e}"))?
