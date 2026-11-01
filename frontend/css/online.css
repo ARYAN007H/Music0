@@ -219,7 +219,6 @@ body.player-fullscreen #view-now-playing .np-art { display: none; }
 
 body.player-fullscreen .side-nav,
 body.player-fullscreen .bottom-nav-pill,
-body.player-fullscreen .mini-player { display: none !important; }
 
 /* Close affordance, only meaningful in fullscreen */
 .fs-close {

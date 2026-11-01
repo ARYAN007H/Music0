@@ -1,13 +1,14 @@
 /* ══════════════════════════════════════════════════════════════════════════════
    MUSICO — Volume Controller
-   Slider in the mini player strip + keyboard arrows (app.js). Exposes the same
-   Knob.setVolume(v, notify) API the rest of the app already calls.
+   Keyboard arrows (app.js). Exposes the Knob.setVolume(v, notify) API the
+   rest of the app already calls. (The mini-player slider it once drove is
+   gone with the dock, #66.)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 const Knob = (() => {
-  const slider = document.getElementById('mini-volume');
+  const slider = null;
 
-  let lastSent = 0; // IPC throttle while the slider is being dragged
+  let lastSent = 0; // IPC throttle while a slider is being dragged
 
   function init() {
     if (!slider) return;

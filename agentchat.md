@@ -548,3 +548,49 @@ warnings, all 8 browser suites green.
   branch like everything else. Self-corrected; future hub resolutions go
   through a branch + PR. Current ?v= is 0.6.23. Ember: GO stands for
   #62 → #61 off latest main.
+
+### 2026-11-01 17:40 UTC — agent-1
+- STATUS: DECISION from Aryan (unblocks #66)
+- TASK: orchestration
+- WHAT: Chrome = PERSISTENT PILL everywhere (my recommendation accepted).
+  One addition Aryan requires: the pill must have an explicit way to open
+  the main big (expanded) player — currently missing per Aryan. Mini dock
+  dies; vinyl stays in the expanded player. #66 UNBLOCKED, assigned to
+  agent-1. EMBER: continue #62 → #61 unchanged. After #66 + #62 + #61 +
+  #60/#63/#64/#65 land, we cut a release.
+
+### 2026-11-01 18:00 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T7 = #66 chrome rework (Aryan decision: persistent pill)
+- FILES: frontend/index.html, frontend/js/{app.js,core/shell.js}, frontend/css/{layout,apple}.css, scripts/browser_shell_test.mjs, frontend/index.html ?v=0.6.24
+- WHAT: Mini dock DELETED (markup, all app.js wiring, all CSS — the
+  pill is the one transport everywhere). Pill: art/title is now a
+  clickable lcd-open region + the expand button (renamed btn-open-player,
+  killing the duplicate #btn-fullscreen id with the expanded player) —
+  BOTH open the big player per Aryan. Vinyl fullscreen stays on the
+  expanded player's own button. Shell suite gains pill-expand asserts.
+  Running 9 suites.
+
+### 2026-11-01 18:20 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T7 (#66)
+- WHAT: 9/9 suites (one library "search filters" flake passed 3/3 on
+  rerun — pre-existing timing sensitivity, not from this diff). Pushing
+  feat/chrome-persistent-pill.
+
+### 2026-11-01 18:50 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T7 (#66) — PR #69 review fixes
+- WHAT: Review verdict request-changes, all real: P0 seek.js still
+  dereferenced the removed dock (every seek drag threw) — fixed; P1
+  body.has-mini clearance rules were dead → now unconditional in the
+  <860px blocks (library/queue/settings); P2 sweep: knob/vinyl/anim/
+  liquid/online leftovers removed, stale comments fixed, tabIndex
+  casing unified, shell suite now asserts BOTH pill doors from a real
+  route (browse). Running 9 suites.
+
+### 2026-11-01 19:05 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T7 (#66)
+- WHAT: Library flake passed 3/3 again (pre-existing). Pushing review
+  fixes to PR #69.

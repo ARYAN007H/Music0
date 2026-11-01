@@ -162,16 +162,6 @@
   50%      { opacity: 0.7; }
 }
 
-/* ─── Mini Vinyl Spin ───────────────────────────────────────────────────────── */
-
-.mini-vinyl-spin {
-  animation: vinyl-spin 2s linear infinite;
-}
-
-.mini-vinyl-spin.paused {
-  animation-play-state: paused;
-}
-
 /* ─── Reduced Motion ──────────────────────────────────────────────────────────
    Kill spins, pulses and view transitions for users who ask the OS for less
    motion. Views keep their explicit `opacity: 1` so nothing can be left
@@ -179,7 +169,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .vinyl-disc,
-  .mini-vinyl-spin,
   .eq-bars span,
   .pulse-accent {
     animation: none !important;

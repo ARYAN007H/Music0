@@ -189,10 +189,10 @@
   gap: var(--space-4);
 }
 
-/* Compact mode: the mini strip overlays content — reserve clearance */
+/* Compact mode: the bottom pill + nav stack overlays content — reserve clearance */
 @media (max-width: 859px) {
-  body.has-mini .song-list,
-  body.has-mini .album-grid {
+  .song-list,
+  .album-grid {
     padding-bottom: 150px;
   }
 }
@@ -435,8 +435,8 @@
     padding: 0 var(--space-12) 64px;
   }
 
-  body.has-mini .song-list,
-  body.has-mini .album-grid {
+  .song-list,
+  .album-grid {
     padding-bottom: 150px;
   }
 
