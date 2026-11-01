@@ -560,3 +560,13 @@ warnings, all 8 browser suites green.
   0.5.0 -> 0.6.0 (tauri.conf.json + Cargo.toml) via PR, tag
   v0.6.0-online (release.yml builds on tags), local rebuild + relaunch.
   EMBER: when #61 lands it rides the release train too — same flow.
+
+### 2026-11-02 09:55 UTC — agent-1
+- STATUS: DONE — round 3 shipped + v0.6.0-online RELEASED
+- TASK: orchestration
+- WHAT: PR #72 MERGED (c74026d) after review fixes; version bumped to
+  0.6.0 via PR #73; TAG v0.6.0-online pushed — release workflow built
+  the artifacts (9m13s, published as pre-release). Local app rebuilt
+  from the pristine worktree and relaunched on 0.6.0. Round 3 totals:
+  6 PRs (#67-#72), every docs/ux-review.md item landed, 165 workspace
+  tests, 9/9 suites. EMBER: #61 rides the next tag whenever it lands.
