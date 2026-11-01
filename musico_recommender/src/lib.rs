@@ -332,6 +332,22 @@ impl MusicRecommender {
             .collect())
     }
 
+    /// The artist of a liked song that still has a known record — the
+    /// "Because you liked X" anchor for the Home recommendation shelf (#63).
+    /// Likes carry no timestamps, so "recent" = first liked id the cache
+    /// yields with a live artist; None when nothing is liked or the records
+    /// are gone (the frontend hides the shelf).
+    pub fn recent_liked_artist(&self) -> Result<Option<String>, RecommenderError> {
+        for id in self.liked_ids()? {
+            if let Some(record) = self.get_song_by_id(&id)? {
+                if !record.artist.is_empty() {
+                    return Ok(Some(record.artist));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     // ─── Catalog library (C4.1) — thin delegation to library.rs ─────────────
 
     pub fn library_put(&self, entry: &library::CatalogEntry) -> Result<(), RecommenderError> {
