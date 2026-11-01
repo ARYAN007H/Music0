@@ -32,6 +32,7 @@
 pub mod catalog;
 pub mod client;
 pub mod download;
+pub mod lrclib;
 pub mod lyrics;
 pub mod models;
 pub mod parse;
@@ -42,6 +43,7 @@ pub mod sources;
 pub mod stream;
 
 pub use catalog::{browse, genres, home_feed};
+pub use lrclib::{fetch_synced_lyrics, LyricLine, SyncedLyricsDto};
 pub use lyrics::fetch_lyrics;
 pub use models::{BrowsePage, ItemKind, OnlineTrack, SearchResultPage, Shelf, ShelfItem};
 pub use radio::{radio_tracks, remember_radio_play};

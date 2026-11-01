@@ -37,6 +37,7 @@ const App = (() => {
     currentView: 'browse',
     isPlaying: false,
     currentSong: null,
+    currentLyricsSong: null, // song id the lyrics pane last fetched (#61)
     position: 0,
     duration: 0,
     volume: 0.68,
@@ -552,6 +553,14 @@ const App = (() => {
     likeBtn.classList.toggle('liked', state.isLiked);
     likeBtn.setAttribute('aria-pressed', String(state.isLiked));
     likeBtn.querySelector('svg').setAttribute('fill', state.isLiked ? 'currentColor' : 'none');
+
+    // Lyrics pane (#61): stale karaoke lines from the previous song must
+    // never highlight over this one — clear and refetch when it's open.
+    if (state.currentLyricsSong !== song.id) {
+      state.currentLyricsSong = song.id;
+      lyricLines = [];
+      if (state.lyricsOpen) refreshLyricsPane();
+    }
   }
 
   // Expanded-player artist link (#62): browse to the artist page when the
@@ -1469,9 +1478,13 @@ const App = (() => {
     rows.forEach((track) => container.appendChild(suggestedRow(track)));
   }
 
-  // Lyrics: local songs read sidecar .lrc (timed karaoke); online songs
-  // fetch YTM's unsynced text on demand (cached per song for the session).
+  // Lyrics: local songs read sidecar .lrc (timed karaoke); online songs try
+  // LRCLIB synced LRC first (#61 — the karaoke highlighter), then YTM's
+  // unsynced text; saavn tracks have no YTM source but can still match
+  // LRCLIB on their metadata.  Caches per song id for the session; misses
+  // are never cached so a later open retries (#49 rule).
   const lyricsTextCache = new Map();
+  const lyricsSyncedCache = new Map();
 
   function setLyricsButton(pressed) {
     const btn = document.getElementById('btn-lyrics');
@@ -1494,45 +1507,93 @@ const App = (() => {
     section.style.display = '';
     recs.style.display = 'none';
     setLyricsButton(true);
+    refreshLyricsPane();
+  }
+
+  // (Re)loads the lyrics pane for the current song — the toggle's content
+  // half AND the song-changed refetch while the pane stays open (#61).
+  async function refreshLyricsPane() {
     const song = state.currentSong;
     if (!song) return;
-    if (String(song.id).startsWith('yt:')) {
-      const videoId = String(song.id).slice(3);
-      const list = document.getElementById('lyrics-list');
-      list.innerHTML = '';
-      if (lyricsTextCache.has(videoId)) {
-        renderPlainLyrics(lyricsTextCache.get(videoId));
+    const songId = String(song.id);
+    const isOnline = songId.startsWith('yt:') || songId.startsWith('saavn:');
+    if (!isOnline) {
+      loadLyrics(song);
+      return;
+    }
+    const list = document.getElementById('lyrics-list');
+    list.innerHTML = '';
+    if (lyricsSyncedCache.has(songId)) {
+      renderTimedLyrics(lyricsSyncedCache.get(songId));
+      return;
+    }
+    if (lyricsTextCache.has(songId)) {
+      renderPlainLyrics(lyricsTextCache.get(songId));
+      return;
+    }
+    const loading = document.createElement('div');
+    loading.className = 'lyric-line lyric-plain';
+    loading.textContent = 'Fetching lyrics…';
+    list.appendChild(loading);
+    const stillCurrent = () => state.currentSong && String(state.currentSong.id) === songId;
+    try {
+      // Synced first (#61): LRCLIB matches the song's own metadata, so
+      // saavn tracks get karaoke too.  No match → unsynced YTM text for
+      // yt: songs; saavn has no other source beyond LRCLIB's plain variant.
+      const dto = await Bridge.invoke('online_synced_lyrics', {
+        artist: song.artist || '',
+        title: song.title || '',
+        // camelCase over IPC — Tauri 2 maps command args to camelCase JS
+        // keys, so the Rust `duration_secs` arrives as `durationSecs`; the
+        // snake_case spelling silently deserialized to None, which disabled
+        // the entire duration gate (#79 review P0).
+        durationSecs: song.duration_secs || null,
+      });
+      // Cache BEFORE the currency check (#79 review P2): a fetch that loses
+      // a song-switch race is still good data for the next open of that
+      // song — don't throw it away.
+      if (dto && Array.isArray(dto.synced) && dto.synced.length) {
+        lyricsSyncedCache.set(songId, dto);
+        if (stillCurrent()) renderTimedLyrics(dto.synced);
         return;
       }
-      const loading = document.createElement('div');
-      loading.className = 'lyric-line lyric-plain';
-      loading.textContent = 'Fetching lyrics…';
-      list.appendChild(loading);
-      try {
-        const text = await Bridge.invoke('online_lyrics', { videoId });
-        // Bridge.invoke resolves null on IPC failure (it never rejects) —
-        // render the empty state but DON'T cache the null, so the next
-        // open of this song retries instead of replaying the failure (#49).
-        if (text == null) {
-          if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
-            renderPlainLyrics('');
-          }
-          return;
-        }
-        lyricsTextCache.set(videoId, text);
-        if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
-          renderPlainLyrics(text);
-        }
-      } catch (err) {
-        // Defensive: same empty state if invoke ever propagates rejections.
-        console.error('[musico] online_lyrics failed:', err);
-        if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
-          renderPlainLyrics('');
-        }
+      if (dto && typeof dto.plain === 'string' && dto.plain.trim()) {
+        lyricsTextCache.set(songId, dto.plain);
+        if (stillCurrent()) renderPlainLyrics(dto.plain);
+        return;
       }
-    } else {
-      loadLyrics(song);
+      if (!stillCurrent()) return;
+      if (songId.startsWith('yt:')) {
+        const videoId = songId.slice(3);
+        const text = await Bridge.invoke('online_lyrics', { videoId });
+        if (!stillCurrent()) return;
+        // Bridge.invoke resolves null on IPC failure (it never rejects) —
+        // DON'T cache the null, so the next open retries (#49).
+        if (text != null) lyricsTextCache.set(songId, text);
+        renderPlainLyrics(text ?? '');
+      } else {
+        renderPlainLyrics('');
+      }
+    } catch (err) {
+      // Defensive: same empty state if invoke ever propagates rejections.
+      console.error('[musico] lyrics fetch failed:', err);
+      if (stillCurrent()) renderPlainLyrics('');
     }
+  }
+
+  // Timed lines into the karaoke machinery (same shape loadLyrics feeds —
+  // updateLyricsHighlight is driven by position ticks for both).
+  function renderTimedLyrics(lines) {
+    const list = document.getElementById('lyrics-list');
+    list.innerHTML = '';
+    lyricLines = lines.map((line) => {
+      const el = document.createElement('div');
+      el.className = 'lyric-line';
+      el.textContent = line.text;
+      list.appendChild(el);
+      return { time_secs: line.time_secs, el };
+    });
+    updateLyricsHighlight(state.position);
   }
 
   function renderPlainLyrics(text) {
