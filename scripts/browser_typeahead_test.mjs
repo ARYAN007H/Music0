@@ -67,6 +67,21 @@ check('Enter commits the highlighted suggestion', searches.length >= 1 &&
 check('popover closes after commit', await page.evaluate(() =>
   document.getElementById('browse-suggest').hidden));
 
+// 3b. Click-commit: pointerdown commits the row's query, and — the race the
+// review caught — NO stale 350 ms live-search may overwrite it afterwards,
+// because the commit path must clear both pending timers.
+await input.fill('belie');
+await page.waitForTimeout(500);
+await page.click('#browse-suggest .suggest-item:nth-child(2)'); // "believer song"
+await page.waitForTimeout(600); // longer than the 350 ms live-search debounce
+const clickSearches = (await ipcCalls('online_search'));
+check('click commits the clicked suggestion', clickSearches.length >= 1 &&
+  clickSearches[clickSearches.length - 1]?.query === 'believer song');
+check('no stale live-search overwrites the click commit',
+  clickSearches[clickSearches.length - 1]?.query === 'believer song');
+check('popover closes after click commit', await page.evaluate(() =>
+  document.getElementById('browse-suggest').hidden));
+
 // 4. Escape dismisses without committing.  Baseline AFTER the fill's own
 // live-search debounce settles — Escape itself must add zero searches.
 await input.fill('belie');

@@ -103,6 +103,10 @@ const Online = (() => {
   }
 
   function closeSuggestions() {
+    // Bump the seq: a suggestion response already in flight is stale the
+    // moment the popover is dismissed (Escape/outside/commit) — without
+    // this it would re-open the closed popover on arrival (#68 review).
+    suggestSeq++;
     const box = document.getElementById('browse-suggest');
     if (box) {
       box.hidden = true;
@@ -290,7 +294,12 @@ const Online = (() => {
     App.showToast(`Fetching “${track.title}”…`);
     const ok = await Bridge.invoke('online_play', { track });
     rowEl?.classList.remove('loading');
-    if (ok !== null) App.navigateTo('now-playing');
+    if (ok !== null) {
+      // Any successful online play means onboarding did its job — the
+      // first-run chip row must not nag on the next launch (#58).
+      try { localStorage.setItem('musico.onboarded', '1'); } catch { /* ignore */ }
+      App.navigateTo('now-playing');
+    }
   }
 
   // Enqueue pool: at most 3 background resolves at once — Queue-all on a
@@ -424,6 +433,7 @@ const Online = (() => {
     form?.addEventListener('submit', (e) => {
       e.preventDefault();
       clearTimeout(debounceTimer);
+      clearTimeout(suggestTimer);
       // A highlighted suggestion wins over the raw input text (#59).
       const q = (activeSuggestionQuery() ?? input.value).trim();
       closeSuggestions();
@@ -463,6 +473,11 @@ const Online = (() => {
       if (!row) return;
       e.preventDefault();
       const q = row.dataset.q;
+      // Clear BOTH pending timers: the 350 ms live-search captured the raw
+      // prefix and would otherwise overwrite the committed search with the
+      // stale query (#68 review).
+      clearTimeout(debounceTimer);
+      clearTimeout(suggestTimer);
       closeSuggestions();
       if (q) {
         input.value = q;

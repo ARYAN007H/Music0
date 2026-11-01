@@ -86,7 +86,12 @@ pub fn search_suggestions(query: &str) -> Vec<String> {
             out.truncate(SUGGESTIONS_CAP);
             out
         }
-        Err(_) => Vec::new(),
+        Err(e) => {
+            // Silent by contract for the UI, but never invisible when
+            // someone is debugging why typeahead went dark.
+            log::debug!("suggestions failed for {q:?}: {e}");
+            Vec::new()
+        }
     }
 }
 
@@ -139,7 +144,7 @@ mod tests {
     }
 
     /// Live typeahead: a mainstream prefix must return suggestions.  Opt-in:
-    ///   MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_suggest -- --ignored --nocapture
+    ///   MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_search_suggestions -- --ignored --nocapture
     #[test]
     #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
     fn live_search_suggestions() {
