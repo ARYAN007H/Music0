@@ -354,6 +354,7 @@ function QueueRow({ song, current, removable, onPlay }) {
     <div class="qp-row ${current ? 'qp-current' : ''}" role="button" tabindex="0"
          aria-label="Play ${song.title}" onClick=${onPlay}
          data-ctx=${removable ? 'qrow' : null} data-qid=${song.id} data-vid=${vid}
+         data-song-id=${song.id} data-file-path=${song.file_path || null}
          data-title=${song.title} data-artist=${song.artist || null}
          onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay(); } }}>
       <div class="qp-art" style=${{ background: bg }} aria-hidden="true" />
@@ -1047,7 +1048,8 @@ function trackToPlaylistRef(t) {
     return {
       source: ns[1], id: ns[2], title: t.title || '', artist: t.artist || '',
       album: t.album || '', duration_secs: num(t.duration_secs),
-      thumbnail: t.thumb || t.thumbnail || null, file_path: null,
+      thumbnail: t.thumb || t.thumbnail || null,
+      file_path: t.file_path || t?.file_path || null,
     };
   }
   return {
@@ -1055,6 +1057,17 @@ function trackToPlaylistRef(t) {
     album: t?.album || '', duration_secs: num(t?.duration_secs),
     thumbnail: t?.thumb || t?.thumbnail || null, file_path: t?.file_path || null,
   };
+}
+
+// Queue rows hand over the NAMESPACED song id (data-song-id) + file_path —
+// trackFromDataset's videoId stub loses the source namespace and local
+// paths, which made every queue-row add fail validation (#71 review P0).
+function playlistRefFromQueueDataset(ds) {
+  return trackToPlaylistRef({
+    id: ds.songId || '',
+    title: ds.title || '', artist: ds.artist || '', album: '',
+    duration_secs: null, file_path: ds.filePath || null,
+  });
 }
 
 function addTrackToPlaylist(plId, plName, track) {
@@ -1079,7 +1092,10 @@ function playlistPicker(track) {
         const name = window.prompt?.('Playlist name');
         if (!name || !name.trim()) return;
         window.Bridge?.invoke?.('playlist_create', { name: name.trim() })
-          .then((p) => { if (p) addTrackToPlaylist(p.id, p.name, track); });
+          .then((p) => {
+            if (!p) { window.App?.showToast?.('Could not create the playlist'); return; }
+            addTrackToPlaylist(p.id, p.name, track);
+          });
       },
     }];
     for (const pl of (Array.isArray(lists) ? lists : [])) {
@@ -1144,7 +1160,7 @@ function ctxItemsFor(el) {
         album: '', duration_secs: null, thumbnail: null, cached: false,
       }) });
     }
-    items.push({ label: 'Add to playlist\u2026', action: () => playlistPicker(trackFromDataset(ds)) });
+    items.push({ label: 'Add to playlist\u2026', action: () => playlistPicker(playlistRefFromQueueDataset(ds)) });
     items.push({
       label: 'Remove from Queue',
       action: () => window.Bridge?.invoke?.('remove_from_queue', { songId: ds.qid }),
@@ -1650,7 +1666,9 @@ function UserPlaylistsSection() {
   const selectedId = useStoreValue('userPlSelected', null);
   const refresh = () => window.Bridge?.invoke?.('playlist_list')
     .then((l) => Store.set('userPlaylists', Array.isArray(l) ? l : []));
-  useEffect(() => { if (!lists) refresh(); }, []);
+  // Re-run when the store flips value↔null: covers the first fetch AND the
+  // add-from-pill invalidation while this view is already open (#71 review).
+  useEffect(() => { if (!lists) refresh(); }, [lists === null]);
   const items = lists || [];
   const selected = items.find((p) => p.id === selectedId) || null;
 
@@ -1658,7 +1676,7 @@ function UserPlaylistsSection() {
     const name = window.prompt?.('Playlist name');
     if (!name || !name.trim()) return;
     window.Bridge?.invoke?.('playlist_create', { name: name.trim() }).then((p) => {
-      if (!p) return;
+      if (!p) { window.App?.showToast?.('Could not create the playlist'); return; }
       Store.set('userPlSelected', p.id);
       refresh();
     });
@@ -1683,13 +1701,13 @@ function UserPlaylistsSection() {
         <h2 class="shelf-title">Your playlists</h2>
         <button class="upl-new" onClick=${createPl}>\uFF0B New playlist</button>
       </div>
-      ${!items.length ? html`<div class="lib-empty">Right-click any song \u2192 "Add to playlist" to start one.</div>` : html`
+      ${!items.length ? html`<div class="lib-empty">Right-click a song (or the + in the transport bar) \u2192 "Add to playlist".</div>` : html`
       <div class="lib-rows">
         ${items.map((pl) => html`
           <div class="lib-row ${selectedId === pl.id ? 'sel' : ''}" key=${pl.id} role="button" tabindex="0"
                aria-label="Open playlist ${pl.name}"
                onClick=${() => Store.set('userPlSelected', selectedId === pl.id ? null : pl.id)}
-               onKeyDown=${(e) => { if (e.key === 'Enter') Store.set('userPlSelected', selectedId === pl.id ? null : pl.id); }}>
+               onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); Store.set('userPlSelected', selectedId === pl.id ? null : pl.id); } }}>
             <div class="lib-row-play" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h13M3 18h9"/></svg>
             </div>
@@ -1713,7 +1731,7 @@ function UserPlaylistsSection() {
               <div class="lib-row" key=${t.source + ':' + t.id + ':' + i}>
                 <div class="lib-row-play" role="button" tabindex="0" aria-label="Play ${t.title}"
                      onClick=${() => playTrack(t)}
-                     onKeyDown=${(e) => { if (e.key === 'Enter') playTrack(t); }}>
+                     onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playTrack(t); } }}>
                   <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
                 </div>
                 <div class="lib-meta">

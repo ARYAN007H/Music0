@@ -152,22 +152,34 @@ const Bridge = (() => {
         return Promise.resolve(JSON.parse(JSON.stringify(__mockPlaylists)));
       case 'playlist_add_track': {
         const pl = __mockPlaylists.find((x) => x.id === args?.id);
-        if (!pl) return Promise.resolve(null);
-        pl.tracks.push(args?.track || {});
+        const t = args?.track;
+        // Validate like the backend: shape bugs in callers must surface
+        // here, not hide in silently-accepted garbage (#71 review P0).
+        if (!pl || !t || !t.id || !t.title || !['yt', 'saavn', 'local'].includes(t.source)) {
+          return Promise.resolve(null);
+        }
+        if (t.source === 'local' && !t.file_path) return Promise.resolve(null);
+        pl.tracks.push(t);
         pl.modified_at = Date.now();
         return Promise.resolve(pl.tracks.length);
       }
       case 'playlist_remove_track': {
         const pl = __mockPlaylists.find((x) => x.id === args?.id);
-        if (!pl || args?.index >= pl.tracks.length) return Promise.resolve(null);
-        pl.tracks.splice(args?.index, 1);
+        if (!pl || !Number.isInteger(args?.index) || args.index >= pl.tracks.length) {
+          return Promise.resolve(null);
+        }
+        pl.tracks.splice(args.index, 1);
         return Promise.resolve(true);
       }
       case 'playlist_move_track': {
         const pl = __mockPlaylists.find((x) => x.id === args?.id);
-        if (!pl) return Promise.resolve(null);
-        const [t] = pl.tracks.splice(args?.from, 1);
-        pl.tracks.splice(args?.to, 0, t);
+        const from = args?.from, to = args?.to;
+        if (!pl || !Number.isInteger(from) || !Number.isInteger(to)
+            || from >= pl.tracks.length || to > pl.tracks.length || from === to) {
+          return Promise.resolve(null);
+        }
+        const [t] = pl.tracks.splice(from, 1);
+        pl.tracks.splice(to > from ? to - 1 : to, 0, t);
         return Promise.resolve(true);
       }
       case 'playlist_rename': {

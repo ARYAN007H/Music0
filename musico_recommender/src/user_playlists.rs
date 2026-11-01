@@ -109,6 +109,19 @@ fn validate_track(track: &PlaylistTrack) -> Result<(), RecommenderError> {
             "local playlist track needs file_path".into(),
         ));
     }
+    // Length caps bound sled growth from a hostile client — ids and paths
+    // are the only fields that can legitimately be long.
+    const MAX_ID: usize = 256;
+    const MAX_TEXT: usize = 500;
+    if track.id.len() > MAX_ID || track.title.len() > MAX_TEXT {
+        return Err(RecommenderError::Invalid("playlist track id/title too long".into()));
+    }
+    if track.artist.len() > MAX_TEXT || track.album.len() > MAX_TEXT {
+        return Err(RecommenderError::Invalid("playlist track metadata too long".into()));
+    }
+    if track.file_path.as_deref().is_some_and(|p| p.len() > 1024) {
+        return Err(RecommenderError::Invalid("playlist track file_path too long".into()));
+    }
     Ok(())
 }
 
@@ -194,6 +207,9 @@ pub(crate) fn remove_track(store: &Store, id: &str, index: usize) -> Result<(), 
 
 /// Moves a track from `from` to `to` (both indices into the CURRENT order —
 /// the standard drag-and-drop contract: remove at `from`, insert at `to`).
+/// `to == len` is the natural "drop at the very end" call: after the removal
+/// the list is one shorter, so the target slot shifts down by one — without
+/// that adjustment `Vec::insert` would panic the command thread (#71 review).
 pub(crate) fn move_track(
     store: &Store,
     id: &str,
@@ -201,14 +217,15 @@ pub(crate) fn move_track(
     to: usize,
 ) -> Result<(), RecommenderError> {
     let mut playlist = load(store, id)?;
-    if from >= playlist.tracks.len() || to > playlist.tracks.len() {
+    let len = playlist.tracks.len();
+    if from >= len || to > len || from == to {
         return Err(RecommenderError::Invalid(format!(
-            "move {from}→{to} out of range ({})",
-            playlist.tracks.len()
+            "move {from}→{to} out of range ({len})"
         )));
     }
     let track = playlist.tracks.remove(from);
-    playlist.tracks.insert(to, track);
+    let slot = if to > from { to - 1 } else { to };
+    playlist.tracks.insert(slot, track);
     playlist.modified_at = now_ms();
     save(store, &playlist)
 }
@@ -275,6 +292,13 @@ mod tests {
         let ids: Vec<&str> = pruned.tracks.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, vec!["a", "c"]);
 
+        // Drag-to-end: `to == len` in ORIGINAL indices must not panic
+        // (#71 review P1) — a moves from the front to after the last row.
+        move_track(&store, &p.id, 0, 2).unwrap();
+        let dragged = load(&store, &p.id).unwrap();
+        let ids: Vec<&str> = dragged.tracks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["c", "a"]);
+
         // Out-of-range ops fail honestly without mutating.
         assert!(remove_track(&store, &p.id, 9).is_err());
         assert!(move_track(&store, &p.id, 0, 9).is_err());
@@ -333,6 +357,6 @@ mod tests {
         let names: Vec<String> = list(&store).unwrap().into_iter().map(|p| p.name).collect();
         assert_eq!(names.first().map(String::as_str), Some("Alpha 2"));
         assert!(names.contains(&"Beta".to_string()));
-        assert_eq!(b.id.starts_with("pl-"), true);
+        assert!(b.id.starts_with("pl-"));
     }
 }

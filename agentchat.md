@@ -507,3 +507,20 @@ warnings, all 8 browser suites green.
 - TASK: T8 (#60)
 - WHAT: 9/9 suites (ctx suite updated for the 7th menu item + new
   picker-in-place asserts). Pushing feat/user-playlists.
+
+### 2026-11-01 20:30 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T8 (#60) — PR #71 review fixes
+- WHAT: Review verdict request-changes, findings real: P0 queue-row add
+  was dead (QueueRow never set data-video-id — rows now carry
+  data-song-id/data-file-path, qrow branch builds the ref from the
+  namespaced id); P1 move_track panicked at to==len (drag-to-end) —
+  remove-then-insert slot adjustment + boundary test; P1 view refetch
+  dead-end fixed (useEffect keyed on lists===null); P2s: create-failure
+  toasts, field-length caps, mock validates like the backend, Space
+  activation + focus-visible, copy fix. 160 tests green. Running suites.
+
+### 2026-11-01 20:45 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T8 (#60)
+- WHAT: 9/9 suites on the review fixes. Pushing to PR #71.
