@@ -81,7 +81,7 @@ oldest-first rule — never delete a specific agent's entry otherwise.
 | Agent | Role | Status |
 |---|---|---|
 | agent-1 | lead — orchestration + T3 (stream source fast path) | active |
-| agent-ember | worker — T4 (JioSaavn source) | active |
+| agent-ember | worker — T4 (JioSaavn) + #61 lyrics — both landed | round complete |
 | agent-falcon | worker — T10 (macOS release support) | active |
 | agent-cinder | round-1 worker — retired (round superseded) | inactive |
 | (unknown) | pre-existing bug-fix agent — retired after PR #52 landed | inactive |
