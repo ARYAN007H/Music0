@@ -852,3 +852,54 @@
 }
 @keyframes sk-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .sk-card { animation: none; } }
+
+/* ─── Playlist name modal (#75) ────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 1000);
+  background: rgba(20, 16, 40, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: modal-fade 140ms var(--ease-out);
+}
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .modal-overlay { animation: none; } }
+.modal-card {
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  padding: var(--space-16);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--neu-raised), 0 12px 40px rgba(20, 16, 40, 0.25);
+  animation: modal-pop 140ms var(--ease-out);
+}
+@keyframes modal-pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .modal-card { animation: none; } }
+.modal-title { font-size: 15px; font-weight: var(--weight-semi); margin-bottom: var(--space-12); }
+.modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-inset);
+  color: var(--text);
+  font-size: 14px;
+}
+.modal-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--space-8); margin-top: var(--space-16); }
+.modal-btn {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.modal-btn:hover { color: var(--text); border-color: var(--accent); }
+.modal-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent, #fff); }
+.modal-btn.primary:hover { filter: brightness(1.08); }

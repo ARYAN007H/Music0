@@ -1276,6 +1276,24 @@ pub async fn online_lyrics(
         .map_err(|e| format!("lyrics task failed: {e}"))?
 }
 
+/// Synced (karaoke) lyrics via LRCLIB (#61) — tried BEFORE the unsynced YTM
+/// text.  Matched by artist + title + duration; `None` = no LRCLIB match
+/// (the frontend falls back).  Offline = no network: ensure_online gated.
+#[tauri::command]
+pub async fn online_synced_lyrics(
+    state: State<'_, AppState>,
+    artist: String,
+    title: String,
+    duration_secs: Option<u32>,
+) -> Result<Option<crate::online::SyncedLyricsDto>, String> {
+    ensure_online(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(crate::online::fetch_synced_lyrics(&artist, &title, duration_secs))
+    })
+    .await
+    .map_err(|e| format!("synced lyrics task failed: {e}"))?
+}
+
 /// Wipe the downloaded-stream cache.  Returns bytes freed.
 #[tauri::command]
 pub fn online_clear_cache() -> Result<u64, String> {

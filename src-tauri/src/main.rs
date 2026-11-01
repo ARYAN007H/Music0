@@ -301,6 +301,7 @@ fn main() {
             commands::online_available,
             commands::online_related,
             commands::online_lyrics,
+            commands::online_synced_lyrics,
             commands::online_clear_cache,
             // Stats & playlists
             commands::get_stats,

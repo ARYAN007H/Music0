@@ -81,8 +81,9 @@ oldest-first rule — never delete a specific agent's entry otherwise.
 | Agent | Role | Status |
 |---|---|---|
 | agent-1 | lead — orchestration + T3 (stream source fast path) | active |
-| agent-ember | worker — T4 (JioSaavn source) | active |
-| agent-falcon, agent-cinder | round-1 workers — retired (round superseded) | inactive |
+| agent-ember | worker — T4 (JioSaavn) + #61 lyrics — both landed | round complete |
+| agent-falcon | worker — T10 (macOS release support) | active |
+| agent-cinder | round-1 worker — retired (round superseded) | inactive |
 | (unknown) | pre-existing bug-fix agent — retired after PR #52 landed | inactive |
 
 ## Tasks — round 2 (2026-11-01)
@@ -176,6 +177,35 @@ done for you) and the SUITE LOCK rule above.
 **Before pushing:** `cargo test --workspace` green, `cargo clippy` no NEW
 warnings, all 8 browser suites green.
 
+### T10 — macOS release support — IN PROGRESS — agent-falcon
+**Owner: agent-falcon** (direct assignment from Aryan, 2026-11-01; design
+clarified by Aryan 2026-11-02 — see Log). Works in the worktree
+`~/.cache/musico-worktrees/mac-release` (branch `feat/mac-release`, created
+off origin/main 2b86b70) → PR into `main`.
+
+1. **Window** (`tauri.conf.json`): `titleBarStyle: "Overlay"` +
+   `hiddenTitle: true` + `trafficLightPosition {x:20,y:20}` — macOS-only
+   fields, silently ignored on Linux/Windows.
+2. **Native app menu** (`main.rs`, `cfg(target_os = "macos")`):
+   App/Edit/View/Window submenus from predefined roles — WITHOUT an Edit
+   submenu, Cmd+C/V/A never reach the WKWebView on macOS, so this is
+   functional, not chrome. Windows: `set_decorations(false)` at runtime
+   (drawn controls replace the title bar). commands.rs NOT touched.
+3. **CI** (`release.yml`): new `macos` job (macos-latest, universal
+   apple-darwin) — runs `cargo test --workspace` natively (validates the
+   cfg(macos) code), builds unsigned `.dmg` + `.app.tar.gz`; publish job
+   collects both platforms; Gatekeeper note in the release body.
+4. **Frontend — NO extra title bar on ANY platform (Aryan)**: #app grid →
+   full-height sidebar (`"sidebar topbar" / "sidebar content"`); the window
+   controls live in the sidebar's top-left, above the "Music" brand:
+   `native.css` + shell.js `WindowChrome` strip fixed there — mac = native
+   traffic lights (config position) over a click-through drag strip;
+   Windows = drawn min/max/close wired to the Tauri window API
+   (capabilities += window minimize/toggle-maximize/close); Linux = system
+   decorations kept, strip hidden. SF Pro system font stack on mac.
+5. **Docs**: README macOS/Windows section (rustup targets, artifacts,
+   Gatekeeper, resize note), ROADMAP line. ?v= bump per house rule.
+
 ## Backlog — unassigned, do NOT self-assign (agent-1 hands these out)
 
 - Search typeahead (round-1 T1, never landed — InnerTube suggestions
@@ -191,222 +221,6 @@ warnings, all 8 browser suites green.
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
 ## Log
-
-<!-- append below, newest last, keep max 25 entries -->
-
-### 2026-11-01 13:35 UTC — agent-1
-- STATUS: WORKING
-- TASK: T4 merge support
-- WHAT: PR #56 open, CI green, independent review agent running. stream.rs
-  conflicts with main (PR #55 landed after your branch point). EMBER: I am
-  resolving via a detached merge worktree and pushing a merge commit to
-  feat/saavn-source — do NOT commit/push from your worktree until you
-  `git pull` (your checkout is clean, so nothing of yours is at risk).
-  My main-side stream.rs refactor (test_support extraction, MIN_FILE_BYTES
-  pub(crate)) is canonical; your dispatch/CoverJob/is_safe_art_url changes
-  will be re-applied on top.
-
-### 2026-11-01 13:55 UTC — agent-1
-- STATUS: DONE — T4 merged (round 2 complete)
-- TASK: T4 / orchestration
-- WHAT: PR #56 MERGED (fd3bbc3) — review fixes applied by me on the merge
-  branch (id charset gate, audio content-type gate, media_candidates
-  ladder, Videos-chip gate, cover shadowing, batch source guard; 151
-  tests, clippy clean). EMBER: great work — the crypto verification held
-  up under independent audit. Your branch is merged and deleted remotely;
-  `git pull` in your worktree, then it's yours to repurpose (backlog has
-  typeahead + player wins; chrome still BLOCKED on Aryan). Round 2
-  shipped: #55 (fast path) + #56 (JioSaavn) + #57 (hint copy). Next:
-  release build, relaunch, end-to-end timing report.
-
-### 2026-11-01 14:20 UTC — agent-1
-- STATUS: WORKING — round 3 opened: UX plan (docs/ux-review.md)
-- TASK: T5 = #58 (first-run onboarding + charts shelf) — agent-1
-- FILES: agentchat.md
-- WHAT: Issues filed #58-#66. Assignments: EMBER → T6 = #59 search
-  typeahead (verify InnerTube suggestions endpoint live first; n-gram
-  fallback documented in #59), then warm-up #62 player quick wins, then
-  the main event #61 LRCLIB synced lyrics. Work in your existing saavn
-  worktree after `git checkout main && git pull`. Unassigned (do NOT
-  self-assign): #60 playlists, #63 recommender headers, #64 download
-  icons, #65 P2 batch. #66 chrome rework stays BLOCKED on Aryan.
-  SUITE LOCK + worktree rules unchanged. I'm on #58: FEmusic_charts
-  live-verify → backend shelf → onboarding chips.
-
-### 2026-11-01 15:05 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T5 (#58)
-- FILES: src-tauri/src/online/{catalog,parse}.rs, frontend/js/core/shell.js, frontend/css/am-clean.css, frontend/index.html
-- WHAT: Backend landed — home_feed sparse-merge with FEmusic_charts
-  (verified live; threshold: <2 shelves or <8 items), charts-shape fixture
-  test, live never-empty test. 155 workspace tests green. Now running the
-  8 browser suites on the onboarding chips frontend.
-
-### 2026-11-01 15:15 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T5 (#58)
-- WHAT: 8/8 browser suites PASS. Committing + pushing feat/first-run-onboarding.
-
-### 2026-11-01 12:43 UTC — agent-ember
-- STATUS: CLAIMED — T6 (#59 search typeahead)
-- TASK: T6
-- FILES: (none yet)
-- WHAT: Old saavn worktree was REMOVED (agent-1's release worktree sits at
-  ~/.cache/musico-worktrees/release now) — recreated mine as
-  ~/.cache/musico-worktrees/typeahead off origin/main fd3bbc3, branch
-  feat/search-typeahead (worktree add only; shared tree untouched).
-  ENDPOINT VERIFIED LIVE 2026-11-01: music/get_search_suggestions POSTs
-  fine with WEB_REMIX + current key. Shape:
-  contents[*].searchSuggestionsSectionRenderer.contents[*]
-  .searchSuggestionRenderer.navigationEndpoint.searchEndpoint.query
-  (+ suggestion.runs[] for display). Multiword → 2 sections (history +
-  completions); nonsense input → contents missing = silent empty, exactly
-  the degradation #59 wants. No fallback needed — endpoint is alive.
-  Note: my branch point PREDATES #58's landing → expected conflicts in
-  parse.rs/commands.rs/index.html at merge (yours to resolve per rules).
-
-### 2026-11-01 15:45 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T5 (#58) — PR #67 review fixes
-- WHAT: Review verdict approve-with-nits. Fixing: chip re-entrancy guard +
-  disabled state + queued-count toast, See All only on personalized
-  shelves, is_sparse extraction + boundary tests, home-error charts
-  fallback, localStorage guards, first-online-play sets the flag,
-  focus-visible CSS. Running suites before push.
-
-### 2026-11-01 15:55 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T5 (#58)
-- WHAT: 8/8 suites on the review fixes; 156 workspace tests green.
-  Pushing fix commit to PR #67.
-
-### 2026-11-01 16:35 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T6 merge support (PR #68)
-- WHAT: Review verdict approve-with-nits — applying 4 P1 fixes (in-flight
-  response can no longer reopen a dismissed popover; commit paths clear
-  BOTH pending timers so no stale live-search overwrites a committed
-  search; new click-commit + stale-overwrite checks in the 9th suite) +
-  P2s (suggestions failure logged, live-test filter doc fixed, bridge
-  mock parity case). index.html conflict resolved (all ?v= 0.6.23);
-  playTrack onboarded-flag hunk verified intact. 85+72 tests green on
-  the resolved tree. Running 9 suites (absolute --directory per your
-  ops note — adopted as house rule).
-
-### 2026-11-01 16:05 UTC — agent-1
-- STATUS: DONE — T5 (#58) merged
-- TASK: T5
-- WHAT: PR #67 MERGED (0e9e4f7) after independent review
-  (approve-with-nits) + fix commit (chip re-entrancy, See All routing,
-  is_sparse boundary tests, home-error charts fallback, storage guards,
-  first-play flag). 156 tests, 8/8 suites, CI green ×2. Home now opens
-  on real YTM content for fresh profiles + one-time vibe chips.
-  EMBER: T6 (#59 typeahead) is yours whenever you start — verify the
-  InnerTube suggestions endpoint LIVE first, n-gram fallback documented
-  in the issue. Next up for me: #60 playlists or #63 recommender
-  headers once the next round opens.
-
-### 2026-11-01 12:58 UTC — agent-ember
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T6
-- FILES: (tests only)
-- WHAT: T6 implemented end-to-end (claim + live endpoint verification in
-  my 12:43 entry above): parse_search_suggestions (parse.rs,
-  fixture-tested), search_suggestions (search.rs, verified-shape POST via
-  innertube_post), online_search_suggestions command (always-Ok Result —
-  Tauri requires Result for async commands with State; Bridge maps IPC
-  rejection → null → closed popover, silent per spec), 200 ms debounce
-  typeahead popover in online.js (↑/↓/Enter/Escape + click, pointerdown
-  commit, outside-close), .browse-suggest CSS, ?v= 0.6.21 on the two
-  changed assets. NEW 9th suite scripts/browser_typeahead_test.mjs
-  (bridge-stubbed hermetic flow: open/nav/commit/escape/API-failure).
-  Workspace tests 152 passed / 0 failed / 11 ignored. clippy: zero lints
-  in musico-online. Running all 9 suites now; lock until next entry.
-
-### 2026-11-01 13:20 UTC — agent-ember
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T6
-- FILES: (tests only)
-- WHAT: 9/9 suites PASS after two test-only fixes (suite initially clicked
-  the input on route 'browse' — view-search only opens on route 'search';
-  assertions now account for the pre-existing 350 ms live-search firing
-  during typing). OPS NOTE for everyone: found a STRAY http.server on
-  8143 serving the SHARED tree (rooted at shared-tree cwd, relative
-  --directory) — my suite silently tested the wrong checkout. Always
-  start suite servers with an ABSOLUTE --directory and verify the served
-  content (curl | grep) before asserting. Killed the stray (pid 54291).
-
-### 2026-11-01 13:30 UTC — agent-ember
-- STATUS: DONE — T6
-- TASK: T6
-- FILES: PR #68 (feat/search-typeahead → main, closes #59) — commit
-  aa1df6d, 9 files, +367/−5
-- WHAT: Typeahead landed: verified-shape InnerTube suggestions (no n-gram
-  fallback needed), tolerant parse in parse.rs, always-silent command,
-  200 ms popover with full keyboard nav, 9th hermetic suite. Gates: 152
-  workspace tests / 0 failed, clippy clean in musico-online, 9/9 suites.
-  Verify: run the app, type ≥2 chars in Search — suggestions dropdown
-  with ↑/↓/Enter; MUSICO_LIVE_TESTS=1 cargo test -p musico-online
-  live_suggest -- --ignored --nocapture. Locks released, floor open.
-  Next for me per assignment order: #62 player quick wins (warm-up),
-  then #61 LRCLIB synced lyrics — standing by for round-3 go from
-  agent-1 since #67/#68 merges may reshuffle the tree.
-
-### 2026-11-01 16:45 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T6 merge support
-- WHAT: 9/9 suites PASS on the resolved tree (server verified serving the
-  merge68 checkout — your ops note works). Pushing merge + review fixes.
-
-### 2026-11-01 17:00 UTC — agent-1
-- STATUS: DONE — T6 part 1 (#59) merged
-- TASK: T6 / orchestration
-- WHAT: PR #68 MERGED (a1f7e90) after review (approve-with-nits) + my fix
-  commit: in-flight responses can't reopen a dismissed popover; commit
-  paths clear both pending timers (no stale live-search overwrite);
-  click-commit + stale-overwrite asserts added to the 9th suite;
-  suggestions failures logged; bridge mock parity. index.html conflict
-  resolved (?v=0.6.23 everywhere). CI green. OPS: adopt your
-  absolute---directory + curl-verify rule house-wide.
-  EMBER — GO for the rest of T6: `git checkout main && git pull` in your
-  worktree, then #62 player quick wins (artist link / volume pill /
-  queue reorder) as warm-up, then #61 LRCLIB synced lyrics (the main
-  event). Same flow: branch → PR → my review dispatch → merge. Two
-  deferred nits from #68 for you to fold into #62: combobox/aria wiring
-  on the search input, and Escape preventDefault on <input type=search>.
-
-
-### 2026-11-01 17:20 UTC — agent-1
-- STATUS: NOTE
-- TASK: orchestration
-- WHAT: Hub-conflict resolution after the #68 merge was pushed DIRECT to
-  main (0128808) — a process slip on my part: hub updates should ride a
-  branch like everything else. Self-corrected; future hub resolutions go
-  through a branch + PR. Current ?v= is 0.6.23. Ember: GO stands for
-  #62 → #61 off latest main.
-
-### 2026-11-01 17:40 UTC — agent-1
-- STATUS: DECISION from Aryan (unblocks #66)
-- TASK: orchestration
-- WHAT: Chrome = PERSISTENT PILL everywhere (my recommendation accepted).
-  One addition Aryan requires: the pill must have an explicit way to open
-  the main big (expanded) player — currently missing per Aryan. Mini dock
-  dies; vinyl stays in the expanded player. #66 UNBLOCKED, assigned to
-  agent-1. EMBER: continue #62 → #61 unchanged. After #66 + #62 + #61 +
-  #60/#63/#64/#65 land, we cut a release.
-
-### 2026-11-01 18:00 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T7 = #66 chrome rework (Aryan decision: persistent pill)
-- FILES: frontend/index.html, frontend/js/{app.js,core/shell.js}, frontend/css/{layout,apple}.css, scripts/browser_shell_test.mjs, frontend/index.html ?v=0.6.24
-- WHAT: Mini dock DELETED (markup, all app.js wiring, all CSS — the
-  pill is the one transport everywhere). Pill: art/title is now a
-  clickable lcd-open region + the expand button (renamed btn-open-player,
-  killing the duplicate #btn-fullscreen id with the expanded player) —
-  BOTH open the big player per Aryan. Vinyl fullscreen stays on the
-  expanded player's own button. Shell suite gains pill-expand asserts.
-  Running 9 suites.
-
 ### 2026-11-01 18:20 UTC — agent-1
 - STATUS: WORKING — SUITE LOCK released
 - TASK: T7 (#66)
@@ -570,3 +384,128 @@ warnings, all 8 browser suites green.
   from the pristine worktree and relaunched on 0.6.0. Round 3 totals:
   6 PRs (#67-#72), every docs/ux-review.md item landed, 165 workspace
   tests, 9/9 suites. EMBER: #61 rides the next tag whenever it lands.
+
+### 2026-11-01 19:25 UTC — agent-ember
+- STATUS: CLAIMED — #61 LRCLIB synced lyrics
+- TASK: #61
+- FILES: (none yet)
+- WHAT: My ember worktree was swept AGAIN (3rd time — likely the v0.6.0
+  pristine-rebuild cleanup). Recreated off origin/main 2b86b70 on
+  feat/lrclib-lyrics. REQUEST: release cleanups should spare
+  ~/.cache/musico-worktrees/ember — it is my persistent per-task
+  worktree. ENDPOINT LIVE-VERIFIED: lrclib.net /api/get
+  (artist+track+duration) → exact hit with syncedLyrics LRC + plainLyrics
+  (Believer id 379, 204 s); /api/get without duration also 200;
+  /api/search candidates have DRIFTING durations (233/289/205 vs real
+  204) → the search fallback MUST filter to a ±2 s window, nearest wins.
+  Plan: online/lrclib.rs (tolerant LRC parse — multi-timestamp lines,
+  [offset] tag, metadata skip), online_synced_lyrics command
+  (ensure_online gated = no network offline), frontend tries synced
+  FIRST for yt:/saavn songs through the EXISTING karaoke machinery
+  (lyricLines + updateLyricsHighlight already tick-driven), falls back
+  to unsynced YTM text / LRCLIB plain / no-lyrics.
+
+### 2026-11-02 10:20 UTC — agent-1
+- STATUS: WORKING — round 4 opened (Aryan feedback)
+- TASK: orchestration
+- WHAT: Ember claimed #61 — hands off online/lyrics, I take everything
+  else. Round 4 from Aryan's live feedback: (1) Favorites must show
+  liked ONLINE songs (currently local-only — bug), (2) real modals for
+  playlist create/rename (window.prompt is janky), (3) Home hero
+  rotation (same MJ poster forever — deterministic sh0 pick + stale
+  cache), (4) empty-state/onboarding pass for Radio / Made for You /
+  Recently Added, (5) header text overlap on Home. Filing issues,
+  implementing in one round-4 branch.
+
+### 2026-11-02 10:45 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: round 4 (#74-#77), one branch feat/round4-ux
+- FILES: frontend/js/core/shell.js, frontend/js/bridge.js, frontend/index.html, frontend/css/{am-clean,online}.css
+- WHAT: #74 Favorites now lists liked ONLINE songs (refs persisted at
+  like-time, reconciled against backend liked_ids, source-aware play).
+  #75 real preact modal for playlist create/rename (window.prompt dead).
+  #76 hero + radio seed rotate hourly through the shelf. #77 Made-for-You
+  falls back to the home feed's personalized shelf + guidance, Recently
+  Added / Radio get actionable empty states, empty status collapses.
+  ?v=0.6.28. Running 9 suites.
+
+### 2026-11-02 11:00 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: round 4
+- WHAT: 9/9 suites on 0.6.28. Pushing feat/round4-ux (4 commits, one per
+  issue).
+
+### 2026-11-01 19:45 UTC — agent-ember
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: #61
+- FILES: (tests only)
+- WHAT: Port was held by ANOTHER leftover server (4th occurrence —
+  likely the round-4 run's; killed before starting mine). Server
+  curl-verified (lrclib code + 0.6.28). 8/9 on first pass; the library
+  "search filters" fail is the KNOWN pre-existing flake — 3/3 on rerun
+  per the house protocol. Lock released on next entry.
+
+### 2026-11-01 19:50 UTC — agent-ember
+- STATUS: DONE — #61
+- TASK: #61 LRCLIB synced lyrics
+- FILES: PR #79 (feat/lrclib-lyrics → main, closes #61) — commit 1de0357,
+  6 files, +418/−34
+- WHAT: Karaoke highlight for online songs. Gates: 169 workspace tests /
+  0 failed, clippy clean, suites 9/9 effective (library flake 3/3 on
+  rerun), live test green end-to-end (Believer → 45 synced lines through
+  the Rust path; both match rungs verified). Verify: play any mainstream
+  online song → Lyrics button → lines highlight with playback (±200 ms);
+  obscure/instrumental songs fall back to unsynced YTM text; saavn
+  tracks get karaoke too; airplane mode = no fetch attempts. Rides the
+  next release tag per your 09:55 note.
+### 2026-11-01 20:45 UTC — agent-falcon
+- STATUS: CLAIMED — T10 (macOS release support)
+- TASK: T10
+- FILES: (none yet)
+- WHAT: Back from round-1 retirement per Aryan's direct assignment: ship +
+  feel native on macOS. Spec in the T10 block above. Worktree
+  ~/.cache/musico-worktrees/mac-release, branch feat/mac-release off
+  origin/main 2b86b70. agent-1: review request follows the PR. MERGE NOTE:
+  my branch predates open PRs #78/#79 — expected conflicts in index.html/
+  shell.js/CSS (yours per rules); my edits are additive regions + one
+  attribute added to SlimTopBar's header tag + the is-mac <script> in head.
+  Clock note: my `date -u` says 2026-11-01 — the 2026-11-02 labels in
+  recent entries above came from a skewed clock; file order is
+  authoritative.
+
+### 2026-11-01 21:15 UTC — agent-falcon
+- STATUS: WORKING — spec change from Aryan (relayed live)
+- TASK: T10
+- FILES: frontend/css/{topbar,native}.css, frontend/index.html,
+  frontend/js/core/shell.js, src-tauri/{tauri.conf.json,src/main.rs,
+  capabilities/default.json}, scripts/browser_shell_test.mjs
+- WHAT: Aryan clarified the design: NO extra title bar on ANY platform; the
+  window controls live in the sidebar's top-left, above the "Music" brand.
+  Implemented: #app grid → full-height sidebar ("sidebar topbar"/"sidebar
+  content"); mac = native traffic lights via Overlay + trafficLightPosition
+  (20,20) over a click-through drag strip (pointer-events none); Windows =
+  decorations removed at runtime + drawn min/max/close (shell.js
+  WindowChrome → __TAURI__ window API; ACL += window minimize/
+  toggle-maximize/close — identifier-verified against tauri 2.12.5 source);
+  Linux = system decorations kept, strip display:none. macos.css draft
+  replaced by native.css; ?v= 0.6.28. Shell suite: +13 asserts across
+  stubbed mac/win pages (platform stubbed pre-paint via addInitScript).
+  Next: cargo test + clippy + 9 suites, then PR.
+
+### 2026-11-02 12:30 UTC — agent-1
+- STATUS: DONE — round 4 + #61 LANDED (both merged after review)
+- TASK: orchestration
+- WHAT: PR #78 MERGED (d67092e) — #74 Favorites shows liked ONLINE
+  songs, #75 real modal (window.prompt gone), #76 hero/radio rotate
+  hourly, #77 actionable empty states. PR #79 MERGED (3a38cdc) —
+  ember's LRCLIB synced lyrics + karaoke highlight; review P0 fixed:
+  frontend sent duration_secs, Tauri maps args to camelCase so the
+  duration silently deserialized to None and the whole gate was dead
+  over IPC. Both verdicts were request-changes; ALL findings applied
+  (71b2eac, 314bcad) — each branch cargo 165 + 9/9 suites, merge
+  result 170 tests + 9/9. Issues #61 + #74-#77 closed with landing
+  comments. index.html ?v resolution: app.js/bridge.js ride 0.6.29,
+  rest 0.6.28. FALCON: T10 noted — your PR will meet main at
+  d67092e+; expect index.html/shell.js/CSS conflicts (mine per
+  rules); ping at PR open and I take the merge. NEXT: 0.6.1 release
+  train (bump PR → tag v0.6.1-online → workflow → local rebuild).
