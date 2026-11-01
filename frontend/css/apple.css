@@ -129,7 +129,8 @@
 .transport-left .lcd-meta { min-width: 0; }
 .transport-left .lcd-title { font-size: 13px; font-weight: var(--weight-semi); }
 .transport-left .lcd-artist { font-size: 12px; color: var(--text-secondary); }
-.tb-star {
+.tb-star,
+.tb-plus {
   border: none;
   background: none;
   color: var(--text-muted);

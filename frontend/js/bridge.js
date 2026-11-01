@@ -19,6 +19,7 @@ const Bridge = (() => {
   const isTauri = typeof tauriInvoke === 'function';
   const listeners = {};
   const mockQueue = [];
+  const __mockPlaylists = [];
   const mockLikes = new Set();
   const mockSettings = { autoplay: true };
 
@@ -141,6 +142,56 @@ const Bridge = (() => {
         }));
         // Page-1 mock keeps a fake continuation so "Load more" is testable.
         return Promise.resolve({ tracks: results, next_continuation: 'mock-cont-2' });
+      }
+      case 'playlist_create': {
+        const pl = { id: `pl-mock-${Date.now()}`, name: args?.name || 'Playlist', created_at: Date.now(), modified_at: Date.now(), tracks: [] };
+        __mockPlaylists.push(pl);
+        return Promise.resolve(JSON.parse(JSON.stringify(pl)));
+      }
+      case 'playlist_list':
+        return Promise.resolve(JSON.parse(JSON.stringify(__mockPlaylists)));
+      case 'playlist_add_track': {
+        const pl = __mockPlaylists.find((x) => x.id === args?.id);
+        const t = args?.track;
+        // Validate like the backend: shape bugs in callers must surface
+        // here, not hide in silently-accepted garbage (#71 review P0).
+        if (!pl || !t || !t.id || !t.title || !['yt', 'saavn', 'local'].includes(t.source)) {
+          return Promise.resolve(null);
+        }
+        if (t.source === 'local' && !t.file_path) return Promise.resolve(null);
+        pl.tracks.push(t);
+        pl.modified_at = Date.now();
+        return Promise.resolve(pl.tracks.length);
+      }
+      case 'playlist_remove_track': {
+        const pl = __mockPlaylists.find((x) => x.id === args?.id);
+        if (!pl || !Number.isInteger(args?.index) || args.index >= pl.tracks.length) {
+          return Promise.resolve(null);
+        }
+        pl.tracks.splice(args.index, 1);
+        return Promise.resolve(true);
+      }
+      case 'playlist_move_track': {
+        const pl = __mockPlaylists.find((x) => x.id === args?.id);
+        const from = args?.from, to = args?.to;
+        if (!pl || !Number.isInteger(from) || !Number.isInteger(to)
+            || from >= pl.tracks.length || to > pl.tracks.length || from === to) {
+          return Promise.resolve(null);
+        }
+        const [t] = pl.tracks.splice(from, 1);
+        pl.tracks.splice(to > from ? to - 1 : to, 0, t);
+        return Promise.resolve(true);
+      }
+      case 'playlist_rename': {
+        const pl = __mockPlaylists.find((x) => x.id === args?.id);
+        if (!pl) return Promise.resolve(null);
+        pl.name = args?.name || pl.name;
+        return Promise.resolve(true);
+      }
+      case 'playlist_delete': {
+        const i = __mockPlaylists.findIndex((x) => x.id === args?.id);
+        if (i >= 0) __mockPlaylists.splice(i, 1);
+        return Promise.resolve(true);
       }
       case 'online_search_suggestions': {
         // Typeahead preview parity (#59): prefix-match demo titles/artists

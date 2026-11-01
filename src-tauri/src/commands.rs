@@ -557,6 +557,74 @@ pub fn library_contains(
     rec(&state)?.library_contains(&kind, &ids).map_err(|e| e.to_string())
 }
 
+// ─── User playlists (#60) — sled-backed, add-from-anywhere ─────────────────
+
+pub use musico_recommender::user_playlists::{PlaylistTrack, UserPlaylist};
+
+/// Creates a playlist; the returned (fresh) entity carries its generated id.
+#[tauri::command]
+pub fn playlist_create(state: State<AppState>, name: String) -> Result<UserPlaylist, String> {
+    rec(&state)?.playlist_create(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn playlist_list(state: State<AppState>) -> Result<Vec<UserPlaylist>, String> {
+    rec(&state)?.playlist_list().map_err(|e| e.to_string())
+}
+
+/// Bool, not unit (the Ok(())→null IPC trap): the frontend gates toasts on
+/// the return value.
+#[tauri::command]
+pub fn playlist_rename(state: State<AppState>, id: String, name: String) -> Result<bool, String> {
+    rec(&state)?.playlist_rename(&id, &name).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn playlist_delete(state: State<AppState>, id: String) -> Result<bool, String> {
+    rec(&state)?.playlist_delete(&id).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Appends a track; returns the playlist's new track count (drives the
+/// "Added — 12 songs" toast).
+#[tauri::command]
+pub fn playlist_add_track(
+    state: State<AppState>,
+    id: String,
+    track: PlaylistTrack,
+) -> Result<usize, String> {
+    rec(&state)?
+        .playlist_add_track(&id, track)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn playlist_remove_track(
+    state: State<AppState>,
+    id: String,
+    index: usize,
+) -> Result<bool, String> {
+    rec(&state)?
+        .playlist_remove_track(&id, index)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Drag-and-drop reorder: remove at `from`, insert at `to`.
+#[tauri::command]
+pub fn playlist_move_track(
+    state: State<AppState>,
+    id: String,
+    from: usize,
+    to: usize,
+) -> Result<bool, String> {
+    rec(&state)?
+        .playlist_move_track(&id, from, to)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// Fast-fail guard for every network-reaching command.  Airplane mode
 /// (C4.3) makes online commands return in <10 ms with an honest message
 /// instead of hanging on a doomed request.

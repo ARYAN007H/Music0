@@ -60,6 +60,7 @@ pub mod profile;
 pub mod recommender;
 pub mod session;
 pub mod stats;
+pub mod user_playlists;
 pub mod vector_store;
 
 pub use errors::RecommenderError;
@@ -351,6 +352,40 @@ impl MusicRecommender {
         ids: &[String],
     ) -> Result<Vec<String>, RecommenderError> {
         library::contains(&self.store, kind, ids)
+    }
+
+    // ─── User playlists (#60) — thin delegation to user_playlists.rs ────────
+
+    pub fn playlist_create(&self, name: &str) -> Result<user_playlists::UserPlaylist, RecommenderError> {
+        user_playlists::create(&self.store, name)
+    }
+
+    pub fn playlist_list(&self) -> Result<Vec<user_playlists::UserPlaylist>, RecommenderError> {
+        user_playlists::list(&self.store)
+    }
+
+    pub fn playlist_rename(&self, id: &str, name: &str) -> Result<(), RecommenderError> {
+        user_playlists::rename(&self.store, id, name)
+    }
+
+    pub fn playlist_delete(&self, id: &str) -> Result<(), RecommenderError> {
+        user_playlists::delete(&self.store, id)
+    }
+
+    pub fn playlist_add_track(
+        &self,
+        id: &str,
+        track: user_playlists::PlaylistTrack,
+    ) -> Result<usize, RecommenderError> {
+        user_playlists::add_track(&self.store, id, track)
+    }
+
+    pub fn playlist_remove_track(&self, id: &str, index: usize) -> Result<(), RecommenderError> {
+        user_playlists::remove_track(&self.store, id, index)
+    }
+
+    pub fn playlist_move_track(&self, id: &str, from: usize, to: usize) -> Result<(), RecommenderError> {
+        user_playlists::move_track(&self.store, id, from, to)
     }
 
     // ─── Batch downloads (C4.2) — thin delegation to batch.rs ───────────────
