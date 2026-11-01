@@ -139,6 +139,15 @@ fn parse_list_item(renderer: &serde_json::Value) -> Option<OnlineTrack> {
         .and_then(|u| u.as_str())
         .map(|u| upscale_thumbnail(u));
 
+    // ---- Artist page link (#62): the first browse link in the artist/
+    // album/duration column is the artist's; only UC* ids are artists.
+    let artist_browse_id = flex
+        .get(1)
+        .and_then(|c| c.pointer("/musicResponsiveListItemFlexColumnRenderer/text"))
+        .and_then(find_first_browse_link)
+        .filter(|(id, _)| id.starts_with("UC"))
+        .map(|(id, _)| id);
+
     let cached = cached_file(&video_id).is_some();
 
     Some(OnlineTrack {
@@ -150,6 +159,7 @@ fn parse_list_item(renderer: &serde_json::Value) -> Option<OnlineTrack> {
         thumbnail,
         cached,
         source: String::new(),
+        artist_browse_id,
     })
 }
 
@@ -278,6 +288,9 @@ pub(crate) fn parse_radio_response(json: &serde_json::Value) -> Vec<OnlineTrack>
             thumbnail,
             cached: cached_file(video_id).is_some(),
             source: String::new(),
+            // playlistPanelVideoRenderer rows carry no artist browse link —
+            // the expanded player falls back to a name search for these.
+            artist_browse_id: None,
         });
     }
     tracks
@@ -503,6 +516,45 @@ mod tests {
         // Missing / drifted contents → empty, never an error.
         assert!(parse_search_suggestions(&serde_json::json!({})).is_empty());
         assert!(parse_search_suggestions(&serde_json::json!({"contents": 5})).is_empty());
+    }
+
+    #[test]
+    fn list_item_extracts_artist_browse_link() {
+        // The first browse link in the artist column is the artist's UC* id;
+        // later album (MPREb*) links must not shadow it (#62).
+        let row = serde_json::json!({
+            "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                    {"text": "Believer", "navigationEndpoint": {"watchEndpoint": {"videoId": "v1"}}}
+                ]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                    {"text": "Imagine Dragons",
+                     "navigationEndpoint": {"browseEndpoint": {"browseId": "UC123artist"}}},
+                    {"text": " • "},
+                    {"text": "Evolve",
+                     "navigationEndpoint": {"browseEndpoint": {"browseId": "MPREbAlbum"}}},
+                    {"text": " • 3:24"}
+                ]}}}
+            ]
+        });
+        let t = parse_list_item(&row).expect("row parses");
+        assert_eq!(t.artist_browse_id.as_deref(), Some("UC123artist"));
+
+        // Album-first layout (no artist link) → None, not a mis-taken id.
+        let bare = serde_json::json!({
+            "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                    {"text": "Song", "navigationEndpoint": {"watchEndpoint": {"videoId": "v2"}}}
+                ]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                    {"text": "Some Album",
+                     "navigationEndpoint": {"browseEndpoint": {"browseId": "MPREb1"}}},
+                    {"text": " • 3:00"}
+                ]}}}
+            ]
+        });
+        let t = parse_list_item(&bare).expect("row parses");
+        assert_eq!(t.artist_browse_id, None);
     }
 }
 

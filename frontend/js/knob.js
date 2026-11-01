@@ -5,36 +5,43 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 const Knob = (() => {
-  const slider = document.getElementById('mini-volume');
+  // Every volume surface shares one state: the mini player strip AND the
+  // expanded player's volume row (#62).  Dragging either updates all of
+  // them and sends one throttled IPC stream.
+  const sliders = [...document.querySelectorAll('#mini-volume, #fs-volume')];
 
   let lastSent = 0; // IPC throttle while the slider is being dragged
 
   function init() {
-    if (!slider) return;
+    if (!sliders.length) return;
     setVolume(App.state.volume, false);
 
-    slider.addEventListener('input', () => {
-      const vol = Number(slider.value) / 100;
-      // Update internal state + visuals but throttle IPC while scrubbing
-      applyVolume(vol);
-      const now = Date.now();
-      if (now - lastSent > 100) {
-        lastSent = now;
-        Bridge.invoke('set_volume', { volume: vol });
-      }
-    });
+    sliders.forEach((slider) => {
+      slider.addEventListener('input', () => {
+        const vol = Number(slider.value) / 100;
+        // Update internal state + visuals but throttle IPC while scrubbing
+        applyVolume(vol);
+        const now = Date.now();
+        if (now - lastSent > 100) {
+          lastSent = now;
+          Bridge.invoke('set_volume', { volume: vol });
+        }
+      });
 
-    // Flush the final value when the drag ends
-    slider.addEventListener('change', () => {
-      Bridge.invoke('set_volume', { volume: Number(slider.value) / 100 });
+      // Flush the final value when the drag ends
+      slider.addEventListener('change', () => {
+        Bridge.invoke('set_volume', { volume: Number(slider.value) / 100 });
+      });
     });
   }
 
   function applyVolume(vol) {
     App.state.volume = vol;
-    if (slider && Number(slider.value) !== Math.round(vol * 100)) {
-      slider.value = String(Math.round(vol * 100));
-    }
+    sliders.forEach((slider) => {
+      if (slider && Number(slider.value) !== Math.round(vol * 100)) {
+        slider.value = String(Math.round(vol * 100));
+      }
+    });
   }
 
   function setVolume(vol, notify = true) {

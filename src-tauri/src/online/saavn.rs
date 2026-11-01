@@ -258,6 +258,7 @@ fn song_to_track(s: SongJson) -> Option<OnlineTrack> {
         thumbnail: s.image.as_deref().map(upscale_image),
         cached: false,
         source: SOURCE.to_string(),
+        artist_browse_id: None,
     };
     Some(badge_cached(track))
 }
@@ -560,6 +561,7 @@ mod tests {
             thumbnail: None,
             cached: false,
             source: SOURCE.into(),
+            artist_browse_id: None,
         };
         assert!(resolve_track(&bad, true).is_err());
     }
@@ -630,6 +632,7 @@ mod tests {
             thumbnail: None,
             cached: false,
             source: SOURCE.into(),
+            artist_browse_id: None,
         };
         // Below MIN_FILE_BYTES → honest error, nothing on disk.
         assert!(land_audio(&track, &[0u8; 1024]).is_err());

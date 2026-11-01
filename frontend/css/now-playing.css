@@ -406,6 +406,35 @@
   gap: var(--space-20);
 }
 
+/* ─── Volume row (#62): the expanded player's AM-style volume slider ────────── */
+.volume-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-secondary, inherit);
+}
+.volume-row svg { width: 16px; height: 16px; opacity: 0.6; flex: none; }
+.volume-row input[type="range"] {
+  width: 180px;
+  accent-color: var(--accent, #9d8cff);
+  cursor: pointer;
+}
+
+/* ─── Artist link (#62): tap the artist in the expanded player ──────────────── */
+.np-artist-link {
+  cursor: pointer;
+  text-decoration: none;
+  transition: color var(--duration-fast, 120ms) ease;
+}
+.np-artist-link:hover { color: var(--accent, #9d8cff); text-decoration: underline; }
+.np-artist-link:focus-visible {
+  outline: 2px solid var(--accent, #9d8cff);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .transport-btn {
   display: flex;
   align-items: center;

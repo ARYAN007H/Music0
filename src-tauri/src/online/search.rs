@@ -134,6 +134,7 @@ mod tests {
                 thumbnail: None,
                 cached: false,
                 source: String::new(),
+                artist_browse_id: None,
             }],
             next_continuation: None,
         };

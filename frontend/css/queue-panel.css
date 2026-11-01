@@ -66,6 +66,15 @@
 .qp-row.qp-current { background: var(--accent-tint, rgba(157, 140, 255, 0.14)); }
 .qp-row.qp-current .qp-title { color: var(--accent-text, inherit); }
 
+/* Drag-to-reorder (#62) */
+.qp-row[draggable="true"] { cursor: grab; }
+.qp-row.qp-dragging { opacity: 0.45; }
+.qp-row.qp-drag-over {
+  outline: 2px solid var(--accent, #9d8cff);
+  outline-offset: -2px;
+  border-radius: inherit;
+}
+
 .qp-art {
   width: 38px;
   height: 38px;

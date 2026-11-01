@@ -252,6 +252,42 @@ pub fn clear_queue(handle: AppHandle, state: State<AppState>) {
     emit_queue(&handle, &state);
 }
 
+/// Reorders the upcoming queue (drag-to-reorder in the Playing Next panel,
+/// #62): the song at `from` ends up at index `to` of the resulting list.
+/// Returns whether anything moved; the queue-changed event refreshes the UI.
+#[tauri::command]
+pub fn queue_move(handle: AppHandle, state: State<AppState>, from: usize, to: usize) -> bool {
+    let moved = state
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .move_at(from, to);
+    if moved {
+        emit_queue(&handle, &state);
+    }
+    moved
+}
+
+/// Jumps to an upcoming song (#62): removes it from the queue and plays it
+/// NOW through the normal path (listen tracking, normalization, pre-resolve,
+/// radio warmup — the same route [`crate::event_bridge::play_and_track`]
+/// gives every play).  Queue rows are pre-resolved, so this is instant.
+#[tauri::command]
+pub fn queue_play_at(handle: AppHandle, state: State<AppState>, index: usize) -> Result<(), String> {
+    let song = state
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove_at(index)
+        .ok_or_else(|| format!("queue index {index} out of range"))?;
+    let eng = engine(&state)?;
+    if !crate::event_bridge::play_and_track(&eng, &state, song) {
+        return Err("failed to play the selected queue song".into());
+    }
+    emit_queue(&handle, &state);
+    Ok(())
+}
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 #[tauri::command]

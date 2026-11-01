@@ -89,17 +89,21 @@ const Online = (() => {
     const box = document.getElementById('browse-suggest');
     if (!box) return;
     suggestIndex = -1;
+    document.getElementById('browse-input')?.setAttribute('aria-expanded', 'false');
     if (!items.length) {
       box.hidden = true;
       box.innerHTML = '';
       return;
     }
     box.innerHTML = items.map((q, i) =>
-      `<div class="suggest-item" role="option" data-q="${escapeAttr(q)}" data-i="${i}">` +
+      `<div class="suggest-item" role="option" id="suggest-opt-${i}" data-q="${escapeAttr(q)}" data-i="${i}">` +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="suggest-icon"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>' +
       `<span>${escapeHtml(q)}</span></div>`
     ).join('');
     box.hidden = false;
+    // Combobox contract (#68 review nit): the input owns the list and
+    // announces it as expanded once options exist.
+    document.getElementById('browse-input')?.setAttribute('aria-expanded', 'true');
   }
 
   function closeSuggestions() {
@@ -113,6 +117,9 @@ const Online = (() => {
       box.innerHTML = '';
     }
     suggestIndex = -1;
+    const input = document.getElementById('browse-input');
+    input?.setAttribute('aria-expanded', 'false');
+    input?.removeAttribute('aria-activedescendant');
   }
 
   // ↑/↓ walks -1 (the input row) .. n-1 and wraps; returns false when there
@@ -122,8 +129,15 @@ const Online = (() => {
     if (!n) return false;
     const pos = ((suggestIndex + 1 + delta) % (n + 1) + (n + 1)) % (n + 1);
     suggestIndex = pos - 1;
-    document.querySelectorAll('#browse-suggest .suggest-item').forEach((r, i) =>
-      r.setAttribute('aria-selected', String(i === suggestIndex)));
+    const rows = document.querySelectorAll('#browse-suggest .suggest-item');
+    rows.forEach((r, i) => r.setAttribute('aria-selected', String(i === suggestIndex)));
+    // Combobox contract: the input points at the highlighted option.
+    const input = document.getElementById('browse-input');
+    if (suggestIndex >= 0 && rows[suggestIndex]?.id) {
+      input?.setAttribute('aria-activedescendant', rows[suggestIndex].id);
+    } else {
+      input?.removeAttribute('aria-activedescendant');
+    }
     return true;
   }
 
@@ -454,14 +468,25 @@ const Online = (() => {
       debounceTimer = setTimeout(() => search(q, { videos: currentVideos() }), DEBOUNCE_MS);
     });
 
+    // Combobox wiring (#68 review nit): the input owns the options list.
+    input?.setAttribute('role', 'combobox');
+    input?.setAttribute('aria-autocomplete', 'list');
+    input?.setAttribute('aria-controls', 'browse-suggest');
+    input?.setAttribute('aria-expanded', 'false');
+
     // Typeahead keyboard nav (#59): ↑/↓ highlight, Enter commits via the
-    // submit handler, Escape closes and keeps focus in the input.
+    // submit handler, Escape closes and keeps focus in the input.  Escape
+    // also preventDefaults (#68 review nit): input[type=search]'s native
+    // Escape-clears-value would empty the query the user meant to keep.
     input?.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown') {
         if (moveSuggestion(1)) e.preventDefault();
       } else if (e.key === 'ArrowUp') {
         if (moveSuggestion(-1)) e.preventDefault();
       } else if (e.key === 'Escape') {
+        // Only intercept while the popover is open — otherwise the native
+        // Escape-clears-search-box affordance keeps working.
+        if (document.querySelector('#browse-suggest .suggest-item')) e.preventDefault();
         closeSuggestions();
       }
     });
