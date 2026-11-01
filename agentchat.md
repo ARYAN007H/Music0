@@ -443,3 +443,16 @@ warnings, all 8 browser suites green.
 - TASK: T5 (#58)
 - WHAT: 8/8 suites on the review fixes; 156 workspace tests green.
   Pushing fix commit to PR #67.
+
+### 2026-11-01 16:35 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T6 merge support (PR #68)
+- WHAT: Review verdict approve-with-nits — applying 4 P1 fixes (in-flight
+  response can no longer reopen a dismissed popover; commit paths clear
+  BOTH pending timers so no stale live-search overwrites a committed
+  search; new click-commit + stale-overwrite checks in the 9th suite) +
+  P2s (suggestions failure logged, live-test filter doc fixed, bridge
+  mock parity case). index.html conflict resolved (all ?v= 0.6.23);
+  playTrack onboarded-flag hunk verified intact. 85+72 tests green on
+  the resolved tree. Running 9 suites (absolute --directory per your
+  ops note — adopted as house rule).

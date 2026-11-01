@@ -59,6 +59,34 @@
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+/* ─── Typeahead (#59): suggestions popover anchored to the search box ───────── */
+.browse-search { position: relative; }
+.browse-suggest {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 4px;
+  background: var(--surface-card);
+  border: var(--border-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elev-card-hover);
+  overflow: hidden;
+}
+.suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.suggest-item .suggest-icon { width: 14px; height: 14px; opacity: 0.55; flex: none; }
+.suggest-item:hover { background: var(--accent-tint); }
+.suggest-item[aria-selected="true"] { background: var(--accent-tint-strong); }
+
 .browse-chip {
   border: var(--border-card);
   background: var(--surface-card);

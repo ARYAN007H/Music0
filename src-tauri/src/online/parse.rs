@@ -153,6 +153,44 @@ fn parse_list_item(renderer: &serde_json::Value) -> Option<OnlineTrack> {
     })
 }
 
+/// Parses the `music/get_search_suggestions` response for the typeahead
+/// (#59).  Shape live-verified 2026-11-01:
+/// `contents[*].searchSuggestionsSectionRenderer.contents[*]
+///  .searchSuggestionRenderer.navigationEndpoint.searchEndpoint.query`
+/// (display text lives in `suggestion.runs[]`; the `query` field is
+/// canonical).  History + completion sections both feed one deduped list in
+/// document order; items without a `searchEndpoint` (premiered-watch rows)
+/// are skipped.  Tolerant: shape drift yields fewer suggestions, never an
+/// error.
+pub(crate) fn parse_search_suggestions(json: &serde_json::Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let Some(groups) = json.get("contents").and_then(|v| v.as_array()) else {
+        return out;
+    };
+    for group in groups {
+        let Some(items) = group
+            .pointer("/searchSuggestionsSectionRenderer/contents")
+            .and_then(|v| v.as_array())
+        else {
+            continue;
+        };
+        for item in items {
+            let Some(q) = item
+                .pointer("/searchSuggestionRenderer/navigationEndpoint/searchEndpoint/query")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|q| !q.is_empty())
+            else {
+                continue;
+            };
+            if !out.iter().any(|s| s == q) {
+                out.push(q.to_string());
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn runs_text(text_obj: &serde_json::Value) -> String {
     if let Some(simple) = text_obj.get("simpleText").and_then(|v| v.as_str()) {
         return simple.to_string();
@@ -427,6 +465,44 @@ mod tests {
         assert_eq!(t.title, "Get Lucky");
         assert_eq!(t.artist, "Daft Punk");
         assert_eq!(t.duration_secs, Some(248));
+    }
+
+    #[test]
+    fn suggestions_parse_both_sections_dedupe_and_skip() {
+        // Fixture mirrors the live-verified shape (2026-11-01): two sections
+        // (history + completions), display runs vs canonical query, a
+        // premiered row without a searchEndpoint, a duplicate, drift.
+        let json = serde_json::json!({
+            "contents": [
+                {"searchSuggestionsSectionRenderer": {"contents": [
+                    {"searchSuggestionRenderer": {
+                        "suggestion": {"runs": [{"text": "belie"}, {"text": "ver"}]},
+                        "navigationEndpoint": {"searchEndpoint": {"query": "believer"}}}},
+                    {"searchSuggestionRenderer": {
+                        "suggestion": {"runs": [{"text": "believer song"}]},
+                        "navigationEndpoint": {"searchEndpoint": {"query": "believer song"}}}},
+                    {"searchSuggestionRenderer": {
+                        "suggestion": {"runs": [{"text": "premiere"}]},
+                        "navigationEndpoint": {"watchEndpoint": {"videoId": "x"}}}}
+                ]}},
+                {"searchSuggestionsSectionRenderer": {"contents": [
+                    {"searchSuggestionRenderer": {
+                        "suggestion": {"runs": [{"text": "believer"}]},
+                        "navigationEndpoint": {"searchEndpoint": {"query": "believer"}}}},
+                    {"someOtherRenderer": {}}
+                ]}},
+                {"driftedSectionRenderer": {}}
+            ]
+        });
+        let out = parse_search_suggestions(&json);
+        assert_eq!(
+            out,
+            vec!["believer", "believer song"],
+            "document order kept; dupes, watch rows and drift skipped"
+        );
+        // Missing / drifted contents → empty, never an error.
+        assert!(parse_search_suggestions(&serde_json::json!({})).is_empty());
+        assert!(parse_search_suggestions(&serde_json::json!({"contents": 5})).is_empty());
     }
 }
 

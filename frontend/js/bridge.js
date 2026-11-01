@@ -142,6 +142,16 @@ const Bridge = (() => {
         // Page-1 mock keeps a fake continuation so "Load more" is testable.
         return Promise.resolve({ tracks: results, next_continuation: 'mock-cont-2' });
       }
+      case 'online_search_suggestions': {
+        // Typeahead preview parity (#59): prefix-match demo titles/artists
+        // so the standalone browser preview shows the popover like the app.
+        if (window.__offline) return Promise.resolve(null);
+        const sq = (args?.query || '').toLowerCase();
+        const pool = [...new Set(DEMO_SONGS.flatMap(s => [s.title, s.artist]))];
+        return Promise.resolve(sq.length >= 2
+          ? pool.filter(t => t.toLowerCase().includes(sq)).slice(0, 10)
+          : []);
+      }
       case 'online_play': {
         const t = args?.track || {};
         mockQueue.push({

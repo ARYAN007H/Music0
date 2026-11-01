@@ -202,6 +202,7 @@ fn main() {
             commands::get_liked_ids,
             // Online (InnerTube + yt-dlp)
             commands::online_search,
+            commands::online_search_suggestions,
             commands::online_home,
             commands::online_browse,
             commands::online_genres,

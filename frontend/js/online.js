@@ -24,6 +24,12 @@ const Online = (() => {
 
   const HISTORY_KEY = 'musico-search-history';
   const DEBOUNCE_MS = 350;
+  // Typeahead (#59): suggestions fire faster than live results and render
+  // in a separate popover, so they get their own timer + sequence guard.
+  const SUGGEST_DEBOUNCE_MS = 200;
+  let suggestTimer = null;
+  let suggestSeq = 0;
+  let suggestIndex = -1;
 
   // ─── Search ─────────────────────────────────────────────────────────────────
   async function search(query, { videos = false, continuation = null, append = false } = {}) {
@@ -68,6 +74,63 @@ const Online = (() => {
       if (append) setLoadMoreState(false);
       else { setStatus(`Search failed: ${e}`); renderResults([]); }
     }
+  }
+
+  // ─── Typeahead (#59): InnerTube suggestions in a popover ────────────────────
+  // API failure = Bridge returns null → popover stays closed, never an error.
+  async function fetchSuggestions(q) {
+    const seq = ++suggestSeq;
+    const items = await Bridge.invoke('online_search_suggestions', { query: q });
+    if (seq !== suggestSeq) return; // a newer keystroke superseded this one
+    renderSuggestions(Array.isArray(items) ? items : []);
+  }
+
+  function renderSuggestions(items) {
+    const box = document.getElementById('browse-suggest');
+    if (!box) return;
+    suggestIndex = -1;
+    if (!items.length) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = items.map((q, i) =>
+      `<div class="suggest-item" role="option" data-q="${escapeAttr(q)}" data-i="${i}">` +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="suggest-icon"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>' +
+      `<span>${escapeHtml(q)}</span></div>`
+    ).join('');
+    box.hidden = false;
+  }
+
+  function closeSuggestions() {
+    // Bump the seq: a suggestion response already in flight is stale the
+    // moment the popover is dismissed (Escape/outside/commit) — without
+    // this it would re-open the closed popover on arrival (#68 review).
+    suggestSeq++;
+    const box = document.getElementById('browse-suggest');
+    if (box) {
+      box.hidden = true;
+      box.innerHTML = '';
+    }
+    suggestIndex = -1;
+  }
+
+  // ↑/↓ walks -1 (the input row) .. n-1 and wraps; returns false when there
+  // is nothing to walk so the keypress falls through untouched.
+  function moveSuggestion(delta) {
+    const n = document.querySelectorAll('#browse-suggest .suggest-item').length;
+    if (!n) return false;
+    const pos = ((suggestIndex + 1 + delta) % (n + 1) + (n + 1)) % (n + 1);
+    suggestIndex = pos - 1;
+    document.querySelectorAll('#browse-suggest .suggest-item').forEach((r, i) =>
+      r.setAttribute('aria-selected', String(i === suggestIndex)));
+    return true;
+  }
+
+  function activeSuggestionQuery() {
+    if (suggestIndex < 0) return null;
+    const row = document.querySelectorAll('#browse-suggest .suggest-item')[suggestIndex];
+    return row ? row.dataset.q : null;
   }
 
   function setStatus(text) {
@@ -370,16 +433,61 @@ const Online = (() => {
     form?.addEventListener('submit', (e) => {
       e.preventDefault();
       clearTimeout(debounceTimer);
-      const q = input.value.trim();
+      clearTimeout(suggestTimer);
+      // A highlighted suggestion wins over the raw input text (#59).
+      const q = (activeSuggestionQuery() ?? input.value).trim();
+      closeSuggestions();
       if (q) search(q, { videos: currentVideos() });
     });
 
     // Live search: debounce so fast typing fires one request, min 2 chars.
+    // Suggestions ride the same input on a faster 200 ms debounce (#59).
     input?.addEventListener('input', () => {
       clearTimeout(debounceTimer);
+      clearTimeout(suggestTimer);
       const q = input.value.trim();
-      if (q.length < 2) return;
+      if (q.length < 2) {
+        closeSuggestions();
+        return;
+      }
+      suggestTimer = setTimeout(() => fetchSuggestions(q), SUGGEST_DEBOUNCE_MS);
       debounceTimer = setTimeout(() => search(q, { videos: currentVideos() }), DEBOUNCE_MS);
+    });
+
+    // Typeahead keyboard nav (#59): ↑/↓ highlight, Enter commits via the
+    // submit handler, Escape closes and keeps focus in the input.
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        if (moveSuggestion(1)) e.preventDefault();
+      } else if (e.key === 'ArrowUp') {
+        if (moveSuggestion(-1)) e.preventDefault();
+      } else if (e.key === 'Escape') {
+        closeSuggestions();
+      }
+    });
+
+    // Pointerdown (not click): commits before the input's blur can close the
+    // popover, and preventDefault keeps keyboard focus in the input.
+    document.getElementById('browse-suggest')?.addEventListener('pointerdown', (e) => {
+      const row = e.target.closest('.suggest-item');
+      if (!row) return;
+      e.preventDefault();
+      const q = row.dataset.q;
+      // Clear BOTH pending timers: the 350 ms live-search captured the raw
+      // prefix and would otherwise overwrite the committed search with the
+      // stale query (#68 review).
+      clearTimeout(debounceTimer);
+      clearTimeout(suggestTimer);
+      closeSuggestions();
+      if (q) {
+        input.value = q;
+        search(q, { videos: currentVideos() });
+      }
+    });
+
+    // Click anywhere outside the search box dismisses the popover.
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('#browse-form')) closeSuggestions();
     });
 
     // '/' focuses search from anywhere (except while typing in another field).
