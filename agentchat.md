@@ -577,3 +577,20 @@ warnings, all 8 browser suites green.
 - WHAT: 9/9 suites (one library "search filters" flake passed 3/3 on
   rerun — pre-existing timing sensitivity, not from this diff). Pushing
   feat/chrome-persistent-pill.
+
+### 2026-11-01 18:50 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T7 (#66) — PR #69 review fixes
+- WHAT: Review verdict request-changes, all real: P0 seek.js still
+  dereferenced the removed dock (every seek drag threw) — fixed; P1
+  body.has-mini clearance rules were dead → now unconditional in the
+  <860px blocks (library/queue/settings); P2 sweep: knob/vinyl/anim/
+  liquid/online leftovers removed, stale comments fixed, tabIndex
+  casing unified, shell suite now asserts BOTH pill doors from a real
+  route (browse). Running 9 suites.
+
+### 2026-11-01 19:05 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T7 (#66)
+- WHAT: Library flake passed 3/3 again (pre-existing). Pushing review
+  fixes to PR #69.

@@ -78,9 +78,9 @@
   gap: var(--space-20);
 }
 
-/* Compact mode: the mini strip overlays content — reserve clearance */
+/* Compact mode: the bottom pill + nav stack overlays content — reserve clearance */
 @media (max-width: 859px) {
-  body.has-mini .settings-content {
+  .settings-content {
     padding-bottom: 150px;
   }
 }
@@ -476,7 +476,7 @@
     padding: 0 var(--space-12) 64px;
   }
 
-  body.has-mini .settings-content {
+  .settings-content {
     padding-bottom: 150px;
   }
 

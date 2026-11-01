@@ -84,7 +84,12 @@ check('browse search works', await page.evaluate(() =>
   document.querySelectorAll('#browse-results .browse-row').length > 0));
 // The pill's explicit door to the big player (#66): art/title region AND the
 // expand button both navigate to the expanded Now Playing view.
-await page.evaluate(() => App.navigateTo('home'));
+await page.evaluate(() => App.navigateTo('browse'));
+await page.waitForTimeout(150);
+await page.click('.transport-left .lcd-open');
+check('pill art/title opens the full player', await page.evaluate(() =>
+  document.getElementById('view-now-playing')?.classList.contains('active')));
+await page.evaluate(() => App.navigateTo('browse'));
 await page.waitForTimeout(150);
 await page.click('#btn-open-player');
 check('pill expand opens the full player', await page.evaluate(() =>

@@ -500,7 +500,7 @@ const App = (() => {
     }
   }
 
-  // Push the song's identity into all the Now Playing + mini player surfaces
+  // Push the song's identity into the Now Playing surfaces
   function setNowPlayingUi(song) {
     document.getElementById('np-title').textContent = song.title;
     document.getElementById('np-artist').textContent = `${song.artist} · ${song.album}`;
@@ -508,7 +508,7 @@ const App = (() => {
     document.getElementById('time-total').textContent = formatTime(song.duration_secs);
     document.getElementById('time-current').textContent = formatTime(state.position);
 
-    // One art identity across vinyl label + dock (real covers override later)
+    // One art identity across vinyl label + art square (real covers override later)
     const grad = artFor(song);
     document.getElementById('vinyl-label')?.style.setProperty('--art-grad', grad);
     // Art square (normal-mode now playing) + reset any online thumbnail

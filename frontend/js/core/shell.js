@@ -236,7 +236,7 @@ function TransportBar() {
   return html`
     <div class="transport-bar">
     <div class="transport-left">
-      <div class="lcd-open" role="button" tabIndex="0" aria-label="Open the full player"
+      <div class="lcd-open" role="button" tabindex="0" aria-label="Open the full player"
            title="Open the full player"
            onClick=${openFullPlayer}
            onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFullPlayer(); } }}>
