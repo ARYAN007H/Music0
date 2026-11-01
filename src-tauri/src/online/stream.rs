@@ -278,8 +278,13 @@ pub fn resolve_stream(video_id: &str, budget: Duration) -> Result<PathBuf, Strin
 pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, String> {
     // Multi-source dispatch (#54): saavn tracks resolve through the direct-URL
     // path (no yt-dlp anywhere); the yt-dlp flow below is untouched for YT ids.
-    if track.source == "saavn" {
+    if track.source == super::saavn::SOURCE {
         return super::saavn::resolve_track(track, interactive);
+    }
+    // A future/typo'd source string must not silently fall into the yt-dlp
+    // path with a non-YT id — fail honestly instead.
+    if !track.source.is_empty() && track.source != "yt" {
+        return Err(format!("unknown online source `{}`", track.source));
     }
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let result = if interactive {

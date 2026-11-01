@@ -661,6 +661,15 @@ pub fn online_download_batch(
     label: String,
     tracks: Vec<OnlineTrack>,
 ) -> Result<String, String> {
+    // Batch resolves through resolve_stream (YT namespace); a saavn track
+    // here would resolve against the wrong cache namespace.  Guard until the
+    // batch gains source-awareness (#54 scope note).
+    if tracks
+        .iter()
+        .any(|t| !t.source.is_empty() && t.source != "yt")
+    {
+        return Err("batch downloads support YouTube tracks only".into());
+    }
     let pairs: Vec<(String, String)> = tracks
         .iter()
         .map(|t| (t.video_id.clone(), t.title.clone()))
@@ -796,10 +805,11 @@ pub async fn online_search(
         let mut page =
             crate::online::search(&query, videos.unwrap_or(false), continuation.as_deref())?;
         // JioSaavn rides along as an independent source block on the first
-        // page only (#54) — continuation pages are pure YT.  search_songs
-        // contains its own failures (returns [] on any error), so the YT
-        // results can never be poisoned by the saavn side.
-        if continuation.is_none() {
+        // page only (#54) — continuation pages are pure YT, and so is the
+        // Videos chip (saavn rows are songs).  search_songs contains its own
+        // failures (returns [] on any error), so the YT results can never be
+        // poisoned by the saavn side.
+        if continuation.is_none() && !videos.unwrap_or(false) {
             page.tracks.extend(crate::online::search_songs(
                 &query,
                 crate::online::SEARCH_MERGE_LIMIT,

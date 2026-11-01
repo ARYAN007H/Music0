@@ -60,9 +60,10 @@ const API_TIMEOUT: Duration = Duration::from_secs(3);
 const RESOLVE_BUDGET: Duration = Duration::from_secs(240);
 /// Interactive resolve budget, mirroring `stream::PLAY_RESOLVE_BUDGET`.
 const PLAY_BUDGET: Duration = Duration::from_secs(90);
-/// Download hard cap — a full-length 320 kbps track is ~10 MB; anything past
-/// this is not a song.
-const MAX_AUDIO_BYTES: u64 = 128 * 1024 * 1024;
+/// Download hard cap — 3× a full-length 320 kbps track (~10 MB); anything
+/// past this is not a song.  Buffering whole-body means the cap is also the
+/// worst-case RAM spike per resolve.
+const MAX_AUDIO_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Dedicated client: saavn is an independent upstream — its failures must not
 /// share connection-pool state with InnerTube traffic.  Per-request timeouts
@@ -131,8 +132,6 @@ struct SongJson {
     subtitle: Option<String>,
     #[serde(default, deserialize_with = "opt_loose_string")]
     image: Option<String>,
-    #[serde(default, deserialize_with = "opt_loose_string")]
-    year: Option<String>,
     #[serde(default)]
     more_info: Option<MoreInfoJson>,
 }
@@ -220,7 +219,7 @@ fn song_to_track(s: SongJson) -> Option<OnlineTrack> {
         return None;
     }
     let id = s.id?.trim().to_string();
-    if id.is_empty() {
+    if !valid_saavn_id(&id) {
         return None;
     }
     let title = unescape_html(s.title.as_deref().unwrap_or_default().trim());
@@ -263,6 +262,18 @@ fn song_to_track(s: SongJson) -> Option<OnlineTrack> {
     Some(badge_cached(track))
 }
 
+/// Saavn ids become cache filenames (`saavn:{id}.mp4`), and they arrive both
+/// from the untrusted API and verbatim from webview IPC — only a strict
+/// charset may touch a path join.  `[A-Za-z0-9_-]` (same class as YT ids)
+/// excludes `.`, `/`, and separators, so traversal is impossible.
+fn valid_saavn_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 /// Recomputes the instant-playback badge from the stream cache (`saavn:{id}`
 /// namespace — a cached saavn track never crosses a YT cache entry).
 fn badge_cached(mut track: OnlineTrack) -> OnlineTrack {
@@ -279,9 +290,19 @@ fn badge_cached(mut track: OnlineTrack) -> OnlineTrack {
 /// Same contract as the yt-dlp path, minus yt-dlp (the URL is direct).
 pub(crate) fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, String> {
     let _lock = id_lock(&track.video_id);
+    // The round-tripped track is as untrusted as the API row — the id never
+    // reaches a path join unchecked (P1 review fix; `song_to_track` gates
+    // the search side).
+    if !valid_saavn_id(&track.video_id) {
+        return Err("saavn resolve: invalid track id".into());
+    }
     if let Some(path) = stream::cached_file(&track.song_id()) {
         return Ok(path);
     }
+    // Art fetch shadows the download (same rule as stream::resolve_track):
+    // spawned up front, joined before the Playing event so the cover is on
+    // disk when the frontend looks.
+    let cover = stream::CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let deadline = Instant::now() + if interactive { PLAY_BUDGET } else { RESOLVE_BUDGET };
 
     let song = song_details(&track.video_id)?;
@@ -295,19 +316,14 @@ pub(crate) fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<Pa
     let base = decrypt_media_url(enc).ok_or("saavn resolve: media url decrypt failed")?;
     let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
 
-    // Bitrate ladder: prefer _320, fall back to the _96 baseline when the
-    // CDN rejects the 320 URL (some catalog entries declare 320 but serve
-    // only 96) — one honest error if every rung fails.
-    let mut candidates = Vec::new();
-    if has_320 {
-        candidates.push(base.replace("_96", "_320"));
-    }
-    candidates.push(base);
     let mut last_err = String::new();
-    for url in candidates {
+    for url in media_candidates(&base, has_320) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match fetch_audio(&url, remaining).and_then(|bytes| land_audio(track, &bytes)) {
-            Ok(path) => return Ok(path),
+            Ok(path) => {
+                cover.join();
+                return Ok(path);
+            }
             Err(e) => last_err = e,
         }
     }
@@ -365,14 +381,19 @@ fn decrypt_media_url(enc: &str) -> Option<String> {
     (url.starts_with("https://aac.saavncdn.com/") && url.contains("_96.")).then_some(url)
 }
 
-/// Best available stream: `_320` when the song declares 320 kbps, else the
-/// decrypted `_96` baseline (#54: fall back, never guess).
-fn pick_stream_url(base: &str, has_320: bool) -> String {
+/// Bitrate ladder (#54: fall back, never guess) — the rungs `resolve_track`
+/// tries, in order.  The `_320` substitution is anchored to the filename
+/// suffix (the decrypt allowlist guarantees `_96.` in a `…_96.mp4` URL) so a
+/// path segment that merely contains `_96` is never rewritten.  The
+/// decrypted `_96` baseline is always a rung: some catalog entries declare
+/// 320 but the CDN serves only 96.
+fn media_candidates(base: &str, has_320: bool) -> Vec<String> {
+    let mut candidates = Vec::new();
     if has_320 {
-        base.replace("_96", "_320")
-    } else {
-        base.to_string()
+        candidates.push(base.replace("_96.mp4", "_320.mp4"));
     }
+    candidates.push(base.to_string());
+    candidates
 }
 
 /// Real fetcher: GET the direct CDN URL, size-capped, whole-body buffer
@@ -386,6 +407,18 @@ fn fetch_audio(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("saavn download: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("saavn download: HTTP {}", resp.status()));
+    }
+    // A 200 with a non-audio body (bot wall, error page) ≥ MIN_FILE_BYTES
+    // would otherwise land as a cached "track" forever — same gate as the
+    // Piped/Invidious fast path.
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !ctype.starts_with("audio/") {
+        return Err(format!("saavn download: content-type `{ctype}` is not audio"));
     }
     // Cap BEFORE reading so a drifted/renamed URL can't buffer gigabytes.
     let len = resp.content_length().unwrap_or(0);
@@ -402,9 +435,9 @@ fn fetch_audio(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
 
 /// Verifies + lands the audio in the stream cache: `MIN_FILE_BYTES` check,
 /// `.part` first → atomic rename (a killed resolve never leaves a
-/// "complete" file short of bytes), prune, then cover polish under the
-/// download's shadow.  Split from the network path so tests can land
-/// fixture bytes hermetically.
+/// "complete" file short of bytes), prune.  Cover art is shadowed by
+/// [`resolve_track`] (spawned before the download, joined on success).
+/// Split from the network path so tests can land fixture bytes hermetically.
 fn land_audio(track: &OnlineTrack, bytes: &[u8]) -> Result<PathBuf, String> {
     if (bytes.len() as u64) < stream::MIN_FILE_BYTES {
         return Err(format!(
@@ -419,11 +452,6 @@ fn land_audio(track: &OnlineTrack, bytes: &[u8]) -> Result<PathBuf, String> {
     std::fs::write(&part, bytes).map_err(|e| format!("saavn cache write: {e}"))?;
     std::fs::rename(&part, &final_path).map_err(|e| format!("saavn cache rename: {e}"))?;
     stream::prune_cache_to_cap();
-
-    // The art must be on disk before the Playing event — the frontend caches
-    // a null cover forever on a miss (same rule as the yt-dlp path).
-    let cover = stream::CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
-    cover.join();
     Ok(final_path)
 }
 
@@ -485,8 +513,55 @@ mod tests {
         assert!(decrypt_media_url("!!! not base64 !!!").is_none());
         // 5 bytes — not block-aligned.
         assert!(decrypt_media_url("c2hvcnQ=").is_none());
-        // Decrypts but not a saavncdn URL — must not be handed to fetch.
+        // 19 bytes — also not block-aligned.
         assert!(decrypt_media_url("AAAAAAAAAAAAAAAAAAAAAAAAAA==").is_none());
+    }
+
+    #[test]
+    fn decrypt_allowlist_rejects_non_saavncdn_plaintext() {
+        // Valid PKCS7-padded DES-ECB ciphertext of a well-formed but
+        // non-saavncdn URL — exercises the URL allowlist branch (the last
+        // defense before the app fetches a third-party-chosen URL).
+        use base64::Engine as _;
+        use des::cipher::generic_array::GenericArray;
+        use des::cipher::block_padding::Pkcs7;
+        use des::cipher::{BlockEncryptMut, KeyInit};
+
+        type DesEcbEnc = ecb::Encryptor<des::Des>;
+        let plaintext = b"https://evil.example.com/a_96.mp4";
+        let ct = DesEcbEnc::new(GenericArray::from_slice(MEDIA_KEY))
+            .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
+        let enc = base64::engine::general_purpose::STANDARD.encode(ct);
+        assert!(decrypt_media_url(&enc).is_none(), "allowlist must reject");
+    }
+
+    #[test]
+    fn ids_outside_the_charset_never_resolve_or_map() {
+        assert!(valid_saavn_id("BeXBcbVK"));
+        assert!(valid_saavn_id("0W6DtW_N"));
+        assert!(!valid_saavn_id(""));
+        assert!(!valid_saavn_id("../evil"));
+        assert!(!valid_saavn_id("a/b"));
+        assert!(!valid_saavn_id("with space"));
+        assert!(!valid_saavn_id("a.mp4"));
+        // Search rows with hostile ids are dropped, not mapped.
+        let row: SongJson = serde_json::from_str(
+            r#"{"id":"../evil","type":"song","title":"T"}"#,
+        )
+        .expect("row parses");
+        assert!(song_to_track(row).is_none());
+        // And the resolve path rejects them even round-tripped from IPC.
+        let bad = OnlineTrack {
+            video_id: "../evil".into(),
+            title: "T".into(),
+            artist: String::new(),
+            album: String::new(),
+            duration_secs: None,
+            thumbnail: None,
+            cached: false,
+            source: SOURCE.into(),
+        };
+        assert!(resolve_track(&bad, true).is_err());
     }
 
     #[test]
@@ -497,9 +572,13 @@ mod tests {
     }
 
     #[test]
-    fn pick_stream_url_falls_back_without_320() {
-        assert!(pick_stream_url(LIVE_PT_96, true).ends_with("_320.mp4"));
-        assert_eq!(pick_stream_url(LIVE_PT_96, false), LIVE_PT_96);
+    fn media_ladder_prefers_320_and_always_keeps_the_baseline() {
+        let ladder = media_candidates(LIVE_PT_96, true);
+        assert_eq!(ladder.len(), 2, "_320 rung + baseline");
+        assert!(ladder[0].ends_with("_320.mp4"), "anchored substitution: {}", ladder[0]);
+        assert_eq!(ladder[1], LIVE_PT_96);
+        // Without a 320 declaration: baseline only.
+        assert_eq!(media_candidates(LIVE_PT_96, false), vec![LIVE_PT_96.to_string()]);
     }
 
     #[test]
