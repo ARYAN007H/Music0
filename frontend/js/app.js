@@ -1252,6 +1252,16 @@ const App = (() => {
     container.classList.remove('as-rows');
     container.innerHTML = '';
 
+    if (!state.recommendations.length) {
+      // Empty-library case (fresh install, no taste signal yet) — never a
+      // fully blank pane (#50 follow-up).
+      const msg = document.createElement('div');
+      msg.className = 'np-empty';
+      msg.textContent = 'No suggestions yet — like a few songs and they will come.';
+      container.appendChild(msg);
+      return;
+    }
+
     state.recommendations.forEach((song) => {
       const card = document.createElement('div');
       card.className = 'rec-card';
@@ -1301,8 +1311,11 @@ const App = (() => {
     if (String(song?.id || '').startsWith('yt:')) {
       fetchSuggested(String(song.id).slice(3));
     } else {
+      // Local track: restore the taste-engine recommendation cards.  The pane
+      // may still hold another song's Suggested rows, so re-render — but never
+      // blank it with the online empty-state over a populated panel (#50).
       state.suggested = null;
-      renderNpExtra();
+      renderRecommendations();
     }
   }
 
@@ -1316,11 +1329,28 @@ const App = (() => {
     renderSuggestedLoading();
     Bridge.invoke('online_related', { videoId }).then((rows) => {
       if (seq !== suggestedSeq) return; // the song changed while fetching
-      const list = Array.isArray(rows) ? rows : [];
-      suggestedCache.set(videoId, list);
+      // Bridge.invoke resolves null on IPC failure (it never rejects) — a
+      // non-array result IS the failure path: surface it honestly instead
+      // of caching an empty list that would block retries all session (#49).
+      if (!Array.isArray(rows)) {
+        const current = state.currentSong;
+        if (!current || String(current.id) !== `yt:${videoId}`) return;
+        state.suggested = { videoId, rows: [], error: true };
+        renderNpExtra();
+        return;
+      }
+      suggestedCache.set(videoId, rows);
       const current = state.currentSong;
       if (!current || String(current.id) !== `yt:${videoId}`) return;
-      state.suggested = { videoId, rows: list };
+      state.suggested = { videoId, rows };
+      renderNpExtra();
+    }).catch((err) => {
+      // Defensive: if invoke ever propagates rejections, same honest path.
+      console.error('[musico] online_related failed:', err);
+      if (seq !== suggestedSeq) return;
+      const current = state.currentSong;
+      if (!current || String(current.id) !== `yt:${videoId}`) return;
+      state.suggested = { videoId, rows: [], error: true };
       renderNpExtra();
     });
   }
@@ -1387,7 +1417,9 @@ const App = (() => {
     if (!rows.length) {
       const msg = document.createElement('div');
       msg.className = 'np-empty';
-      msg.textContent = 'No suggestions right now — like a few songs and they will come.';
+      msg.textContent = state.suggested?.error
+        ? 'Couldn\'t load suggestions — check your connection.'
+        : 'No suggestions right now — like a few songs and they will come.';
       container.appendChild(msg);
       return;
     }
@@ -1433,10 +1465,27 @@ const App = (() => {
       loading.className = 'lyric-line lyric-plain';
       loading.textContent = 'Fetching lyrics…';
       list.appendChild(loading);
-      const text = await Bridge.invoke('online_lyrics', { videoId });
-      lyricsTextCache.set(videoId, text);
-      if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
-        renderPlainLyrics(text);
+      try {
+        const text = await Bridge.invoke('online_lyrics', { videoId });
+        // Bridge.invoke resolves null on IPC failure (it never rejects) —
+        // render the empty state but DON'T cache the null, so the next
+        // open of this song retries instead of replaying the failure (#49).
+        if (text == null) {
+          if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
+            renderPlainLyrics('');
+          }
+          return;
+        }
+        lyricsTextCache.set(videoId, text);
+        if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
+          renderPlainLyrics(text);
+        }
+      } catch (err) {
+        // Defensive: same empty state if invoke ever propagates rejections.
+        console.error('[musico] online_lyrics failed:', err);
+        if (state.currentSong && String(state.currentSong.id) === `yt:${videoId}`) {
+          renderPlainLyrics('');
+        }
       }
     } else {
       loadLyrics(song);
