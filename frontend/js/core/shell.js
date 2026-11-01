@@ -213,6 +213,7 @@ function TransportBar() {
     if (!pb.hasSong) return;
     const next = !liked;
     window.Bridge?.invoke?.('set_song_like', { songId: pb.id, liked: next });
+    rememberOnlineLike(window.App?.state?.currentSong || pb, next);
     const ids = new Set(likedIds || []);
     if (next) ids.add(pb.id); else ids.delete(pb.id);
     Store.set('likedIds', [...ids]);
@@ -700,8 +701,14 @@ function HomeFeed() {
   }
   const sh0 = feed.shelves[0] || { items: [] };
   const sh1 = feed.shelves[1] || { items: [] };
-  const heroA = sh0.items[0];
-  const heroB = sh0.items[1];
+  // #76: rotate the hero through the first shelf instead of pinning
+  // item[0] forever — the same wide poster sat on Home across visits.
+  // Hourly slot: changes between visits, never mid-session flicker.
+  const heroSlot = sh0.items.length > 2
+    ? Math.floor(Date.now() / 3600000) % sh0.items.length
+    : 0;
+  const heroA = sh0.items[heroSlot];
+  const heroB = sh0.items.length > 1 ? sh0.items[(heroSlot + 1) % sh0.items.length] : undefined;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
 
@@ -1099,6 +1106,113 @@ function invalidateLibraryLists() {
   Store.set('libRev', (Store.get('libRev') || 0) + 1);
 }
 
+// ─── Favorites: liked ONLINE tracks (#74) ────────────────────────────────────
+// The backend like store is id-only; the display metadata lives here so
+// Favorites can render yt/saavn rows without a catalog lookup. Refs are
+// filtered against likedIds at render time — unliking from ANY surface
+// (pill, expanded player, ctx) makes the row disappear everywhere.
+const LIKED_ONLINE_KEY = 'musico-liked-online';
+// Exposed for app.js's like paths (loads before shell) — #74.
+window.MusicoRememberLike = rememberOnlineLike;
+
+function likedOnlineMap() {
+  try { return JSON.parse(localStorage.getItem(LIKED_ONLINE_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function rememberOnlineLike(song, liked) {
+  try {
+    const id = String(song?.id || '');
+    // LOCAL songs share likedIds with online ones — persisting a ref under
+    // a bare local id rendered a second, dead "• streamed" row in Favorites
+    // whose click tried to stream a local id (#78 review P0).  Only
+    // namespaced online ids belong in this map.
+    if (!/^(yt|saavn):/.test(id)) return;
+    const map = likedOnlineMap();
+    if (liked) {
+      const ns = id.match(/^(yt|saavn):(.+)$/);
+      map[id] = {
+        source: ns[1],
+        id: ns[2],
+        title: song?.title || '', artist: song?.artist || '',
+        album: song?.album || '', duration_secs: song?.duration_secs || null,
+        thumbnail: song?.thumb || song?.thumbnail || song?.cover_art || null,
+        file_path: song?.file_path || null,
+      };
+    } else {
+      delete map[id];
+    }
+    localStorage.setItem(LIKED_ONLINE_KEY, JSON.stringify(map));
+    Store.set('likedOnlineRev', (Store.get('likedOnlineRev') || 0) + 1);
+  } catch { /* storage unavailable — Favorites degrades to local likes */ }
+}
+
+// One-time heal for maps written by pre-fix builds (#78 review P0): bare
+// local ids landed here as bogus "streamed" refs and survive restarts.
+(function pruneLikedOnline() {
+  try {
+    const raw = localStorage.getItem(LIKED_ONLINE_KEY);
+    if (!raw) return;
+    const map = JSON.parse(raw);
+    let dirty = false;
+    for (const k of Object.keys(map)) {
+      if (!/^(yt|saavn):/.test(k)) { delete map[k]; dirty = true; }
+    }
+    if (dirty) localStorage.setItem(LIKED_ONLINE_KEY, JSON.stringify(map));
+  } catch { /* ignore — Favorites degrades to local likes */ }
+})();
+
+// ─── Playlist name modal (#75) — replaces window.prompt ──────────────────────
+// Store contract: plModal = { title, value, onOk(name) } | null.
+// The invoking element gets focus back on close (#78 review P2).
+let modalReturnFocus = null;
+function openPlaylistModal(title, value, onOk) {
+  modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  Store.set('plModal', { title, value: value || '', onOk });
+}
+
+function PlaylistNameModal() {
+  const modal = useStoreValue('plModal', null);
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (modal) {
+      const t = setTimeout(() => inputRef.current?.focus(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [modal]);
+  if (!modal) return null;
+  const close = () => {
+    Store.set('plModal', null);
+    modalReturnFocus?.focus?.();
+    modalReturnFocus = null;
+  };
+  const submit = () => {
+    const name = (inputRef.current?.value || '').trim();
+    if (!name) return;
+    close();
+    modal.onOk(name);
+  };
+  return html`
+    <div class="modal-overlay" onClick=${(e) => { if (e.target === e.currentTarget) close(); }}>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label=${modal.title}
+           onKeyDown=${(e) => {
+             // stopPropagation: the document-level ctx-menu Escape handler
+             // must not react to a modal-local Escape (#78 review P2).
+             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+             if (e.key === 'Enter' && !e.repeat) { e.preventDefault(); submit(); }
+           }}>
+        <div class="modal-title">${modal.title}</div>
+        <input ref=${inputRef} class="modal-input" type="text" maxLength="200"
+               value=${modal.value} placeholder="Playlist name"
+               aria-label="Playlist name" />
+        <div class="modal-actions">
+          <button class="modal-btn" onClick=${close}>Cancel</button>
+          <button class="modal-btn primary" onClick=${submit}>Save</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ─── User playlists (#60) ────────────────────────────────────────────────────
 // Where the last context menu was opened — the playlist picker re-renders
 // in place when it swaps in (actions get no coordinates from the menu).
@@ -1163,15 +1277,13 @@ function playlistPicker(track) {
   window.Bridge?.invoke?.('playlist_list').then((lists) => {
     const items = [{
       label: '\uFF0B New playlist\u2026',
-      action: () => {
-        const name = window.prompt?.('Playlist name');
-        if (!name || !name.trim()) return;
-        window.Bridge?.invoke?.('playlist_create', { name: name.trim() })
+      action: () => openPlaylistModal('New playlist', '', (name) => {
+        window.Bridge?.invoke?.('playlist_create', { name })
           .then((p) => {
             if (!p) { window.App?.showToast?.('Could not create the playlist'); return; }
             addTrackToPlaylist(p.id, p.name, track);
           });
-      },
+      }),
     }];
     for (const pl of (Array.isArray(lists) ? lists : [])) {
       items.push({ label: pl.name, action: () => addTrackToPlaylist(pl.id, pl.name, track) });
@@ -1562,7 +1674,10 @@ function LibraryCatalog() {
 
   let body = null;
   if (tab === 'recent') {
-    body = recent.length ? cards(recent, (e) => openCatalogEntry(e)) : statusHtml('Nothing saved yet — add albums and artists from Browse.');
+    body = recent.length ? cards(recent, (e) => openCatalogEntry(e)) : html`
+      <div class="lib-empty">Nothing saved yet — right-click an album or artist in Browse and "Add to Library".
+        <div style=${{ marginTop: 'var(--space-8)' }}><button class="upl-new" onClick=${() => window.MusicoRouter?.navigate('search')}>Browse music</button></div>
+      </div>`;
   } else if (tab === 'albums') {
     body = albums && albums.length ? html`
       <div class="lib-with-rail">${cards(albums, (e) => openCatalogEntry(e))}<${AZRail} entries=${albums} rootSelector=".lib-with-rail" /></div>`
@@ -1662,7 +1777,12 @@ function BatchQueue() {
 
 function RadioView() {
   const feed = useStoreValue('homeFeed', null);
-  const seed = (feed?.shelves || []).flatMap((sh) => sh.items).find((it) => it.video_id);
+  // #76: rotate the seed among playable home items — one deterministic
+  // seed for the hour, not the same track forever.
+  const playable = (feed?.shelves || []).flatMap((sh) => sh.items).filter((it) => it.video_id);
+  const seed = playable.length
+    ? playable[Math.floor(Date.now() / 3600000) % playable.length]
+    : null;
   const starting = useStoreValue('radioStarting', false);
 
   const start = () => {
@@ -1690,6 +1810,7 @@ function RadioView() {
           <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
           ${starting ? 'Tuning…' : 'Start Station'}
         </button>
+        ${!seed ? html`<button class="upl-new" style=${{ marginLeft: 'var(--space-8)' }} onClick=${() => window.MusicoRouter?.navigate('search')}>Browse songs</button>` : null}
       </div>
     </div>`;
 }
@@ -1699,6 +1820,10 @@ function RadioView() {
 function MadeForYouView() {
   const recs = useStoreValue('recommendations', null);
   const loading = useStoreValue('recommendationsLoading', false);
+  // #77: fall back to the home feed's personalized shelf when the local
+  // library has no picks (online-first profiles).
+  const homeFeed = useStoreValue('homeFeed', null);
+  const homeMfy = (homeFeed?.shelves || []).find((sh) => /made for|mix|radio/i.test(sh.title)) || null;
 
   useEffect(() => {
     if (recs) return;
@@ -1730,7 +1855,24 @@ function MadeForYouView() {
             <div class="lib-sub">${sm.artist}</div>
           </div>`)}
       </div>
-      ${!loading && !songs.length ? html`<div class="lib-empty">Listen to a few songs and this fills up.</div>` : null}
+      ${!loading && !songs.length ? html`
+        <div class="lib-empty">
+          No local picks yet — like songs and this sharpens as you listen.<br/>
+          Meanwhile, your streamed picks: ${Array.isArray(homeMfy?.items) && homeMfy.items.length ? html`
+            <div class="lib-rows" style=${{ marginTop: 'var(--space-8)' }}>
+              ${homeMfy.items.slice(0, 6).map((it) => html`
+                <div class="lib-row" key=${it.video_id || it.browse_id} role="button" tabindex="0"
+                     onClick=${() => (it.video_id ? window.Online?.playTrack?.({ video_id: it.video_id, title: it.title, artist: it.subtitle, album: '', duration_secs: null, thumbnail: it.thumbnail, cached: false }, null) : window.MusicoRouter?.navigate(window.MusicoRouter.detailRoute({ browseId: it.browse_id, params: it.params || null, title: it.title })))}>
+                  <div class="lib-row-play" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
+                  </div>
+                  <div class="lib-meta">
+                    <div class="lib-title">${it.title}</div>
+                    <div class="lib-sub">${it.subtitle || ''}</div>
+                  </div>
+                </div>`)}
+            </div>` : html`<div style=${{ marginTop: 'var(--space-8)' }}><button class="upl-new" onClick=${() => window.MusicoRouter?.navigate('browse')}>Browse songs</button></div>`}
+        </div>` : null}
     </div>`;
 }
 
@@ -1747,15 +1889,13 @@ function UserPlaylistsSection() {
   const items = lists || [];
   const selected = items.find((p) => p.id === selectedId) || null;
 
-  const createPl = () => {
-    const name = window.prompt?.('Playlist name');
-    if (!name || !name.trim()) return;
-    window.Bridge?.invoke?.('playlist_create', { name: name.trim() }).then((p) => {
+  const createPl = () => openPlaylistModal('New playlist', '', (name) => {
+    window.Bridge?.invoke?.('playlist_create', { name }).then((p) => {
       if (!p) { window.App?.showToast?.('Could not create the playlist'); return; }
       Store.set('userPlSelected', p.id);
       refresh();
     });
-  };
+  });
   const playTrack = (t) => {
     if (t.source === 'local') {
       window.App?.playSong?.({
@@ -1797,7 +1937,7 @@ function UserPlaylistsSection() {
           <div class="upl-detail-head">
             <strong>${selected.name}</strong>
             <span class="upl-actions">
-              <button onClick=${() => { const n = window.prompt?.('Rename playlist', selected.name); if (n && n.trim()) window.Bridge?.invoke?.('playlist_rename', { id: selected.id, name: n.trim() }).then(refresh); }}>Rename</button>
+              <button onClick=${() => openPlaylistModal('Rename playlist', selected.name, (name) => window.Bridge?.invoke?.('playlist_rename', { id: selected.id, name }).then(refresh))}>Rename</button>
               <button onClick=${() => { if (window.confirm && !window.confirm(`Delete "${selected.name}"?`)) return; window.Bridge?.invoke?.('playlist_delete', { id: selected.id }).then(() => { Store.set('userPlSelected', null); refresh(); }); }}>Delete</button>
             </span>
           </div>
@@ -1856,16 +1996,48 @@ function PlaylistsView() {
 
 function FavoritesView() {
   const likedIds = useStoreValue('likedIds', []);
+  const likedOnlineRev = useStoreValue('likedOnlineRev', 0);
   const local = useStoreValue('localLibrary', []);
+  // Local liked songs + liked ONLINE tracks (#74) — refs reconcile against
+  // likedIds, so unliking anywhere removes the row everywhere.
+  const onlineFavs = Object.entries(likedOnlineMap())
+    .filter(([sid]) => likedIds.includes(sid))
+    .map(([sid, ref]) => ({ ...ref, songId: sid }));
+  void likedOnlineRev;
+  const playFav = (t) => {
+    if (t.source === 'local') {
+      window.App?.playSong?.({ id: t.id, title: t.title, artist: t.artist, album: t.album, duration_secs: t.duration_secs || 0, file_path: t.file_path });
+    } else {
+      window.Online?.playTrack?.({
+        video_id: t.id, title: t.title, artist: t.artist, album: t.album,
+        duration_secs: t.duration_secs, thumbnail: t.thumbnail,
+        cached: false, source: t.source,
+      }, null);
+    }
+  };
   const favs = local.filter((sm) => likedIds.includes(sm.id));
+  const hasAny = favs.length || onlineFavs.length;
   return html`
     <div class="genres-wrap">
       <header class="browse-header">
         <h1 class="browse-title">Favorites</h1>
-        <p class="browse-sub">Everything you starred.</p>
+        <p class="browse-sub">Everything you starred — local or streamed.</p>
       </header>
-      ${favs.length ? html`
+      ${hasAny ? html`
         <div class="lib-rows">
+          ${onlineFavs.map((t) => html`
+            <div class="lib-row" key=${t.songId} role="button" tabindex="0"
+                 aria-label="Play ${t.title}"
+                 onClick=${() => playFav(t)}
+                 onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playFav(t); } }}>
+              <div class="lib-row-play" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
+              </div>
+              <div class="lib-meta">
+                <div class="lib-title">${t.title}</div>
+                <div class="lib-sub">${t.artist || t.source}${t.source !== 'local' ? ' • streamed' : ''}</div>
+              </div>
+            </div>`)}
           ${favs.map((sm) => html`
             <div class="lib-row" key=${sm.id} role="button" tabindex="0"
                  onClick=${() => window.App?.playSong?.(sm)}
@@ -1879,7 +2051,7 @@ function FavoritesView() {
               </div>
             </div>`)}
         </div>`
-        : html`<div class="lib-empty">Star a song in the transport bar and it lands here.</div>`}
+        : html`<div class="lib-empty">Star a song in the transport bar — streamed or local, it lands here.</div>`}
     </div>`;
 }
 
@@ -1908,6 +2080,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (madeRoot) render(html`<${MadeForYouView} />`, madeRoot);
   const radioRoot = document.getElementById('radio-root');
   if (radioRoot) render(html`<${RadioView} />`, radioRoot);
+  const plModalRoot = document.getElementById('pl-modal-root');
+  if (plModalRoot) render(html`<${PlaylistNameModal} />`, plModalRoot);
   const playlistsRoot = document.getElementById('playlists-root');
   if (playlistsRoot) render(html`<${PlaylistsView} />`, playlistsRoot);
   const favoritesRoot = document.getElementById('favorites-root');
