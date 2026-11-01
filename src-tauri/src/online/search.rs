@@ -104,6 +104,7 @@ mod tests {
                 duration_secs: None,
                 thumbnail: None,
                 cached: false,
+                source: String::new(),
             }],
             next_continuation: None,
         };

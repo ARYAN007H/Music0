@@ -19,6 +19,10 @@ log = "0.4"
 env_logger = "0.11"
 walkdir = "2"
 base64 = "0.22"
+# JioSaavn media URLs are "encrypted" with DES-ECB under a fixed public key
+# (shipped in every community client) — decoding metadata, not DRM circumvention.
+des = "0.8"
+ecb = { version = "0.1", features = ["alloc"] }
 image = "0.25"
 dirs = "5"
 symphonia = { version = "0.5", features = ["all"] }

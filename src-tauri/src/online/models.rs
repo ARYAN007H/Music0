@@ -19,13 +19,26 @@ pub struct OnlineTrack {
     /// Already present in the local stream cache — instant playback.
     #[serde(default)]
     pub cached: bool,
+    /// Catalog source namespace: `""` = YouTube Music, `"saavn"` = JioSaavn.
+    /// Namespaces [`song_id`](Self::song_id) and dispatches stream
+    /// resolution; the frontend sends tracks back verbatim, so this
+    /// survives the IPC round-trip.
+    #[serde(default)]
+    pub source: String,
 }
 
 impl OnlineTrack {
     /// Stable song id in the local stack — distinct namespace from the
-    /// path-hash ids of the local library.
+    /// path-hash ids of the local library.  Source-aware (`yt:{id}` vs
+    /// `saavn:{id}`): every upstream `starts_with("yt:")` check (radio
+    /// advance, lyrics, suggested) skips foreign-source tracks by
+    /// namespace alone, with no per-call changes.
     pub fn song_id(&self) -> String {
-        format!("yt:{}", self.video_id)
+        if self.source.is_empty() {
+            format!("yt:{}", self.video_id)
+        } else {
+            format!("{}:{}", self.source, self.video_id)
+        }
     }
 
     /// Stream URL for yt-dlp.
@@ -57,9 +70,14 @@ mod tests {
             duration_secs: Some(10),
             thumbnail: None,
             cached: false,
+            source: String::new(),
         };
         assert_eq!(t.song_id(), "yt:abc123");
         assert_eq!(t.watch_url(), "https://www.youtube.com/watch?v=abc123");
+        // Source namespace: tagged tracks key as `source:id` (#54).
+        let mut saavn = t.clone();
+        saavn.source = "saavn".into();
+        assert_eq!(saavn.song_id(), "saavn:abc123");
     }
 }
 
@@ -128,6 +146,7 @@ impl ShelfItem {
             duration_secs: None,
             thumbnail: self.thumbnail.clone(),
             cached: false,
+            source: String::new(),
         })
     }
 }
