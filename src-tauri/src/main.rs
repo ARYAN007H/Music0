@@ -23,6 +23,53 @@ use tauri::Manager;
 
 use state::AppState;
 
+// Native macOS application menu. Without an Edit submenu the standard
+// ⌘C/⌘V/⌘A shortcuts never reach the WKWebView, so on macOS this is a
+// functional requirement, not chrome. Linux/Windows keep their window
+// decorations and are unaffected (the whole function is cfg'd out).
+#[cfg(target_os = "macos")]
+fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+
+    let app_menu = SubmenuBuilder::new(app, "Musico Online")
+        .about(Some(AboutMetadata {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            copyright: Some("Copyright (c) 2026 Aryan. MIT License.".to_string()),
+            ..Default::default()
+        }))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .separator()
+        .select_all()
+        .build()?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .fullscreen()
+        .build()?;
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize() // renders as “Zoom” on macOS
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu, &view_menu, &window_menu])
+        .build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 fn main() {
     // Logs go to ~/.local/share/musico/musico.log (and stderr when RUST_LOG
     // is set explicitly, for development).
@@ -135,6 +182,24 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 media_controls::init(&handle, None);
+            }
+
+            // Native app menu — the ⌘C/⌘V/⌘A edit shortcuts (and ⌘Q/⌘M)
+            // only work on macOS when the menu roles exist.
+            #[cfg(target_os = "macos")]
+            if let Err(e) = install_macos_menu(&handle) {
+                log::warn!("macOS menu unavailable: {e}");
+            }
+
+            // Windows: drop the native title bar — the drawn min/max/close
+            // (shell.js WindowChrome) replace it. macOS keeps decorations
+            // (Overlay traffic lights), Linux keeps the system title bar.
+            // Resizing stays native: tao hit-tests undecorated borders.
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(e) = window.set_decorations(false) {
+                    log::warn!("could not remove window decorations: {e}");
+                }
             }
 
             // MPRIS: system media keys, playerctl, desktop widgets (D-Bus — Linux only)

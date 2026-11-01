@@ -313,6 +313,14 @@ accounts.
 Synced YTM lyrics if the payload verifies · animated fullscreen lyrics · smart playlists ·
 "year in review" stats page · queue drag-reorder · multiple windows.
 
+### Platform expansion — macOS/Windows chrome (landed with T10, 2026-11)
+Full-height sidebar with the window controls in its top strip (native traffic
+lights on macOS via Overlay + trafficLightPosition, drawn min/max/close on
+Windows with `set_decorations(false)`, system title bar untouched on Linux) ·
+native macOS App/Edit/View/Window menu (⌘-shortcuts) · SF Pro system stack ·
+universal `.dmg` on the release train (mac CI job also type-checks the
+`cfg(macos)` code).
+
 ---
 
 ## 7. Sequencing & dependencies

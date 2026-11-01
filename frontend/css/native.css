@@ -1,0 +1,102 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   MUSICO ONLINE — native.css
+   Native window-chrome integration, enabled by the `is-mac` / `is-windows`
+   classes that index.html sets pre-paint (navigator.platform). Loads LAST so
+   its overrides win the cascade; every rule is scoped to one of those classes
+   and is therefore inert on Linux (which keeps its system decorations).
+
+   Design (Aryan, 2026-11-02): NO extra title bar anywhere. The window
+   controls live in the sidebar's top strip, above the "Music" brand:
+   - macOS: native traffic lights painted by the system (tauri.conf.json
+     titleBarStyle "Overlay" + trafficLightPosition) — this layer only
+     reserves space and keeps the strip drag-safe.
+   - Windows: decorations are removed at runtime (main.rs) and the three
+     controls are rendered here (shell.js WindowChrome), wired to the
+     Tauri window API.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Typography: SF Pro system stack (mac) ────────────────────────────────────
+   The webfont @import in tokens.css stays for other platforms; on mac the
+   system font is the design language (no font-swap flash, native metrics). */
+html.is-mac {
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    'Helvetica Neue', 'Inter', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'DM Mono', monospace;
+}
+/* macOS renders sans heavier than the Linux fontconfig stack — match the
+   antialiased look of native apps. */
+html.is-mac body { -webkit-font-smoothing: antialiased; }
+
+/* ── Window-chrome strip ──────────────────────────────────────────────────────
+   Fixed to the sidebar's top-left corner; the sidebar clears it via
+   padding-top below. On mac it is a pure spacer (the lights are native and
+   render above the webview); on windows it hosts the drawn controls. */
+.window-chrome { display: none; }
+
+html.is-mac .window-chrome,
+html.is-windows .window-chrome {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 232px;
+  height: 44px;
+  z-index: 70;
+  /* the strip itself drags the window (data-tauri-drag-region in shell.js);
+     the buttons inside opt out — the tauri drag script skips clickable
+     elements */
+  cursor: default;
+  user-select: none;
+}
+
+/* mac: the traffic lights are native; the strip is drag-only space (the
+   drawn controls stay hidden). It overlays nothing interactive: at ≥860px
+   it covers sidebar padding only, and compact widths pad #content-area
+   44px beneath it. */
+html.is-mac .window-chrome { pointer-events: auto; }
+
+/* windows: the drawn controls are the only chrome */
+html.is-windows .window-chrome { pointer-events: auto; }
+
+/* ── Windows controls (Windows 11 style: quiet line icons) ─────────────────── */
+.win-controls {
+  display: none;
+  height: 100%;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px;
+}
+html.is-windows .win-controls { display: flex; }
+
+.win-btn {
+  width: 40px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, inherit);
+  cursor: default;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.win-btn svg { width: 15px; height: 15px; }
+.win-btn:hover { background: var(--accent-tint, rgba(124, 107, 196, 0.12)); color: var(--accent-text, inherit); }
+.win-btn:active { transform: scale(0.94); }
+.win-close:hover { background: var(--error, #d45858); color: #fff; }
+
+/* ── Sidebar clears the chrome strip ────────────────────────────────────────── */
+html.is-mac #sidebar,
+html.is-windows #sidebar { padding-top: 58px; }
+
+/* ── Fullscreen vinyl: chrome gets out of the way ─────────────────────────────
+   mac: the system hides the traffic lights in native fullscreen by itself. */
+html.is-windows body.player-fullscreen .window-chrome { display: none; }
+
+/* ── Compact windows (<860px): the sidebar hides (bottom-nav-pill takes
+   over) — pad the content so the controls strip never covers a header ──────── */
+@media (max-width: 859px) {
+  html.is-mac #content-area,
+  html.is-windows #content-area { padding-top: 44px; }
+}

@@ -9,8 +9,11 @@
   display: grid;
   grid-template-columns: 232px 1fr;
   grid-template-rows: 64px 1fr;
+  /* Full-height sidebar (AM layout): the window controls live in the
+     sidebar's top strip (native.css), so the topbar spans the content
+     column only. */
   grid-template-areas:
-    "topbar topbar"
+    "sidebar topbar"
     "sidebar content";
 }
 

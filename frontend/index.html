@@ -15,25 +15,46 @@
   } catch (e) {}
 </script>
 
+<!-- Flag macOS / Windows pre-paint (native.css keys off it): traffic-light
+     space + SF Pro stack on mac, drawn window controls on Windows (no native
+     title bar). navigator.platform is "MacIntel" / "Win32" in the webviews;
+     the UA checks cover exotic webviews. -->
+<script>
+  try {
+    var plat = navigator.platform || '', ua = navigator.userAgent || '';
+    if (/^Mac/i.test(plat) || /Macintosh/.test(ua)) {
+      document.documentElement.classList.add('is-mac');
+    } else if (/^Win/i.test(plat) || /Windows NT/.test(ua)) {
+      document.documentElement.classList.add('is-windows');
+    }
+  } catch (e) {}
+</script>
+
 <!-- Asset URLs carry ?v= — bump on frontend changes so the WebKit webview
      can't serve stale cached scripts/styles (bit us once: old bridge.js
      kept breaking IPC after an update). -->
-<link rel="stylesheet" href="css/tokens.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/neumorphic.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/animations.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/layout.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/now-playing.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/library.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/queue.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/settings.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/online.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/topbar.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/queue-panel.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/am-clean.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/liquid.css?v=0.6.27"/>
-<link rel="stylesheet" href="css/apple.css?v=0.6.27"/>
+<link rel="stylesheet" href="css/tokens.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/neumorphic.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/animations.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/layout.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/now-playing.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/library.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/queue.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/settings.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/online.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/topbar.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/queue-panel.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/am-clean.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/liquid.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/apple.css?v=0.6.28"/>
+<link rel="stylesheet" href="css/native.css?v=0.6.28"/>
 </head>
 <body>
+
+<!-- Window-chrome strip (Preact shell): traffic-light space on macOS, drawn
+     min/max/close on Windows. Outside #app so it survives the compact
+     layout hiding the sidebar. -->
+<div id="window-chrome-root"></div>
 
 <div id="app">
   <!-- ══════════════════════════════════════════════════════════════════════════
@@ -671,15 +692,15 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      JAVASCRIPT
      ═══════════════════════════════════════════════════════════════════════════ -->
-<script src="js/bridge.js?v=0.6.27"></script>
-<script src="js/app.js?v=0.6.27"></script>
+<script src="js/bridge.js?v=0.6.28"></script>
+<script src="js/app.js?v=0.6.28"></script>
   <!-- shell.js imports store/router (versioned inside the module graph);
        standalone tags removed — they created duplicate module instances -->
-  <script type="module" src="js/core/shell.js?v=0.6.27"></script>
-<script src="js/online.js?v=0.6.27"></script>
-<script src="js/vinyl.js?v=0.6.27"></script>
-<script src="js/knob.js?v=0.6.27"></script>
-<script src="js/seek.js?v=0.6.27"></script>
+  <script type="module" src="js/core/shell.js?v=0.6.28"></script>
+<script src="js/online.js?v=0.6.28"></script>
+<script src="js/vinyl.js?v=0.6.28"></script>
+<script src="js/knob.js?v=0.6.28"></script>
+<script src="js/seek.js?v=0.6.28"></script>
 
 </body>
 </html>
