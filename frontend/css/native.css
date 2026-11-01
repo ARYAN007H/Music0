@@ -53,9 +53,8 @@ html.is-windows .window-chrome {
    drawn controls stay hidden). It overlays nothing interactive: at ≥860px
    it covers sidebar padding only, and compact widths pad #content-area
    44px beneath it. */
-html.is-mac .window-chrome { pointer-events: auto; }
-
-/* windows: the drawn controls are the only chrome */
+/* mac + windows: the strip is the drag surface (Linux hides it) */
+html.is-mac .window-chrome,
 html.is-windows .window-chrome { pointer-events: auto; }
 
 /* ── Windows controls (Windows 11 style: quiet line icons) ─────────────────── */

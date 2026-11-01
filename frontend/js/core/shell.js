@@ -139,7 +139,7 @@ function WindowChrome() {
   // Guarded: browser suites and the dev server have no __TAURI__.
   const win = () => window.__TAURI__?.window?.getCurrentWindow?.();
   return html`
-    <div class="window-chrome" data-tauri-drag-region>
+    <div class="window-chrome" data-tauri-drag-region="deep">
       <div class="win-controls">
         <button class="win-btn" id="win-minimize" title="Minimize" aria-label="Minimize window"
                 onClick=${() => win()?.minimize?.()}>
@@ -180,7 +180,7 @@ function SlimTopBar() {
   const canBack = Router.canGoBack();
   const canFwd = Router.canGoForward();
   return html`
-    <header class="topbar" role="banner" data-view=${view} data-tauri-drag-region>
+    <header class="topbar" role="banner" data-view=${view} data-tauri-drag-region="deep">
       <div class="topbar-left">
         <button class="lcd-btn" id="nav-back" title="Back" aria-label="Go back"
                 disabled=${!canBack || undefined} onClick=${() => Router.back()}>
@@ -191,7 +191,7 @@ function SlimTopBar() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
-      <div class="topbar-logo" aria-hidden="true" data-tauri-drag-region>
+      <div class="topbar-logo" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
       </div>
       <div class="topbar-right">

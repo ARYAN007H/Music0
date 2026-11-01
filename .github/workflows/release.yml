@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual runs verify platform jobs on a branch (publish skips itself
+  # below) — e.g. before merging cross-platform changes.
+  workflow_dispatch:
 
 permissions:
   contents: write

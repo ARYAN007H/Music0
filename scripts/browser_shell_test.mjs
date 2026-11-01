@@ -142,10 +142,10 @@ mcheck('mac chrome strip: fixed drag space, no drawn controls', await macPage.ev
 }));
 mcheck('mac sidebar clears the traffic lights', await macPage.evaluate(() =>
   getComputedStyle(document.getElementById('sidebar')).paddingTop === '58px'));
-mcheck('drag regions on topbar + logo + chrome strip', await macPage.evaluate(() =>
-  document.querySelector('.topbar').hasAttribute('data-tauri-drag-region') &&
-  document.querySelector('.topbar-logo').hasAttribute('data-tauri-drag-region') &&
-  document.querySelector('.window-chrome').hasAttribute('data-tauri-drag-region')));
+mcheck('deep drag regions on topbar + chrome strip (logo rides the topbar)', await macPage.evaluate(() =>
+  document.querySelector('.topbar').getAttribute('data-tauri-drag-region') === 'deep' &&
+  document.querySelector('.window-chrome').getAttribute('data-tauri-drag-region') === 'deep' &&
+  !document.querySelector('.topbar-logo').hasAttribute('data-tauri-drag-region')));
 mcheck('mac hides drawn controls', await macPage.evaluate(() =>
   getComputedStyle(document.querySelector('.win-controls')).display === 'none'));
 await macPage.setViewportSize({ width: 700, height: 800 });

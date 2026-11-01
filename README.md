@@ -138,7 +138,9 @@ runs the workspace tests on every push to main.
   macOS paints its native traffic lights there (`titleBarStyle: "Overlay"`
   + `trafficLightPosition`); Windows drops its native title bar at runtime
   and gets drawn min/max/close wired to the Tauri window API (resize still
-  works via the window edges). Linux keeps the system title bar.
+  works via the window edges; known limitation: the native title bar is
+  briefly visible during Windows launch before the runtime removal lands).
+  Linux keeps the system title bar.
 - **macOS menu bar**: native App/Edit/View/Window menus — without the Edit
   roles, ⌘C/⌘V/⌘A never reach the webview. On mac the UI renders in the
   SF Pro system stack instead of the webfont.
