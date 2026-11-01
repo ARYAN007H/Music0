@@ -502,9 +502,13 @@ const App = (() => {
 
   // Artist-page navigation target for the expanded player (#62): online
   // trackMap entries carry artist_browse_id (UC…) when the search row had
-  // one; saavn/local songs (or drifted rows) fall back to a name search.
+  // one; songs without an InnerTube presence (local library) stay PLAIN
+  // TEXT — silently yanking a local-library user to a YouTube search was
+  // never part of the ask (#70 review P1). saavn/yt songs keep the name
+  // search fallback.
   function resolveArtistNav(song) {
     const id = String(song.id || '');
+    if (!id.startsWith('yt:') && !id.startsWith('saavn:')) return null;
     const vid = id.startsWith('yt:') ? id.slice(3) : null;
     const track = vid ? window.Online?.trackMap?.get(vid) : null;
     if (track?.artist_browse_id) {
@@ -513,7 +517,7 @@ const App = (() => {
     return song.artist ? { kind: 'search', query: song.artist } : null;
   }
 
-  // Push the song's identity into all the Now Playing + mini player surfaces
+  // Push the song's identity into the Now Playing surfaces
   function setNowPlayingUi(song) {
     document.getElementById('np-title').textContent = song.title;
     // The artist half becomes a real link when we know where it leads (#62).
@@ -526,14 +530,9 @@ const App = (() => {
     document.getElementById('time-total').textContent = formatTime(song.duration_secs);
     document.getElementById('time-current').textContent = formatTime(state.position);
 
-    document.getElementById('mini-title').textContent = song.title;
-    document.getElementById('mini-artist').textContent = song.artist;
-
-    // One art identity across vinyl label + dock (real covers override later)
+    // One art identity across vinyl label + art square (real covers override later)
     const grad = artFor(song);
     document.getElementById('vinyl-label')?.style.setProperty('--art-grad', grad);
-    const miniArt = document.getElementById('mini-art');
-    if (miniArt) miniArt.style.background = grad;
     // Art square (normal-mode now playing) + reset any online thumbnail
     const npArt = document.getElementById('np-art');
     if (npArt) {
@@ -765,12 +764,6 @@ const App = (() => {
     const activeNav = document.querySelector(`#bottom-nav .nav-item[data-view="${viewName}"]`);
     if (activeNav) activeNav.classList.add('active');
 
-    // Dock lives in the sidebar (≥860px) — show whenever a song exists.
-    // body.has-mini only matters in compact mode where the strip overlays content.
-    const miniPlayer = document.getElementById('mini-player');
-    miniPlayer.classList.toggle('hidden', !state.currentSong);
-    document.body.classList.toggle('has-mini', !!state.currentSong && window.innerWidth < 860);
-
     if (viewName === 'playlists') renderStats();
   }
 
@@ -926,13 +919,8 @@ const App = (() => {
   // ─── Transport Controls ────────────────────────────────────────────────────
   function setupTransportControls() {
     document.getElementById('btn-play').addEventListener('click', togglePlay);
-    document.getElementById('mini-play').addEventListener('click', togglePlay);
     document.getElementById('btn-prev').addEventListener('click', () => Bridge.invoke('previous'));
     document.getElementById('btn-next').addEventListener('click', () => Bridge.invoke('next'));
-    document.getElementById('mini-prev')?.addEventListener('click', () => Bridge.invoke('previous'));
-    document.getElementById('mini-next').addEventListener('click', () => Bridge.invoke('next'));
-    document.getElementById('mini-expand')?.addEventListener('click', () => navigateTo('now-playing'));
-
     // Add the current song to the queue (the "+" under the title)
     document.getElementById('btn-queue-current')?.addEventListener('click', () => {
       if (!state.currentSong) return;
@@ -965,12 +953,6 @@ const App = (() => {
       btn.setAttribute('aria-pressed', String(state.isLiked));
       btn.querySelector('svg').setAttribute('fill', state.isLiked ? 'currentColor' : 'none');
       if (state.likedOnly) filterLibrary();
-    });
-
-    // Clicking the mini player (not its buttons) returns to Now Playing
-    document.getElementById('mini-player')?.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
-      navigateTo('now-playing');
     });
 
     // Keyboard shortcuts
@@ -1047,18 +1029,6 @@ const App = (() => {
       playIcon.innerHTML = '<polygon points="8,5 20,12 8,19"/>';
     }
 
-    // Mini player
-    const miniPlay = document.getElementById('mini-play');
-    if (playing) {
-      miniPlay.querySelector('svg').innerHTML = '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
-    } else {
-      miniPlay.querySelector('svg').innerHTML = '<polygon points="8,5 20,12 8,19"/>';
-    }
-
-    // Dock visibility (sidebar card ≥860px / overlay strip <860px)
-    const miniPlayer = document.getElementById('mini-player');
-    miniPlayer.classList.toggle('hidden', !state.currentSong);
-    document.body.classList.toggle('has-mini', !!state.currentSong && window.innerWidth < 860);
   }
 
   function cycleShuffle() {
@@ -1120,9 +1090,6 @@ const App = (() => {
       seekSlider.setAttribute('aria-valuenow', String(Math.round(state.position)));
       seekSlider.setAttribute('aria-valuetext', formatTime(state.position));
     }
-
-    // Mini player progress
-    document.getElementById('mini-player').style.setProperty('--mini-progress', `${pct}%`);
 
     // Tonearm tracks the grooves outward → inward
     Vinyl.setProgress(pct / 100);

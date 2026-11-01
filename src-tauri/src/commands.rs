@@ -255,6 +255,9 @@ pub fn clear_queue(handle: AppHandle, state: State<AppState>) {
 /// Reorders the upcoming queue (drag-to-reorder in the Playing Next panel,
 /// #62): the song at `from` ends up at index `to` of the resulting list.
 /// Returns whether anything moved; the queue-changed event refreshes the UI.
+/// Both indices index the UPCOMING list only — the currently-playing song is
+/// never in it (every play path pops via `q.next()`), and the frontend's
+/// offset heuristic depends on that staying true.
 #[tauri::command]
 pub fn queue_move(handle: AppHandle, state: State<AppState>, from: usize, to: usize) -> bool {
     let moved = state
@@ -591,6 +594,74 @@ pub fn library_contains(
     ids: Vec<String>,
 ) -> Result<Vec<String>, String> {
     rec(&state)?.library_contains(&kind, &ids).map_err(|e| e.to_string())
+}
+
+// ─── User playlists (#60) — sled-backed, add-from-anywhere ─────────────────
+
+pub use musico_recommender::user_playlists::{PlaylistTrack, UserPlaylist};
+
+/// Creates a playlist; the returned (fresh) entity carries its generated id.
+#[tauri::command]
+pub fn playlist_create(state: State<AppState>, name: String) -> Result<UserPlaylist, String> {
+    rec(&state)?.playlist_create(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn playlist_list(state: State<AppState>) -> Result<Vec<UserPlaylist>, String> {
+    rec(&state)?.playlist_list().map_err(|e| e.to_string())
+}
+
+/// Bool, not unit (the Ok(())→null IPC trap): the frontend gates toasts on
+/// the return value.
+#[tauri::command]
+pub fn playlist_rename(state: State<AppState>, id: String, name: String) -> Result<bool, String> {
+    rec(&state)?.playlist_rename(&id, &name).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn playlist_delete(state: State<AppState>, id: String) -> Result<bool, String> {
+    rec(&state)?.playlist_delete(&id).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Appends a track; returns the playlist's new track count (drives the
+/// "Added — 12 songs" toast).
+#[tauri::command]
+pub fn playlist_add_track(
+    state: State<AppState>,
+    id: String,
+    track: PlaylistTrack,
+) -> Result<usize, String> {
+    rec(&state)?
+        .playlist_add_track(&id, track)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn playlist_remove_track(
+    state: State<AppState>,
+    id: String,
+    index: usize,
+) -> Result<bool, String> {
+    rec(&state)?
+        .playlist_remove_track(&id, index)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Drag-and-drop reorder: remove at `from`, insert at `to`.
+#[tauri::command]
+pub fn playlist_move_track(
+    state: State<AppState>,
+    id: String,
+    from: usize,
+    to: usize,
+) -> Result<bool, String> {
+    rec(&state)?
+        .playlist_move_track(&id, from, to)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 /// Fast-fail guard for every network-reaching command.  Airplane mode

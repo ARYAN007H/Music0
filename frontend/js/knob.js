@@ -1,16 +1,16 @@
 /* ══════════════════════════════════════════════════════════════════════════════
    MUSICO — Volume Controller
-   Slider in the mini player strip + keyboard arrows (app.js). Exposes the same
-   Knob.setVolume(v, notify) API the rest of the app already calls.
+   Keyboard arrows (app.js) + the expanded player's volume row (#62). Exposes
+   the Knob.setVolume(v, notify) API the rest of the app already calls. (The
+   mini-player slider this once drove is gone with the dock, #66.)
    ══════════════════════════════════════════════════════════════════════════════ */
 
 const Knob = (() => {
-  // Every volume surface shares one state: the mini player strip AND the
-  // expanded player's volume row (#62).  Dragging either updates all of
-  // them and sends one throttled IPC stream.
-  const sliders = [...document.querySelectorAll('#mini-volume, #fs-volume')];
+  // Every volume surface shares one state: dragging the expanded player's
+  // row updates all of them and sends one throttled IPC stream.
+  const sliders = [...document.querySelectorAll('#fs-volume')];
 
-  let lastSent = 0; // IPC throttle while the slider is being dragged
+  let lastSent = 0; // IPC throttle while a slider is being dragged
 
   function init() {
     if (!sliders.length) return;

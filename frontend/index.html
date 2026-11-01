@@ -18,26 +18,26 @@
 <!-- Asset URLs carry ?v= — bump on frontend changes so the WebKit webview
      can't serve stale cached scripts/styles (bit us once: old bridge.js
      kept breaking IPC after an update). -->
-<link rel="stylesheet" href="css/tokens.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/neumorphic.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/animations.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/layout.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/now-playing.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/library.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/queue.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/settings.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/online.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/topbar.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/queue-panel.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/am-clean.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/liquid.css?v=0.6.24"/>
-<link rel="stylesheet" href="css/apple.css?v=0.6.24"/>
+<link rel="stylesheet" href="css/tokens.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/neumorphic.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/animations.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/layout.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/now-playing.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/library.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/queue.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/settings.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/online.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/topbar.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/queue-panel.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/am-clean.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/liquid.css?v=0.6.26"/>
+<link rel="stylesheet" href="css/apple.css?v=0.6.26"/>
 </head>
 <body>
 
 <div id="app">
   <!-- ══════════════════════════════════════════════════════════════════════════
-       SIDEBAR (≥860px) — brand, navigation, now-playing dock
+       SIDEBAR (≥860px) — brand, navigation
        ══════════════════════════════════════════════════════════════════════════ -->
   <aside id="sidebar">
     <!-- Preact shell (core/shell.js) renders brand + grouped nav here -->
@@ -630,41 +630,6 @@
   </main>
   </div><!-- /content-area -->
 
-  <!-- ══════════════════════════════════════════════════════════════════════════
-       NOW-PLAYING DOCK — sidebar card ≥860px / overlay strip <860px
-       ══════════════════════════════════════════════════════════════════════════ -->
-  <div class="mini-player hidden" id="mini-player" style="--mini-progress: 0%;" title="Open Now Playing">
-    <div class="dock-top">
-      <div class="mini-vinyl mini-vinyl-spin paused" id="mini-vinyl">
-        <div class="mini-vinyl-art" id="mini-art">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:rgba(255,255,255,0.65); width:12px; height:12px;">
-            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
-          </svg>
-        </div>
-        <div class="mini-vinyl-hole"></div>
-      </div>
-      <div class="mini-info">
-        <div class="mini-title" id="mini-title">Nothing Playing</div>
-        <div class="mini-artist" id="mini-artist">—</div>
-      </div>
-      <button class="mini-expand" id="mini-expand" title="Open Now Playing" aria-label="Open Now Playing">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
-      </button>
-    </div>
-    <div class="dock-controls">
-      <input type="range" class="mini-volume" id="mini-volume" min="0" max="100" step="1" value="68" aria-label="Volume"/>
-      <button class="mini-btn" id="mini-prev" title="Previous" aria-label="Previous track">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>
-      </button>
-      <button class="mini-btn play-btn" id="mini-play" title="Play/Pause" aria-label="Play or pause">
-        <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
-      </button>
-      <button class="mini-btn" id="mini-next" title="Next" aria-label="Next track">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
-      </button>
-    </div>
-  </div>
-
   <!-- Context menu portal — fixed position, lives outside every view section. -->
   <div id="ctx-root"></div>
 
@@ -706,15 +671,15 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      JAVASCRIPT
      ═══════════════════════════════════════════════════════════════════════════ -->
-<script src="js/bridge.js?v=0.6.24"></script>
-<script src="js/app.js?v=0.6.24"></script>
+<script src="js/bridge.js?v=0.6.26"></script>
+<script src="js/app.js?v=0.6.26"></script>
   <!-- shell.js imports store/router (versioned inside the module graph);
        standalone tags removed — they created duplicate module instances -->
-  <script type="module" src="js/core/shell.js?v=0.6.24"></script>
-<script src="js/online.js?v=0.6.24"></script>
-<script src="js/vinyl.js?v=0.6.24"></script>
-<script src="js/knob.js?v=0.6.24"></script>
-<script src="js/seek.js?v=0.6.24"></script>
+  <script type="module" src="js/core/shell.js?v=0.6.26"></script>
+<script src="js/online.js?v=0.6.26"></script>
+<script src="js/vinyl.js?v=0.6.26"></script>
+<script src="js/knob.js?v=0.6.26"></script>
+<script src="js/seek.js?v=0.6.26"></script>
 
 </body>
 </html>

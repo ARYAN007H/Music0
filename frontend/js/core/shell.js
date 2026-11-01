@@ -218,6 +218,14 @@ function TransportBar() {
     Store.set('likedIds', [...ids]);
   };
 
+  // The pill's explicit door to the main big player (#66 — Aryan: the bar
+  // must open the expanded Now Playing view). Vinyl fullscreen keeps its own
+  // button INSIDE the expanded player, where the vinyl lives.
+  const openFullPlayer = () => {
+    if (window.MusicoRouter?.navigate) window.MusicoRouter.navigate('now-playing');
+    else window.App?.navigateTo?.('now-playing');
+  };
+
   // The expanded Now Playing view IS the player while it is open — showing
   // the mini bar next to it duplicated every control (two players on screen).
   // Apple Music hides the mini bar in the full player; so do we.  (Checked
@@ -228,14 +236,30 @@ function TransportBar() {
   return html`
     <div class="transport-bar">
     <div class="transport-left">
-      ${pb.hasSong ? html`<${ArtThumb} pb=${pb} />` : html`<div class="lcd-art lcd-art-empty" aria-hidden="true" />`}
-      <div class="lcd-meta" aria-live="polite">
-        <div class="lcd-title">${pb.hasSong ? pb.title : 'Not Playing'}</div>
-        <div class="lcd-artist">${pb.hasSong ? pb.artist : 'Play something — it is all free'}</div>
+      <div class="lcd-open" role="button" tabindex="0" aria-label="Open the full player"
+           title="Open the full player"
+           onClick=${openFullPlayer}
+           onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFullPlayer(); } }}>
+        ${pb.hasSong ? html`<${ArtThumb} pb=${pb} />` : html`<div class="lcd-art lcd-art-empty" aria-hidden="true" />`}
+        <div class="lcd-meta" aria-live="polite">
+          <div class="lcd-title">${pb.hasSong ? pb.title : 'Not Playing'}</div>
+          <div class="lcd-artist">${pb.hasSong ? pb.artist : 'Play something — it is all free'}</div>
+        </div>
       </div>
       <button class="tb-star ${liked ? 'on' : ''}" title=${liked ? 'Favorite' : 'Add to Favorites'}
               aria-label="Favorite" aria-pressed=${liked} onClick=${toggleLike} disabled=${!pb.hasSong || undefined}>
         <svg viewBox="0 0 24 24" fill=${liked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </button>
+      <button class="tb-star tb-plus" title="Add to playlist" aria-label="Add to playlist"
+              disabled=${!pb.hasSong || undefined}
+              onClick=${(e) => {
+                const song = window.App?.state?.currentSong;
+                if (!song) return;
+                const r = e.currentTarget.getBoundingClientRect();
+                lastCtxPos = { x: r.left, y: r.bottom + 6 };
+                playlistPicker(song);
+              }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
       </button>
     </div>
 
@@ -300,8 +324,8 @@ function TransportBar() {
                  volThrottle.pending = null;
                }} />
       </div>
-      <button class="lcd-btn" id="btn-fullscreen" title="Fullscreen player" aria-label="Fullscreen player"
-              onClick=${() => window.Online?.toggleFullscreen?.()}>
+      <button class="lcd-btn" id="btn-open-player" title="Open the full player" aria-label="Open the full player"
+              onClick=${openFullPlayer}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg>
       </button>
       <button class="lcd-btn ${panelOpen ? 'lcd-on' : ''}" id="btn-queue" title="Playing Next" aria-label="Playing Next queue"
@@ -332,7 +356,9 @@ function QueueRow({ song, current, removable, onPlay, qIndex = null, onReorder =
     draggable: true,
     onDragStart: (e) => {
       e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(qIndex));
+      // Custom type ONLY: any drag carrying plain text (another app, another
+      // panel) must not issue a spurious queue_move (#70 review P1).
+      e.dataTransfer.setData('application/x-musico-qindex', String(qIndex));
       e.currentTarget.classList.add('qp-dragging');
     },
     onDragEnd: (e) => e.currentTarget.classList.remove('qp-dragging'),
@@ -342,7 +368,7 @@ function QueueRow({ song, current, removable, onPlay, qIndex = null, onReorder =
     onDrop: (e) => {
       e.preventDefault();
       e.currentTarget.classList.remove('qp-drag-over');
-      const from = Number(e.dataTransfer.getData('text/plain'));
+      const from = Number(e.dataTransfer.getData('application/x-musico-qindex'));
       if (Number.isInteger(from) && from !== qIndex) onReorder(from, qIndex);
     },
   } : {};
@@ -350,6 +376,7 @@ function QueueRow({ song, current, removable, onPlay, qIndex = null, onReorder =
     <div class="qp-row ${current ? 'qp-current' : ''}" role="button" tabindex="0"
          aria-label="Play ${song.title}" onClick=${onPlay}
          data-ctx=${removable ? 'qrow' : null} data-qid=${song.id} data-vid=${vid}
+         data-song-id=${song.id} data-file-path=${song.file_path || null}
          data-title=${song.title} data-artist=${song.artist || null}
          ...${drag}
          onKeyDown=${(e) => {
@@ -1034,6 +1061,87 @@ function invalidateLibraryLists() {
   Store.set('libRev', (Store.get('libRev') || 0) + 1);
 }
 
+// ─── User playlists (#60) ────────────────────────────────────────────────────
+// Where the last context menu was opened — the playlist picker re-renders
+// in place when it swaps in (actions get no coordinates from the menu).
+let lastCtxPos = { x: 8, y: 8 };
+
+// Accepts BOTH shapes a track arrives in: OnlineTrack (video_id + source)
+// from search/shelf rows, SongInfo (namespaced id, file_path) from the
+// queue / currently-playing pill.
+function trackToPlaylistRef(t) {
+  const num = (d) => (d == null ? null : Math.round(d) || null);
+  if (t && t.video_id !== undefined) {
+    return {
+      source: t.source || 'yt', id: t.video_id, title: t.title || '',
+      artist: t.artist || '', album: t.album || '',
+      duration_secs: num(t.duration_secs), thumbnail: t.thumbnail || null,
+      file_path: null,
+    };
+  }
+  const id = String(t?.id || '');
+  const ns = id.match(/^(yt|saavn):(.+)$/);
+  if (ns) {
+    return {
+      source: ns[1], id: ns[2], title: t.title || '', artist: t.artist || '',
+      album: t.album || '', duration_secs: num(t.duration_secs),
+      thumbnail: t.thumb || t.thumbnail || null,
+      file_path: t.file_path || t?.file_path || null,
+    };
+  }
+  return {
+    source: 'local', id, title: t?.title || '', artist: t?.artist || '',
+    album: t?.album || '', duration_secs: num(t?.duration_secs),
+    thumbnail: t?.thumb || t?.thumbnail || null, file_path: t?.file_path || null,
+  };
+}
+
+// Queue rows hand over the NAMESPACED song id (data-song-id) + file_path —
+// trackFromDataset's videoId stub loses the source namespace and local
+// paths, which made every queue-row add fail validation (#71 review P0).
+function playlistRefFromQueueDataset(ds) {
+  return trackToPlaylistRef({
+    id: ds.songId || '',
+    title: ds.title || '', artist: ds.artist || '', album: '',
+    duration_secs: null, file_path: ds.filePath || null,
+  });
+}
+
+function addTrackToPlaylist(plId, plName, track) {
+  window.Bridge?.invoke?.('playlist_add_track', { id: plId, track: trackToPlaylistRef(track) })
+    .then((count) => {
+      if (count === null) {
+        window.App?.showToast?.('Could not add to the playlist');
+        return;
+      }
+      window.App?.showToast?.(`Added to \u201C${plName}\u201D — ${count} song${count === 1 ? '' : 's'}`);
+      Store.set('userPlaylists', null); // PlaylistsView refetches
+    });
+}
+
+// Swaps the open context menu for the playlist picker (same spot, same
+// machinery — no second popover system to maintain).
+function playlistPicker(track) {
+  window.Bridge?.invoke?.('playlist_list').then((lists) => {
+    const items = [{
+      label: '\uFF0B New playlist\u2026',
+      action: () => {
+        const name = window.prompt?.('Playlist name');
+        if (!name || !name.trim()) return;
+        window.Bridge?.invoke?.('playlist_create', { name: name.trim() })
+          .then((p) => {
+            if (!p) { window.App?.showToast?.('Could not create the playlist'); return; }
+            addTrackToPlaylist(p.id, p.name, track);
+          });
+      },
+    }];
+    for (const pl of (Array.isArray(lists) ? lists : [])) {
+      items.push({ label: pl.name, action: () => addTrackToPlaylist(pl.id, pl.name, track) });
+    }
+    Store.set('ctxMenu', { x: lastCtxPos.x, y: lastCtxPos.y, items });
+  });
+}
+
 function trackFromDataset(ds) {
   return {
     video_id: ds.videoId, title: ds.title || '', artist: ds.artist || '',
@@ -1054,6 +1162,7 @@ function ctxItemsFor(el) {
       { label: 'Play Next', action: () => Online.playNext?.(track) },
       { label: 'Play Last', action: () => Online.enqueueTrack?.(track) },
       { label: 'Download', action: () => Online.downloadTrack?.(track) },
+      { label: 'Add to playlist\u2026', action: () => playlistPicker(track) },
       { label: 'Add to Library', action: () => saveToLibrary('track', {
           id: ds.videoId, title: ds.title || '', subtitle: ds.artist || '',
           video_id: ds.videoId, browse_id: null, params: null,
@@ -1088,6 +1197,7 @@ function ctxItemsFor(el) {
         album: '', duration_secs: null, thumbnail: null, cached: false,
       }) });
     }
+    items.push({ label: 'Add to playlist\u2026', action: () => playlistPicker(playlistRefFromQueueDataset(ds)) });
     items.push({
       label: 'Remove from Queue',
       action: () => window.Bridge?.invoke?.('remove_from_queue', { songId: ds.qid }),
@@ -1109,6 +1219,7 @@ function ContextMenu() {
       const items = ctxItemsFor(el);
       if (!items.length) return;
       e.preventDefault();
+      lastCtxPos = { x: e.clientX, y: e.clientY };
       Store.set('ctxMenu', { x: e.clientX, y: e.clientY, items });
     };
     const close = () => { if (Store.get('ctxMenu')) Store.set('ctxMenu', null); };
@@ -1585,7 +1696,93 @@ function MadeForYouView() {
     </div>`;
 }
 
-// ─── Playlists (smart playlists) ─────────────────────────────────────────────
+// ─── Playlists (user playlists #60 + smart playlists) ────────────────────────
+
+function UserPlaylistsSection() {
+  const lists = useStoreValue('userPlaylists', null);
+  const selectedId = useStoreValue('userPlSelected', null);
+  const refresh = () => window.Bridge?.invoke?.('playlist_list')
+    .then((l) => Store.set('userPlaylists', Array.isArray(l) ? l : []));
+  // Re-run when the store flips value↔null: covers the first fetch AND the
+  // add-from-pill invalidation while this view is already open (#71 review).
+  useEffect(() => { if (!lists) refresh(); }, [lists === null]);
+  const items = lists || [];
+  const selected = items.find((p) => p.id === selectedId) || null;
+
+  const createPl = () => {
+    const name = window.prompt?.('Playlist name');
+    if (!name || !name.trim()) return;
+    window.Bridge?.invoke?.('playlist_create', { name: name.trim() }).then((p) => {
+      if (!p) { window.App?.showToast?.('Could not create the playlist'); return; }
+      Store.set('userPlSelected', p.id);
+      refresh();
+    });
+  };
+  const playTrack = (t) => {
+    if (t.source === 'local') {
+      window.App?.playSong?.({
+        id: t.id, title: t.title, artist: t.artist, album: t.album,
+        duration_secs: t.duration_secs || 0, file_path: t.file_path,
+      });
+    } else {
+      window.Online?.playTrack?.({
+        video_id: t.id, title: t.title, artist: t.artist, album: t.album,
+        duration_secs: t.duration_secs, thumbnail: t.thumbnail,
+        cached: false, source: t.source,
+      }, null);
+    }
+  };
+  return html`
+    <section class="user-playlists" aria-label="Your playlists">
+      <div class="upl-head">
+        <h2 class="shelf-title">Your playlists</h2>
+        <button class="upl-new" onClick=${createPl}>\uFF0B New playlist</button>
+      </div>
+      ${!items.length ? html`<div class="lib-empty">Right-click a song (or the + in the transport bar) \u2192 "Add to playlist".</div>` : html`
+      <div class="lib-rows">
+        ${items.map((pl) => html`
+          <div class="lib-row ${selectedId === pl.id ? 'sel' : ''}" key=${pl.id} role="button" tabindex="0"
+               aria-label="Open playlist ${pl.name}"
+               onClick=${() => Store.set('userPlSelected', selectedId === pl.id ? null : pl.id)}
+               onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); Store.set('userPlSelected', selectedId === pl.id ? null : pl.id); } }}>
+            <div class="lib-row-play" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h13M3 18h9"/></svg>
+            </div>
+            <div class="lib-meta">
+              <div class="lib-title">${pl.name}</div>
+              <div class="lib-sub">${pl.tracks.length} song${pl.tracks.length === 1 ? '' : 's'}</div>
+            </div>
+          </div>`)}
+      </div>`}
+      ${selected ? html`
+        <div class="upl-detail">
+          <div class="upl-detail-head">
+            <strong>${selected.name}</strong>
+            <span class="upl-actions">
+              <button onClick=${() => { const n = window.prompt?.('Rename playlist', selected.name); if (n && n.trim()) window.Bridge?.invoke?.('playlist_rename', { id: selected.id, name: n.trim() }).then(refresh); }}>Rename</button>
+              <button onClick=${() => { if (window.confirm && !window.confirm(`Delete "${selected.name}"?`)) return; window.Bridge?.invoke?.('playlist_delete', { id: selected.id }).then(() => { Store.set('userPlSelected', null); refresh(); }); }}>Delete</button>
+            </span>
+          </div>
+          <div class="lib-rows">
+            ${selected.tracks.map((t, i) => html`
+              <div class="lib-row" key=${t.source + ':' + t.id + ':' + i}>
+                <div class="lib-row-play" role="button" tabindex="0" aria-label="Play ${t.title}"
+                     onClick=${() => playTrack(t)}
+                     onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playTrack(t); } }}>
+                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-title">${t.title}</div>
+                  <div class="lib-sub">${t.artist || t.source}</div>
+                </div>
+                <button class="upl-remove" title="Remove from playlist" aria-label="Remove from playlist"
+                        onClick=${() => window.Bridge?.invoke?.('playlist_remove_track', { id: selected.id, index: i }).then(refresh)}>\u2715</button>
+              </div>`)}
+            ${!selected.tracks.length ? html`<div class="lib-empty">Empty — right-click any song \u2192 "Add to playlist".</div>` : null}
+          </div>
+        </div>` : null}
+    </section>`;
+}
 
 function PlaylistsView() {
   const lists = useStoreValue('playlists', null);
@@ -1598,8 +1795,9 @@ function PlaylistsView() {
     <div class="genres-wrap">
       <header class="browse-header">
         <h1 class="browse-title">Playlists</h1>
-        <p class="browse-sub">Smart playlists built from your library.</p>
+        <p class="browse-sub">Your playlists, plus smart lists built from your library.</p>
       </header>
+      <${UserPlaylistsSection} />
       <div class="lib-rows">
         ${items.map((pl) => html`
           <div class="lib-row" key=${pl.id}>

@@ -62,9 +62,6 @@ const Seek = (() => {
     // Update time display
     document.getElementById('time-current').textContent = App.formatTime(App.state.position);
 
-    // Update mini player progress
-    document.getElementById('mini-player').style.setProperty('--mini-progress', `${pct * 100}%`);
-
     // Keep the slider ARIA contract in sync while scrubbing
     if (wrapper) {
       wrapper.setAttribute('aria-valuenow', String(Math.round(App.state.position)));

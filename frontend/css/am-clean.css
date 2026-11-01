@@ -792,3 +792,50 @@
   -webkit-mask-image: linear-gradient(to right, #fff 92%, transparent 100%);
           mask-image: linear-gradient(to right, #fff 92%, transparent 100%);
 }
+
+/* ─── User playlists (#60) ─────────────────────────────────────────────────── */
+.upl-head { display: flex; align-items: center; justify-content: space-between; margin: var(--space-16) 0 var(--space-8); }
+.upl-new {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+}
+.upl-new:hover { background: var(--accent-tint); border-color: var(--accent); }
+.lib-row.sel { background: var(--accent-tint); border-radius: 10px; }
+.upl-detail {
+  margin: var(--space-8) 0 var(--space-16);
+  padding: var(--space-12);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.upl-detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-8); }
+.upl-actions { display: flex; gap: var(--space-8); }
+.upl-actions button {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.upl-actions button:hover { color: var(--text); border-color: var(--accent); }
+.upl-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.upl-remove:hover { color: var(--text); background: var(--accent-tint); }
+
+.lib-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
