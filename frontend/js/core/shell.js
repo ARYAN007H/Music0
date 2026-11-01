@@ -218,6 +218,14 @@ function TransportBar() {
     Store.set('likedIds', [...ids]);
   };
 
+  // The pill's explicit door to the main big player (#66 — Aryan: the bar
+  // must open the expanded Now Playing view). Vinyl fullscreen keeps its own
+  // button INSIDE the expanded player, where the vinyl lives.
+  const openFullPlayer = () => {
+    if (window.MusicoRouter?.navigate) window.MusicoRouter.navigate('now-playing');
+    else window.App?.navigateTo?.('now-playing');
+  };
+
   // The expanded Now Playing view IS the player while it is open — showing
   // the mini bar next to it duplicated every control (two players on screen).
   // Apple Music hides the mini bar in the full player; so do we.  (Checked
@@ -228,10 +236,15 @@ function TransportBar() {
   return html`
     <div class="transport-bar">
     <div class="transport-left">
-      ${pb.hasSong ? html`<${ArtThumb} pb=${pb} />` : html`<div class="lcd-art lcd-art-empty" aria-hidden="true" />`}
-      <div class="lcd-meta" aria-live="polite">
-        <div class="lcd-title">${pb.hasSong ? pb.title : 'Not Playing'}</div>
-        <div class="lcd-artist">${pb.hasSong ? pb.artist : 'Play something — it is all free'}</div>
+      <div class="lcd-open" role="button" tabIndex="0" aria-label="Open the full player"
+           title="Open the full player"
+           onClick=${openFullPlayer}
+           onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFullPlayer(); } }}>
+        ${pb.hasSong ? html`<${ArtThumb} pb=${pb} />` : html`<div class="lcd-art lcd-art-empty" aria-hidden="true" />`}
+        <div class="lcd-meta" aria-live="polite">
+          <div class="lcd-title">${pb.hasSong ? pb.title : 'Not Playing'}</div>
+          <div class="lcd-artist">${pb.hasSong ? pb.artist : 'Play something — it is all free'}</div>
+        </div>
       </div>
       <button class="tb-star ${liked ? 'on' : ''}" title=${liked ? 'Favorite' : 'Add to Favorites'}
               aria-label="Favorite" aria-pressed=${liked} onClick=${toggleLike} disabled=${!pb.hasSong || undefined}>
@@ -300,8 +313,8 @@ function TransportBar() {
                  volThrottle.pending = null;
                }} />
       </div>
-      <button class="lcd-btn" id="btn-fullscreen" title="Fullscreen player" aria-label="Fullscreen player"
-              onClick=${() => window.Online?.toggleFullscreen?.()}>
+      <button class="lcd-btn" id="btn-open-player" title="Open the full player" aria-label="Open the full player"
+              onClick=${openFullPlayer}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/></svg>
       </button>
       <button class="lcd-btn ${panelOpen ? 'lcd-on' : ''}" id="btn-queue" title="Playing Next" aria-label="Playing Next queue"
