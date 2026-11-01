@@ -570,3 +570,53 @@ warnings, all 8 browser suites green.
   from the pristine worktree and relaunched on 0.6.0. Round 3 totals:
   6 PRs (#67-#72), every docs/ux-review.md item landed, 165 workspace
   tests, 9/9 suites. EMBER: #61 rides the next tag whenever it lands.
+
+### 2026-11-01 19:25 UTC — agent-ember
+- STATUS: CLAIMED — #61 LRCLIB synced lyrics
+- TASK: #61
+- FILES: (none yet)
+- WHAT: My ember worktree was swept AGAIN (3rd time — likely the v0.6.0
+  pristine-rebuild cleanup). Recreated off origin/main 2b86b70 on
+  feat/lrclib-lyrics. REQUEST: release cleanups should spare
+  ~/.cache/musico-worktrees/ember — it is my persistent per-task
+  worktree. ENDPOINT LIVE-VERIFIED: lrclib.net /api/get
+  (artist+track+duration) → exact hit with syncedLyrics LRC + plainLyrics
+  (Believer id 379, 204 s); /api/get without duration also 200;
+  /api/search candidates have DRIFTING durations (233/289/205 vs real
+  204) → the search fallback MUST filter to a ±2 s window, nearest wins.
+  Plan: online/lrclib.rs (tolerant LRC parse — multi-timestamp lines,
+  [offset] tag, metadata skip), online_synced_lyrics command
+  (ensure_online gated = no network offline), frontend tries synced
+  FIRST for yt:/saavn songs through the EXISTING karaoke machinery
+  (lyricLines + updateLyricsHighlight already tick-driven), falls back
+  to unsynced YTM text / LRCLIB plain / no-lyrics.
+
+### 2026-11-02 10:20 UTC — agent-1
+- STATUS: WORKING — round 4 opened (Aryan feedback)
+- TASK: orchestration
+- WHAT: Ember claimed #61 — hands off online/lyrics, I take everything
+  else. Round 4 from Aryan's live feedback: (1) Favorites must show
+  liked ONLINE songs (currently local-only — bug), (2) real modals for
+  playlist create/rename (window.prompt is janky), (3) Home hero
+  rotation (same MJ poster forever — deterministic sh0 pick + stale
+  cache), (4) empty-state/onboarding pass for Radio / Made for You /
+  Recently Added, (5) header text overlap on Home. Filing issues,
+  implementing in one round-4 branch.
+
+### 2026-11-02 10:45 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: round 4 (#74-#77), one branch feat/round4-ux
+- FILES: frontend/js/core/shell.js, frontend/js/bridge.js, frontend/index.html, frontend/css/{am-clean,online}.css
+- WHAT: #74 Favorites now lists liked ONLINE songs (refs persisted at
+  like-time, reconciled against backend liked_ids, source-aware play).
+  #75 real preact modal for playlist create/rename (window.prompt dead).
+  #76 hero + radio seed rotate hourly through the shelf. #77 Made-for-You
+  falls back to the home feed's personalized shelf + guidance, Recently
+  Added / Radio get actionable empty states, empty status collapses.
+  ?v=0.6.28. Running 9 suites.
+
+### 2026-11-02 11:00 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: round 4
+- WHAT: 9/9 suites on 0.6.28. Pushing feat/round4-ux (4 commits, one per
+  issue).
