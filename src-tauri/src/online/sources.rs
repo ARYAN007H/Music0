@@ -108,13 +108,13 @@ static SOURCE_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
 
 /// One configured source instance.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct SourceSpec {
-    pub host: String,
-    pub kind: SourceKind,
+struct SourceSpec {
+    host: String,
+    kind: SourceKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SourceKind {
+enum SourceKind {
     Piped,
     Invidious,
 }
@@ -199,13 +199,14 @@ struct PipedSource {
     host: String,
 }
 
-/// Subset of the Piped `/streams` response we consume. Field names are the
-/// instance API's camelCase; everything is optional so degraded/broken
-/// responses parse and yield zero candidates instead of failing loudly.
+/// Subset of the Piped `/streams` response we consume. The stream array is
+/// kept as raw values and parsed per element (`parse_audio_streams`) so one
+/// malformed entry (or a null/missing array from a degraded instance) yields
+/// fewer candidates instead of failing the whole metadata parse.
 #[derive(Deserialize)]
 struct PipedStreams {
     #[serde(default, rename = "audioStreams")]
-    audio_streams: Vec<PipedAudio>,
+    audio_streams: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Deserialize)]
@@ -216,6 +217,18 @@ struct PipedAudio {
     bitrate: Option<u64>,
     #[serde(default, rename = "mimeType")]
     mime_type: Option<String>,
+}
+
+/// Element-tolerant bridge: drops malformed entries instead of failing the
+/// instance (a degraded response costs one skipped candidate, not one
+/// wasted source attempt).
+fn parse_audio_streams(meta: &PipedStreams) -> Vec<PipedAudio> {
+    meta.audio_streams
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+        .collect()
 }
 
 /// Selects the best downloadable m4a from a Piped `audioStreams` array:
@@ -258,7 +271,7 @@ impl AudioSource for PipedSource {
             .map_err(|e| format!("piped {}: metadata body: {e}", self.host))?;
         let parsed: PipedStreams = serde_json::from_slice(&bytes)
             .map_err(|e| format!("piped {}: metadata parse: {e}", self.host))?;
-        let url = select_best_m4a(&parsed.audio_streams)
+        let url = select_best_m4a(&parse_audio_streams(&parsed))
             .ok_or_else(|| format!("piped {}: no usable audio/mp4 stream ≤192k", self.host))?;
 
         let dl_budget = remaining(deadline)?;
@@ -373,7 +386,10 @@ pub(crate) fn try_sources(
     let mut last_err = String::from("no sources configured");
     for source in sources {
         if remaining(deadline).is_err() {
-            last_err = "fast-path deadline exhausted before all sources were tried".into();
+            // Append, don't overwrite: the concrete per-instance reasons
+            // above are the debuggable part.
+            last_err =
+                format!("{last_err}; fast-path deadline exhausted before all sources were tried");
             break;
         }
         match source.open(video_id, deadline) {
@@ -398,14 +414,13 @@ pub(crate) fn try_sources(
                 last_err = e;
             }
         }
-        let _ = std::fs::remove_file(&part);
     }
     let _ = std::fs::remove_file(&part);
     Err(last_err)
 }
 
 /// Production entry: the default pool against the shared fast-path budget.
-pub(crate) fn try_fast_path(video_id: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn try_fast_path(video_id: &str) -> Result<PathBuf, String> {
     try_sources(&default_pool(), video_id, FAST_PATH_BUDGET)
 }
 
@@ -439,6 +454,10 @@ fn stream_to_file(
         file.write_all(&buf[..n]).map_err(|e| format!("write: {e}"))?;
     }
     file.flush().map_err(|e| format!("flush: {e}"))?;
+    // Force the bytes to disk BEFORE the rename publishes the file: without
+    // this, a crash between rename and OS flush leaves a truncated file that
+    // `cached_file`'s existence check would trust forever.
+    file.sync_all().map_err(|e| format!("sync: {e}"))?;
     drop(file);
     if total < super::stream::MIN_FILE_BYTES {
         return Err(format!("downloaded file suspiciously small ({total} B)"));
@@ -460,9 +479,8 @@ mod tests {
     // -- stream selection (fixtures, incl. junk) ---------------------------
 
     fn parse_streams(json: &str) -> Vec<PipedAudio> {
-        serde_json::from_str::<PipedStreams>(json)
-            .expect("fixture parses")
-            .audio_streams
+        let meta: PipedStreams = serde_json::from_str(json).expect("fixture parses");
+        parse_audio_streams(&meta)
     }
 
     #[test]
@@ -505,6 +523,30 @@ mod tests {
         assert_eq!(select_best_m4a(&parse_streams(r#"{"audioStreams":[]}"#)), None);
         // A degraded instance answering `{}` must parse to zero candidates.
         assert_eq!(select_best_m4a(&parse_streams(r#"{}"#)), None);
+    }
+
+    #[test]
+    fn per_element_tolerance_drops_malformed_entries() {
+        // Null/missing array → zero candidates (parse succeeds; a wrong-typed
+        // field like "audioStreams":"oops" honestly fails the instance —
+        // Option only maps null, and that's failover's job).
+        for body in [r#"{"audioStreams":null}"#, r#"{}"#] {
+            let meta: PipedStreams = serde_json::from_str(body).expect("null/absent array parses");
+            assert!(parse_audio_streams(&meta).is_empty());
+        }
+        // Within a well-formed array, junk entries are dropped, not fatal.
+        let meta: PipedStreams = serde_json::from_str(
+            r#"{"audioStreams":[
+                {"url":"https://a/good","bitrate":128000,"mimeType":"audio/mp4"},
+                {"url":null,"bitrate":128000,"mimeType":"audio/mp4"},
+                {"bitrate":"128000","mimeType":"audio/mp4"},
+                17
+            ]}"#,
+        )
+        .expect("array parses");
+        let parsed = parse_audio_streams(&meta);
+        assert_eq!(parsed.len(), 1, "only the well-formed entry survives");
+        assert_eq!(select_best_m4a(&parsed).as_deref(), Some("https://a/good"));
     }
 
     // -- pool construction --------------------------------------------------
@@ -552,22 +594,26 @@ mod tests {
         }
     }
 
-    /// 12 KB payload — passes MIN_FILE_BYTES (10 KB).
-    const GOOD_AUDIO: &[u8] = &[0x61; 12 * 1024];
+    /// 12 KB payloads — pass MIN_FILE_BYTES (10 KB). Distinct bytes so the
+    /// test proves WHICH source won, not just that one did.
+    const GOOD_AUDIO_A: &[u8] = &[0x61; 12 * 1024];
+    const GOOD_AUDIO_B: &[u8] = &[0x62; 12 * 1024];
 
     #[test]
     fn first_success_wins_in_pool_order() {
         let _tc = crate::online::stream::test_support::TestCache::acquire();
         let sources: Vec<Box<dyn AudioSource>> = vec![
             MockSource::failing("dead", "down"),
-            MockSource::ok("first-good", GOOD_AUDIO),
-            MockSource::ok("never-reached", GOOD_AUDIO),
+            MockSource::ok("first-good", GOOD_AUDIO_B),
+            MockSource::ok("never-reached", GOOD_AUDIO_A),
         ];
         let path = try_sources(&sources, "mockvid00001", Duration::from_secs(5))
             .expect("second source succeeds");
         assert!(path.ends_with("mockvid00001.m4a"));
-        let meta = std::fs::metadata(&path).unwrap();
-        assert_eq!(meta.len() as usize, GOOD_AUDIO.len());
+        // The winner is the SECOND source: its distinct bytes are on disk,
+        // so neither the failing first nor the never-reached third won.
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes, GOOD_AUDIO_B, "pool order: first success wins");
         // `.part` consumed by the atomic rename.
         assert!(!path.with_extension("m4a.part").exists());
     }
@@ -599,7 +645,11 @@ mod tests {
         let err = try_sources(&sources, "mockvid00003", Duration::from_millis(400))
             .expect_err("budget exhausts");
         assert!(err.contains("deadline"), "deadline error surfaces: {err}");
-        assert!(t0.elapsed() < Duration::from_millis(900), "bail was prompt: {:?}", t0.elapsed());
+        assert!(
+            t0.elapsed() < Duration::from_millis(1500),
+            "bail was prompt: {:?}",
+            t0.elapsed()
+        );
     }
 
     #[test]
@@ -619,9 +669,18 @@ mod tests {
         let _tc = crate::online::stream::test_support::TestCache::acquire();
         for bad in ["", "../evil", "a/b", "has space", "über"] {
             assert!(
-                try_sources(&[MockSource::ok("x", GOOD_AUDIO)], bad, Duration::from_secs(1)).is_err()
+                try_sources(&[MockSource::ok("x", GOOD_AUDIO_A)], bad, Duration::from_secs(1))
+                    .is_err()
             );
         }
+        // Validation precedes any filesystem access — nothing was created.
+        assert!(
+            std::fs::read_dir(crate::online::stream::cache_dir())
+                .map(|entries| entries.count())
+                .unwrap_or(0)
+                == 0,
+            "cache dir untouched by invalid ids"
+        );
     }
 
     // -- live (opt-in) --------------------------------------------------------

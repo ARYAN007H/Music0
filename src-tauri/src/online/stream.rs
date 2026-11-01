@@ -273,6 +273,8 @@ pub fn resolve_stream(video_id: &str, budget: Duration) -> Result<PathBuf, Strin
 /// `interactive` selects the one-attempt bounded budget for click-to-play;
 /// the slot wait counts against that budget too, so a click fails honestly
 /// when all three children are busy instead of pinning "resolving".
+/// Worst interactive case ≈ fast-path budget (10 s, spent first by design,
+/// #53) + [`PLAY_RESOLVE_BUDGET`] (90 s).
 pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, String> {
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let result = if interactive {
