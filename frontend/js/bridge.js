@@ -230,6 +230,17 @@ const Bridge = (() => {
           ? pool.filter(t => t.toLowerCase().includes(sq)).slice(0, 10)
           : []);
       }
+      case 'online_synced_lyrics': {
+        // Karaoke preview parity (#61 review): a small timed demo so the
+        // standalone browser preview renders the pane like the app.  Real
+        // IPC path is unaffected.
+        if (window.__offline) return Promise.resolve(null);
+        const t0 = args?.durationSecs != null ? Math.max(0, (args.durationSecs | 0) - 12) : 8;
+        return Promise.resolve({
+          synced: [0, 4, 8].map((s, i) => ({ time_secs: t0 + s, text: `Demo lyric line ${i + 1}` })),
+          plain: 'Demo lyric line 1\nDemo lyric line 2\nDemo lyric line 3',
+        });
+      }
       case 'online_play': {
         const t = args?.track || {};
         mockQueue.push({
