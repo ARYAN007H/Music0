@@ -512,6 +512,53 @@ pub fn get_recommendations(handle: AppHandle, state: State<AppState>) -> Vec<Son
     }
 }
 
+/// Home shelf #63: the recommender's profile-driven picks with a reason
+/// header when a like can anchor it ("Because you liked X"). `None` → the
+/// frontend hides the shelf (no likes, empty library, or no picks) — never
+/// an error, Home must not depend on the recommender.
+#[derive(serde::Serialize)]
+pub struct HomeRecommendation {
+    pub header: String,
+    pub songs: Vec<SongMeta>,
+}
+
+#[tauri::command]
+pub fn recommended_for_home(state: State<AppState>) -> Result<Option<HomeRecommendation>, String> {
+    let Some(rec) = state.recommender.as_ref() else {
+        return Ok(None);
+    };
+    let mut r = match rec.try_lock() {
+        Ok(g) => g,
+        // Indexer may hold the lock during long analysis — hide the shelf
+        // instead of blocking the UI.
+        Err(_) => return Ok(None),
+    };
+    // The liked song's id anchors the picks — the header then tells the
+    // truth about why these rows showed up (#72 review).
+    let Some((anchor_id, anchor_artist)) = r.recent_liked_anchor().map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let recs = match r.get_recommendations(&anchor_id, 8) {
+        Ok(recs) if !recs.is_empty() => recs,
+        // Any recommender failure = the shelf hides, per the doc contract.
+        _ => return Ok(None),
+    };
+    Ok(Some(HomeRecommendation {
+        header: format!("Because you liked {anchor_artist}"),
+        songs: recs
+            .into_iter()
+            .map(|rs| SongMeta {
+                id: rs.record.id,
+                title: rs.record.title,
+                artist: rs.record.artist,
+                album: rs.record.album,
+                duration_secs: rs.record.duration_secs as f32,
+                file_path: rs.record.file_path,
+            })
+            .collect(),
+    }))
+}
+
 /// Non-smart fallback: a deterministic-ish spread from the library.
 fn fallback_recs(state: &State<AppState>) -> Vec<SongMeta> {
     let lib = state.library.lock().unwrap_or_else(|e| e.into_inner());

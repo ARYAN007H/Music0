@@ -198,6 +198,7 @@ fn main() {
             commands::set_music_folder,
             // Recommendations
             commands::get_recommendations,
+            commands::recommended_for_home,
             commands::set_song_like,
             commands::get_liked_ids,
             // Online (InnerTube + yt-dlp)

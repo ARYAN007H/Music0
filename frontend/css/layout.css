@@ -282,3 +282,12 @@
   background-clip: content-box;
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 255, 255, 0.4); }
+
+/* #65: 180 ms cross-fade on view switches (AM-parity) — global, not
+   wide-window-only; the global reduced-motion kill in animations.css
+   covers reduce users. */
+.view.active { animation: view-fade 180ms var(--ease-out); }
+@keyframes view-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}

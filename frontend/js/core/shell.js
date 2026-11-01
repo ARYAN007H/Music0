@@ -655,7 +655,14 @@ function HomeFeed() {
   const extra = useStoreValue('homeExtra', null);
   const extraLoading = useStoreValue('homeExtraLoading', false);
   const history = useStoreValue('history', []);
+  const recShelf = useStoreValue('recShelf', null);
   const sentinelRef = useRef(null);
+  // #63: the recommender surfaces itself with a reason header when a like
+  // can anchor it; null (no likes / empty library) hides the shelf entirely.
+  useEffect(() => {
+    window.Bridge?.invoke?.('recommended_for_home')
+      .then((r) => Store.set('recShelf', r || null));
+  }, []);
 
   useEffect(() => { loadHomeFeed(); }, []);
 
@@ -678,7 +685,18 @@ function HomeFeed() {
     </div>`;
   }
   if (!feed?.shelves?.length) {
-    return html`<div class="home-status">${loading ? 'Tuning your feed…' : ''}</div>`;
+    // #65: skeleton shelves while the first feed loads (search has had
+    // these since C3; Home was the last bare spinner).
+    if (loading) {
+      return html`<div class="home-skeleton" aria-hidden="true">
+        ${[0, 1, 2].map((i) => html`
+          <div class="sk-shelf" key=${i}>
+            <div class="sk-line" />
+            <div class="sk-cards">${[0, 1, 2, 3].map((j) => html`<div class="sk-card" key=${j} />`)}</div>
+          </div>`)}
+      </div>`;
+    }
+    return html`<div class="home-status"></div>`;
   }
   const sh0 = feed.shelves[0] || { items: [] };
   const sh1 = feed.shelves[1] || { items: [] };
@@ -748,6 +766,26 @@ function HomeFeed() {
 
       ${sh1.items?.length ? html`
         <${Shelf} shelf=${{ title: sh1.title || 'Made for you', items: sh1.items }} seeAll=${/^made for/i.test(sh1.title || '')} />` : null}
+
+      ${recShelf ? html`
+        <section class="shelf" aria-label=${recShelf.header}>
+          <h2 class="shelf-title">${recShelf.header}</h2>
+          <div class="lib-rows">
+            ${recShelf.songs.map((sm) => html`
+              <div class="lib-row" key=${sm.id} role="button" tabindex="0"
+                   aria-label="Play ${sm.title}"
+                   onClick=${() => window.App?.playSong?.(sm)}
+                   onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); window.App?.playSong?.(sm); } }}>
+                <div class="lib-row-play" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
+                </div>
+                <div class="lib-meta">
+                  <div class="lib-title">${sm.title}</div>
+                  <div class="lib-sub">${sm.artist}</div>
+                </div>
+              </div>`)}
+          </div>
+        </section>` : null}
 
       ${history.length ? html`
         <section class="shelf" aria-label="Recently played">

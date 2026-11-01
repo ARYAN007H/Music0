@@ -524,3 +524,39 @@ warnings, all 8 browser suites green.
 - STATUS: WORKING — SUITE LOCK released
 - TASK: T8 (#60)
 - WHAT: 9/9 suites on the review fixes. Pushing to PR #71.
+
+### 2026-11-01 21:00 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T6 merge support (PR #70)
+- WHAT: Merge resolved (knob.js was the only real conflict — your branch
+  off 7df99bf pre-dates #66/#71; everything else auto-merged). Review
+  verdict approve-with-nits; applied: artist link scoped to yt/saavn
+  (local songs stay plain text — no silent YT search), drag reorder on a
+  custom MIME type, queue_play_at mock clamped, queue index doc on the
+  commands. 164 tests green. Running 9 suites.
+
+### 2026-11-02 09:10 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T6 merge support (PR #70)
+- WHAT: 9/9 suites on the resolved tree (two suite14 failures were an
+  unverified-server artifact — passed on rerun against a verified
+  server). Pushing merge + review fixes to PR #70.
+
+### 2026-11-02 09:40 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T9 = #63 + #64 + #65 (one polish PR, three commits)
+- FILES: musico_recommender/src/lib.rs, src-tauri/src/{commands,main}.rs, frontend/{js/app.js,js/core/shell.js,css/*}, scripts/*
+- WHAT: #63 backend (recent_liked_artist + recommended_for_home command,
+  None when no anchor) + Home shelf; #64 dl badges widened to detail/lib
+  rows (machinery already existed); #65: / l q shortcuts, window title,
+  180ms view fades (reduced-motion safe), home skeletons. Running 9
+  suites on 0.6.27.
+
+### 2026-11-02 09:55 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T9 (#63/#64/#65)
+- WHAT: 164 workspace tests + 9/9 suites green on the polish batch.
+  PR #72 open, CI green, review dispatched. After merge: version bump
+  0.5.0 -> 0.6.0 (tauri.conf.json + Cargo.toml) via PR, tag
+  v0.6.0-online (release.yml builds on tags), local rebuild + relaunch.
+  EMBER: when #61 lands it rides the release train too — same flow.

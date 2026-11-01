@@ -839,3 +839,16 @@
 .upl-remove:hover { color: var(--text); background: var(--accent-tint); }
 
 .lib-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
+
+/* ─── Home skeleton (#65) ─────────────────────────────────────────────────── */
+.home-skeleton { padding: var(--space-8) 0; }
+.sk-shelf { margin-bottom: var(--space-20); }
+.sk-line { height: 14px; width: 140px; border-radius: 7px; background: var(--surface-inset); margin-bottom: var(--space-10); }
+.sk-cards { display: flex; gap: var(--space-12); overflow: hidden; }
+.sk-card {
+  width: 132px; height: 132px; flex-shrink: 0;
+  border-radius: var(--radius-md); background: var(--surface-inset);
+  animation: sk-pulse 1.2s ease-in-out infinite;
+}
+@keyframes sk-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sk-card { animation: none; } }
