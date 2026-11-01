@@ -46,7 +46,7 @@ pub use lyrics::fetch_lyrics;
 pub use models::{BrowsePage, ItemKind, OnlineTrack, SearchResultPage, Shelf, ShelfItem};
 pub use radio::{radio_tracks, remember_radio_play};
 pub use saavn::{search_songs, SEARCH_MERGE_LIMIT};
-pub use search::search;
+pub use search::{search, search_suggestions};
 pub use stream::{
     clear_cache, prune_cache_to_cap, resolve_stream, resolve_track, to_song_info, yt_dlp_available,
 };

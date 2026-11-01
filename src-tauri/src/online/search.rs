@@ -66,6 +66,30 @@ pub fn search(
     Ok(page)
 }
 
+/// Cap on returned typeahead suggestions (AM/Spotify show ~8–10).
+const SUGGESTIONS_CAP: usize = 10;
+/// InnerTube typeahead endpoint (#59) — live-verified 2026-11-01.
+const SUGGESTIONS_URL: &str = "https://music.youtube.com/youtubei/v1/music/get_search_suggestions";
+
+/// InnerTube search suggestions for the typeahead (#59).  Best-effort by
+/// contract: ANY failure (short query, network, shape drift) returns an
+/// empty vec — the frontend dropdown just stays closed, never an error UI.
+pub fn search_suggestions(query: &str) -> Vec<String> {
+    let q = query.trim();
+    if q.chars().count() < 2 {
+        return Vec::new();
+    }
+    let body = serde_json::json!({ "context": innertube_context(), "input": q });
+    match innertube_post(SUGGESTIONS_URL, body) {
+        Ok(json) => {
+            let mut out = crate::online::parse::parse_search_suggestions(&json);
+            out.truncate(SUGGESTIONS_CAP);
+            out
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
 static SEARCH_CACHE: LazyLock<Mutex<HashMap<(String, bool), (Instant, SearchResultPage)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -112,6 +136,20 @@ mod tests {
         let got = search_cache_get("cache test", false).expect("hit");
         assert_eq!(got.tracks[0].video_id, "c1");
         assert!(search_cache_get("different query", false).is_none());
+    }
+
+    /// Live typeahead: a mainstream prefix must return suggestions.  Opt-in:
+    ///   MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_suggest -- --ignored --nocapture
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_search_suggestions() {
+        let out = search_suggestions("belie");
+        assert!(!out.is_empty(), "typeahead returned nothing for 'belie'");
+        assert!(
+            out.iter().all(|s| s.to_lowercase().contains("belie")),
+            "unexpected suggestions: {out:?}"
+        );
+        println!("suggestions: {out:?}");
     }
 
     #[test]

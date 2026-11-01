@@ -821,6 +821,26 @@ pub async fn online_search(
     .map_err(|e| format!("search task failed: {e}"))?
 }
 
+/// Search typeahead: InnerTube suggestions for a prefix (#59).  Silent
+/// degradation — offline or API failure yields an empty list (the dropdown
+/// stays closed), never an error surfaced to the user.  (Tauri requires
+/// async commands with `State` inputs to return `Result`, hence the
+/// always-Ok wrapper; the Bridge maps any IPC rejection to `null` anyway.)
+#[tauri::command]
+pub async fn online_search_suggestions(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<String>, String> {
+    if ensure_online(&state).is_err() {
+        return Ok(Vec::new());
+    }
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || crate::online::search_suggestions(&query))
+            .await
+            .unwrap_or_default(),
+    )
+}
+
 /// Resolve + download (if needed) an online track and start playing it
 /// through the normal queue path, so previous()/queue ops all work.
 /// Progress goes to the frontend via `online-status` events.

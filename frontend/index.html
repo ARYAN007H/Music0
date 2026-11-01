@@ -29,7 +29,7 @@
 <link rel="stylesheet" href="css/online.css?v=0.6.20"/>
 <link rel="stylesheet" href="css/topbar.css?v=0.6.20"/>
 <link rel="stylesheet" href="css/queue-panel.css?v=0.6.20"/>
-<link rel="stylesheet" href="css/am-clean.css?v=0.6.20"/>
+<link rel="stylesheet" href="css/am-clean.css?v=0.6.21"/>
 <link rel="stylesheet" href="css/liquid.css?v=0.6.20"/>
 <link rel="stylesheet" href="css/apple.css?v=0.6.20"/>
 </head>
@@ -81,6 +81,7 @@
           <input type="search" id="browse-input" placeholder="Songs, artists, albums…" autocomplete="off"
                  aria-label="Search YouTube Music"/>
           <button type="submit" class="browse-search-btn" id="browse-submit">Search</button>
+          <div class="browse-suggest" id="browse-suggest" role="listbox" aria-label="Search suggestions" hidden></div>
         </form>
 
         <div class="browse-toolbar">
@@ -703,7 +704,7 @@
   <!-- shell.js imports store/router (versioned inside the module graph);
        standalone tags removed — they created duplicate module instances -->
   <script type="module" src="js/core/shell.js?v=0.6.20"></script>
-<script src="js/online.js?v=0.6.20"></script>
+<script src="js/online.js?v=0.6.21"></script>
 <script src="js/vinyl.js?v=0.6.20"></script>
 <script src="js/knob.js?v=0.6.20"></script>
 <script src="js/seek.js?v=0.6.20"></script>
