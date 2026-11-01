@@ -37,6 +37,7 @@ const App = (() => {
     currentView: 'browse',
     isPlaying: false,
     currentSong: null,
+    currentLyricsSong: null, // song id the lyrics pane last fetched (#61)
     position: 0,
     duration: 0,
     volume: 0.68,
@@ -1535,19 +1536,26 @@ const App = (() => {
       const dto = await Bridge.invoke('online_synced_lyrics', {
         artist: song.artist || '',
         title: song.title || '',
-        duration_secs: song.duration_secs || null,
+        // camelCase over IPC — Tauri 2 maps command args to camelCase JS
+        // keys, so the Rust `duration_secs` arrives as `durationSecs`; the
+        // snake_case spelling silently deserialized to None, which disabled
+        // the entire duration gate (#79 review P0).
+        durationSecs: song.duration_secs || null,
       });
-      if (!stillCurrent()) return;
+      // Cache BEFORE the currency check (#79 review P2): a fetch that loses
+      // a song-switch race is still good data for the next open of that
+      // song — don't throw it away.
       if (dto && Array.isArray(dto.synced) && dto.synced.length) {
         lyricsSyncedCache.set(songId, dto);
-        renderTimedLyrics(dto.synced);
+        if (stillCurrent()) renderTimedLyrics(dto.synced);
         return;
       }
       if (dto && typeof dto.plain === 'string' && dto.plain.trim()) {
         lyricsTextCache.set(songId, dto.plain);
-        renderPlainLyrics(dto.plain);
+        if (stillCurrent()) renderPlainLyrics(dto.plain);
         return;
       }
+      if (!stillCurrent()) return;
       if (songId.startsWith('yt:')) {
         const videoId = songId.slice(3);
         const text = await Bridge.invoke('online_lyrics', { videoId });

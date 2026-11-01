@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-/// LRCLIB API base — overridable via `MUSICO_LRCLIB_API` (proxy/mirror).
+/// LRCLIB API base default — `MUSICO_LRCLIB_API` overrides it (proxy/mirror).
 const API_BASE: &str = "https://lrclib.net";
 /// Metadata lookups are best-effort; 5 s covers the occasionally slow CDN.
 const API_TIMEOUT: Duration = Duration::from_secs(5);
@@ -57,10 +57,21 @@ pub struct SyncedLyricsDto {
 static CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
     reqwest::blocking::Client::builder()
         .user_agent(USER_AGENT)
+        .connect_timeout(Duration::from_secs(3))
         .timeout(API_TIMEOUT)
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 });
+
+/// Effective API base — `MUSICO_LRCLIB_API` overrides the default
+/// (proxy/mirror testing), matching the source fast path's env overrides.
+fn api_base() -> String {
+    std::env::var("MUSICO_LRCLIB_API")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| API_BASE.to_string())
+}
 
 /// Tolerant LRCLIB record — every field optional so shape drift degrades to
 /// "no match", never a parse failure.
@@ -97,6 +108,13 @@ pub fn fetch_synced_lyrics(
             ("track_name", title),
             ("duration", &dur.to_string()),
         ])?;
+        if rec.instrumental.unwrap_or(false) {
+            // The exact take is instrumental — same-title candidates within
+            // the window would be different recordings whose lyrics would
+            // be foreign.  Stop here (also saves the redundant re-query —
+            // #79 review P2).
+            return None;
+        }
         if let Some(dto) = record_to_dto(&rec) {
             return Some(dto);
         }
@@ -106,32 +124,41 @@ pub fn fetch_synced_lyrics(
     // live pool contains radio edits and live takes hours away — a blind
     // first result would put the wrong lyrics over the song.
     let records = api_search(artist, title)?;
+    let candidates = pick_candidates(&records, duration_secs);
+    candidates.iter().find_map(|r| record_to_dto(r))
+}
+
+/// Search candidates filtered to the ±2 s duration window, nearest duration
+/// first.  Pure so the gate is unit-testable without network (#79 review
+/// P1): the live pool drifts (Believer 233/289/205 vs the real 204), and a
+/// candidate with UNKNOWN duration only qualifies when the song's duration
+/// is unknown too (#79 review P2) — otherwise it could still win on a pool
+/// of bad matches.
+fn pick_candidates<'a>(
+    records: &'a [LrcRecord],
+    duration_secs: Option<u32>,
+) -> Vec<&'a LrcRecord> {
     let mut candidates: Vec<&LrcRecord> = records
         .iter()
         .filter(|r| match (duration_secs, r.duration) {
             (Some(dur), Some(d)) => (d - dur as f64).abs() <= DURATION_WINDOW_SECS,
-            _ => true, // no duration known: any candidate may match
+            (Some(_), None) => false,
+            (None, _) => true,
         })
         .collect();
-    if duration_secs.is_some() {
-        candidates.sort_by(|a, b| {
-            let da = a.duration.unwrap_or(f64::MAX);
-            let db = b.duration.unwrap_or(f64::MAX);
-            let target = duration_secs.unwrap_or(0) as f64;
-            let ka = (da - target).abs();
-            let kb = (db - target).abs();
-            ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
-        });
-    }
+    candidates.sort_by(|a, b| {
+        let target = duration_secs.unwrap_or(0) as f64;
+        let ka = a.duration.map_or(f64::MAX, |d| (d - target).abs());
+        let kb = b.duration.map_or(f64::MAX, |d| (d - target).abs());
+        ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+    });
     candidates
-        .iter()
-        .find_map(|r| record_to_dto(r))
 }
 
 /// GET /api/get — single record or 404.
 fn api_get(params: &[(&str, &str)]) -> Option<LrcRecord> {
     let resp = CLIENT
-        .get(format!("{API_BASE}/api/get"))
+        .get(format!("{}/api/get", api_base()))
         .query(params)
         .send()
         .ok()?;
@@ -144,7 +171,7 @@ fn api_get(params: &[(&str, &str)]) -> Option<LrcRecord> {
 /// GET /api/search — list of records (possibly empty).
 fn api_search(artist: &str, title: &str) -> Option<Vec<LrcRecord>> {
     let resp = CLIENT
-        .get(format!("{API_BASE}/api/search"))
+        .get(format!("{}/api/search", api_base()))
         .query(&[("artist_name", artist), ("track_name", title)])
         .send()
         .ok()?;
@@ -216,14 +243,14 @@ fn parse_lrc(text: &str) -> Vec<LyricLine> {
         if stamps.is_empty() {
             continue;
         }
-        let text = rest.trim();
+        let text = strip_word_tags(rest).trim().to_string();
         if text.is_empty() {
             continue; // instrumental gap markers
         }
         for t in stamps {
             out.push(LyricLine {
                 time_secs: (t - offset_ms).max(0.0),
-                text: text.to_string(),
+                text: text.clone(),
             });
         }
     }
@@ -238,6 +265,34 @@ fn parse_stamp(tag: &str) -> Option<f32> {
     let seconds: f32 = rest.trim().parse().ok()?;
     let total = minutes * 60.0 + seconds;
     (total >= 0.0 && minutes >= 0.0 && seconds < 60.0).then_some(total)
+}
+
+/// Strips enhanced word-level tags `<mm:ss.xx>` (A2 extension) that LRCLIB
+/// occasionally carries inside lyric text — they would render literally
+/// (#79 review P2).  Non-stamp `<…>` sequences pass through untouched.
+fn strip_word_tags(text: &str) -> String {
+    if !text.contains('<') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(rel_open) = rest.find('<') {
+        match rest[rel_open..].find('>') {
+            Some(rel_close)
+                if parse_stamp(&rest[rel_open + 1..rel_open + rel_close]).is_some() =>
+            {
+                out.push_str(&rest[..rel_open]);
+                rest = &rest[rel_open + rel_close + 1..];
+            }
+            // Not a stamp (or unterminated) — keep the literal '<'.
+            _ => {
+                out.push_str(&rest[..rel_open + 1]);
+                rest = &rest[rel_open + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -275,21 +330,34 @@ mod tests {
     }
 
     #[test]
-    fn candidate_pick_filters_duration_window() {
+    fn candidate_pick_filters_window_and_prefers_nearest() {
         let recs = vec![
-            LrcRecord { duration: Some(233.0), instrumental: Some(false), plain_lyrics: Some("far".into()), synced_lyrics: Some("[00:01.00]far".into()) },
-            LrcRecord { duration: Some(205.0), instrumental: Some(false), plain_lyrics: Some("near".into()), synced_lyrics: Some("[00:01.00]near".into()) },
-            LrcRecord { duration: Some(289.0), instrumental: Some(false), plain_lyrics: None, synced_lyrics: Some("[00:01.00]farther".into()) },
+            LrcRecord { duration: Some(233.0), plain_lyrics: Some("far".into()), ..Default::default() },
+            LrcRecord { duration: Some(289.0), plain_lyrics: Some("farther".into()), ..Default::default() },
+            LrcRecord { duration: Some(205.0), plain_lyrics: Some("near".into()), ..Default::default() },
+            LrcRecord { duration: None, plain_lyrics: Some("unknown".into()), ..Default::default() },
         ];
-        // Private helpers through the public fetch path is network-bound, so
-        // exercise the window math via parse-level guard: 205 is the only
-        // candidate within ±2 s of 204.
-        let within: Vec<f64> = recs
-            .iter()
-            .filter_map(|r| r.duration)
-            .filter(|d| (*d - 204.0).abs() <= DURATION_WINDOW_SECS)
-            .collect();
-        assert_eq!(within, vec![205.0]);
+        // The REAL pick path (#79 review P1): only 205 sits within ±2 s of
+        // 204 — the drifted 233/289 pool entries (radio edit, live) must
+        // not win, and an unknown-duration candidate is dropped while the
+        // song duration is known (#79 review P2).
+        let picked = pick_candidates(&recs, Some(204));
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0].plain_lyrics.as_deref(), Some("near"));
+        // No song duration: everything qualifies, nearest known duration
+        // first, unknown last.
+        let fuzzy = pick_candidates(&recs, None);
+        let order: Vec<_> = fuzzy.iter().map(|r| r.plain_lyrics.as_deref().unwrap()).collect();
+        assert_eq!(order, ["near", "far", "farther", "unknown"]);
+    }
+
+    #[test]
+    fn enhanced_word_tags_are_stripped() {
+        let lines = parse_lrc("[00:10.00]Word<00:10.42>tags<00:10.80>gone");
+        assert_eq!(lines[0].text, "Wordtagsgone");
+        // A literal '<' that is not a stamp survives.
+        let lines = parse_lrc("[00:10.00]five < six");
+        assert_eq!(lines[0].text, "five < six");
     }
 
     /// Live end-to-end: a mainstream song must return synced lines.  Opt-in:
