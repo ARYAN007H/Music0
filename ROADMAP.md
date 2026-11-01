@@ -91,16 +91,23 @@ DRM content. Everything else in Apple Music's desktop IA is in scope or explicit
 client. This makes shape drift survivable: new shelf types degrade to "unsupported shelf,
 skipped" instead of breaking a page.
 
-### 2.2 Streams — yt-dlp (shipped)
-itag 140 m4a → disk cache → symphonia. Hardened in v0.5 (locks, retry, verify, LRU prune,
-portable kill). Batch download = N sequential resolves at ≤2 concurrent, same machinery.
+### 2.2 Streams — direct-URL fast path → yt-dlp (shipped)
+Resolution is tiered (#53): cache hit → **Piped/Invidious fast path** (`sources.rs`: instance
+pool, ~10 s shared budget, per-attempt connect 2 s / metadata 5 s, audio content-type gate,
+64 MB cap, `.part` → atomic rename, no child process, works without yt-dlp) → **yt-dlp**
+(itag 140 m4a → disk cache → symphonia; hardened in v0.5: locks, retry, verify, LRU prune,
+portable kill). Batch download = N sequential resolves at ≤2 concurrent, same machinery —
+the fast path benefits batch identically. Instances churn: pools env-overridable
+(`MUSICO_PIPED_INSTANCES`, `MUSICO_INVIDIOUS_INSTANCES`), failures log at debug and fall
+through honestly.
 
 ### 2.3 Risk register
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
 | InnerTube response-shape drift | certain, ongoing | page parse breaks | navigation-following parser, per-shelf tolerance, `fix(innertube)` patches isolated in one module; live test (`MUSICO_LIVE_TESTS=1`) run before every release |
 | PO-token / bot-check walls on some clients | medium | streams fail | yt-dlp already handles most; fallback chain of client identities; last resort: document + degrade gracefully |
-| Rate limiting / IP throttle | medium | slow fetches | request coalescing, TTL caches (shipped for search), self-throttle (max 2 concurrent network ops), jittered backoff |
+| Rate limiting / IP throttle | medium | slow fetches | request coalescing, TTL caches (shipped for search), self-throttle (max 2 concurrent network ops), jittered backoff; **stream resolution now bypasses extraction entirely** via the Piped/Invidious fast path (#53) with yt-dlp as fallback |
+| Public Piped/Invidious instances die or bot-wall | certain, ongoing | fast path unavailable | sequential failover, strict content-type/JSON gates fail walls in ms, honest yt-dlp fallback, env-overridable pools for self-hosted instances (#53) |
 | Genre/home content geo-locked or empty | low | empty shelves | empty-state UI per shelf, never a blank page |
 | yt-dlp breaks | certain over time | playback fails | surfaced install/update hint (shipped); version check on boot |
 | Legal exposure | inherent | repo takedown | standalone repo, personal-use framing (Metrolist/InnerTune precedent); streaming code stays OUT of the offline Musico release repo |
