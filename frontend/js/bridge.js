@@ -116,6 +116,33 @@ const Bridge = (() => {
         mockQueue.length = 0;
         emit('queue-changed', []);
         return Promise.resolve(null);
+      case 'queue_move': {
+        // Reorder parity (#62): same clamp rules as the backend command.
+        const { from, to } = args || {};
+        if (Number.isInteger(from) && Number.isInteger(to) && from !== to
+            && from >= 0 && to >= 0 && from < mockQueue.length && to < mockQueue.length) {
+          const [moved] = mockQueue.splice(from, 1);
+          mockQueue.splice(to, 0, moved);
+          emit('queue-changed', [...mockQueue]);
+          return Promise.resolve(true);
+        }
+        return Promise.resolve(false);
+      }
+      case 'queue_play_at': {
+        // Jump parity (#62): remove the row, then play it like play_song.
+        // Integer-clamped like queue_move — undefined/NaN must not eat row 0.
+        // An out-of-range jump is a visible no-op: still emit queue-changed
+        // so the panel re-renders in sync with the (unchanged) queue.
+        const idx = Number.isInteger(args?.index) ? args.index : -1;
+        if (idx < 0 || idx >= mockQueue.length) {
+          emit('queue-changed', [...mockQueue]);
+          return Promise.resolve(null);
+        }
+        const song = mockQueue.splice(idx, 1)[0];
+        if (song) emit('playback-event', { type: 'Playing', song });
+        emit('queue-changed', [...mockQueue]);
+        return Promise.resolve(null);
+      }
       case 'get_recommendations':
         return Promise.resolve(DEMO_SONGS.slice(3, 7));
       case 'set_song_like': {

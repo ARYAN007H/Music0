@@ -344,19 +344,50 @@ function fmtQueueTime(secs) {
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function QueueRow({ song, current, removable, onPlay }) {
+function QueueRow({ song, current, removable, onPlay, qIndex = null, onReorder = null }) {
   const bg = song.thumb
     ? `url("${song.thumb}") center/cover no-repeat, ${song.artGrad || 'rgba(255,255,255,0.06)'}`
     : (song.artGrad || 'rgba(255,255,255,0.06)');
   const id = String(song.id || '');
   const vid = id.startsWith('yt:') ? id.slice(3) : null;
+  // Drag-to-reorder (#62): upcoming rows only.  The dataTransfer payload is
+  // the SOURCE backend index; the drop target offers its own.
+  const drag = removable && qIndex != null && onReorder ? {
+    draggable: true,
+    onDragStart: (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      // Custom type ONLY: any drag carrying plain text (another app, another
+      // panel) must not issue a spurious queue_move (#70 review P1).
+      e.dataTransfer.setData('application/x-musico-qindex', String(qIndex));
+      e.currentTarget.classList.add('qp-dragging');
+    },
+    onDragEnd: (e) => e.currentTarget.classList.remove('qp-dragging'),
+    onDragOver: (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; },
+    onDragEnter: (e) => e.currentTarget.classList.add('qp-drag-over'),
+    onDragLeave: (e) => e.currentTarget.classList.remove('qp-drag-over'),
+    onDrop: (e) => {
+      e.preventDefault();
+      e.currentTarget.classList.remove('qp-drag-over');
+      const from = Number(e.dataTransfer.getData('application/x-musico-qindex'));
+      if (Number.isInteger(from) && from !== qIndex) onReorder(from, qIndex);
+    },
+  } : {};
   return html`
     <div class="qp-row ${current ? 'qp-current' : ''}" role="button" tabindex="0"
          aria-label="Play ${song.title}" onClick=${onPlay}
          data-ctx=${removable ? 'qrow' : null} data-qid=${song.id} data-vid=${vid}
          data-song-id=${song.id} data-file-path=${song.file_path || null}
          data-title=${song.title} data-artist=${song.artist || null}
-         onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay(); } }}>
+         ...${drag}
+         onKeyDown=${(e) => {
+           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay(); }
+           // Alt+↑/↓ reorders with the keyboard (#62); out-of-range targets
+           // are clamped server-side (move_at no-ops, no event, no re-render).
+           else if (e.altKey && qIndex != null && onReorder) {
+             if (e.key === 'ArrowUp' && qIndex > 0) { e.preventDefault(); onReorder(qIndex, qIndex - 1); }
+             else if (e.key === 'ArrowDown') { e.preventDefault(); onReorder(qIndex, qIndex + 1); }
+           }
+         }}>
       <div class="qp-art" style=${{ background: bg }} aria-hidden="true" />
       <div class="qp-meta">
         <div class="qp-title">${song.title}</div>
@@ -376,8 +407,13 @@ function QueuePanel() {
 
   const playSong = (song) => window.App?.playSong?.(song);
   // Drop exactly ONE leading copy of the current song (it may legitimately
-  // be queued again for replay).
-  const upcoming = queue[0]?.id === pb.id ? queue.slice(1) : queue;
+  // be queued again for replay).  `offset` converts upcoming-panel indices
+  // to backend queue indices, which still include that leading copy.
+  const offset = queue[0]?.id === pb.id ? 1 : 0;
+  const upcoming = offset ? queue.slice(1) : queue;
+  // Jump (#62): play an upcoming row NOW and consume it from the queue.
+  const jump = (i) => window.Bridge?.invoke?.('queue_play_at', { index: i + offset });
+  const reorder = (from, to) => window.Bridge?.invoke?.('queue_move', { from, to });
 
   return html`
     <aside class="queue-panel" role="complementary" aria-label="Playing Next">
@@ -398,7 +434,8 @@ function QueuePanel() {
         <div class="qp-section">Playing Next</div>
         ${upcoming.length ? upcoming.map((song, i) => html`
           <${QueueRow} key=${song.id + i} song=${song} removable=${true}
-                       onPlay=${() => playSong(song)} />`)
+                       qIndex=${i + offset} onReorder=${reorder}
+                       onPlay=${() => jump(i)} />`)
           : html`<div class="qp-empty">Queue is empty — play something.</div>`}
 
         <div class="qp-section">Recently Played</div>

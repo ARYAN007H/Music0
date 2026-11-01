@@ -203,6 +203,8 @@ fn main() {
             // Online (InnerTube + yt-dlp)
             commands::online_search,
             commands::online_search_suggestions,
+            commands::queue_move,
+            commands::queue_play_at,
             commands::online_home,
             commands::online_browse,
             commands::online_genres,

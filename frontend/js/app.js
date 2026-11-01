@@ -500,10 +500,32 @@ const App = (() => {
     }
   }
 
+  // Artist-page navigation target for the expanded player (#62): online
+  // trackMap entries carry artist_browse_id (UC…) when the search row had
+  // one; songs without an InnerTube presence (local library) stay PLAIN
+  // TEXT — silently yanking a local-library user to a YouTube search was
+  // never part of the ask (#70 review P1). saavn/yt songs keep the name
+  // search fallback.
+  function resolveArtistNav(song) {
+    const id = String(song.id || '');
+    if (!id.startsWith('yt:') && !id.startsWith('saavn:')) return null;
+    const vid = id.startsWith('yt:') ? id.slice(3) : null;
+    const track = vid ? window.Online?.trackMap?.get(vid) : null;
+    if (track?.artist_browse_id) {
+      return { kind: 'browse', browseId: track.artist_browse_id, title: track.artist };
+    }
+    return song.artist ? { kind: 'search', query: song.artist } : null;
+  }
+
   // Push the song's identity into the Now Playing surfaces
   function setNowPlayingUi(song) {
     document.getElementById('np-title').textContent = song.title;
-    document.getElementById('np-artist').textContent = `${song.artist} · ${song.album}`;
+    // The artist half becomes a real link when we know where it leads (#62).
+    const artistEl = document.getElementById('np-artist');
+    state.artistNav = resolveArtistNav(song);
+    artistEl.innerHTML = state.artistNav
+      ? `<span class="np-artist-link" role="link" tabindex="0" title="Open ${escapeHtml(song.artist)}">${escapeHtml(song.artist)}</span> · ${escapeHtml(song.album)}`
+      : `${escapeHtml(song.artist)} · ${escapeHtml(song.album)}`;
     publishPlayback();
     document.getElementById('time-total').textContent = formatTime(song.duration_secs);
     document.getElementById('time-current').textContent = formatTime(state.position);
@@ -526,6 +548,30 @@ const App = (() => {
     likeBtn.setAttribute('aria-pressed', String(state.isLiked));
     likeBtn.querySelector('svg').setAttribute('fill', state.isLiked ? 'currentColor' : 'none');
   }
+
+  // Expanded-player artist link (#62): browse to the artist page when the
+  // track carries its UC* id, else run a search for the artist name.
+  // Bound once — state.artistNav changes per song, the handler just reads it.
+  document.getElementById('np-artist')?.addEventListener('click', (e) => {
+    if (!e.target.closest('.np-artist-link')) return;
+    const nav = state.artistNav;
+    if (!nav) return;
+    if (nav.kind === 'browse' && window.MusicoRouter) {
+      window.MusicoRouter.navigate(
+        window.MusicoRouter.detailRoute({ browseId: nav.browseId, title: nav.title }));
+    } else if (nav.kind === 'search') {
+      window.MusicoRouter?.navigate('search');
+      const input = document.getElementById('browse-input');
+      if (input) input.value = nav.query;
+      window.Online?.search?.(nav.query, { videos: false });
+    }
+  });
+  document.getElementById('np-artist')?.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('np-artist-link')) {
+      e.preventDefault();
+      e.target.click();
+    }
+  });
 
   // ─── Queue Rendering ──────────────────────────────────────────────────────
   function renderQueue(songs) {
@@ -582,7 +628,9 @@ const App = (() => {
           Bridge.invoke('remove_from_queue', { songId: song.id });
           return;
         }
-        playSong(song);
+        // Jump (#62): play NOW and consume the row — playing via playSong
+        // would leave it queued for a second spin later.
+        Bridge.invoke('queue_play_at', { index: i });
       };
       row.addEventListener('click', activate);
       row.addEventListener('keydown', (e) => {

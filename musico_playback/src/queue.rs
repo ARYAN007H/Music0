@@ -67,6 +67,19 @@ impl PlaybackQueue {
         self.songs.remove(index)
     }
 
+    /// Moves a queued song from index `from` to index `to` (drag-to-reorder
+    /// in the Playing Next panel).  Indices refer to the CURRENT list; the
+    /// song ends up at index `to` of the RESULTING list.  Returns `false`
+    /// when either index is out of range or `from == to` (no-op).
+    pub fn move_at(&mut self, from: usize, to: usize) -> bool {
+        if from == to || from >= self.songs.len() || to >= self.songs.len() {
+            return false;
+        }
+        let Some(song) = self.songs.remove(from) else { return false };
+        self.songs.insert(to, song);
+        true
+    }
+
     /// Clears both the queue and history.
     pub fn clear(&mut self) {
         self.songs.clear();
@@ -192,5 +205,25 @@ mod tests {
         assert_eq!(q.peek_next().map(|s| s.id), Some("a".into()));
         assert_eq!(q.peek_next().map(|s| s.id), Some("a".into()));
         assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn move_at_reorders_forward_and_backward() {
+        let mut q = PlaybackQueue::new();
+        for id in ["a", "b", "c", "d"] {
+            q.push_back(song(id));
+        }
+        // Forward: a b c d → b a c d (drag row 0 onto row 1).
+        assert!(q.move_at(0, 1));
+        let ids: Vec<_> = q.current_queue().iter().map(|s| s.id.clone()).collect();
+        assert_eq!(ids, ["b", "a", "c", "d"].map(String::from).to_vec());
+        // Backward: b a c d → d b a c (remove the last row, insert at top).
+        assert!(q.move_at(3, 0));
+        let ids: Vec<_> = q.current_queue().iter().map(|s| s.id.clone()).collect();
+        assert_eq!(ids, ["d", "b", "a", "c"].map(String::from).to_vec());
+        // No-ops: same index, out of range — queue untouched.
+        assert!(!q.move_at(2, 2));
+        assert!(!q.move_at(0, 9));
+        assert_eq!(q.len(), 4);
     }
 }

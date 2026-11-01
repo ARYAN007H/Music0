@@ -141,6 +141,7 @@ mod tests {
             thumbnail: None,
             cached: false,
             source: String::new(),
+            artist_browse_id: None,
         };
         *WARM.lock().unwrap() = Some(WarmPick { seed: "seedA".into(), track: track.clone() });
         // Wrong seed → no pick, slot untouched.

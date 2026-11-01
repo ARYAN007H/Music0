@@ -25,6 +25,11 @@ pub struct OnlineTrack {
     /// survives the IPC round-trip.
     #[serde(default)]
     pub source: String,
+    /// Artist page browse id (`UC…`) when the search row carried one —
+    /// powers the tap-artist-to-open-artist-page link in the expanded
+    /// player (#62).  `None` for saavn rows and shape-drifted rows.
+    #[serde(default)]
+    pub artist_browse_id: Option<String>,
 }
 
 impl OnlineTrack {
@@ -71,6 +76,7 @@ mod tests {
             thumbnail: None,
             cached: false,
             source: String::new(),
+            artist_browse_id: None,
         };
         assert_eq!(t.song_id(), "yt:abc123");
         assert_eq!(t.watch_url(), "https://www.youtube.com/watch?v=abc123");
@@ -147,6 +153,7 @@ impl ShelfItem {
             thumbnail: self.thumbnail.clone(),
             cached: false,
             source: String::new(),
+            artist_browse_id: None,
         })
     }
 }

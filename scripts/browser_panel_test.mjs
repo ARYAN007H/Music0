@@ -62,6 +62,84 @@ check('now-playing row seeks to 0', await page.evaluate(() => {
   return called === 0;
 }));
 
+// ── #62: player quick wins ────────────────────────────────────────────────────
+check('expanded player has the volume row', await page.evaluate(
+  () => !!document.getElementById('fs-volume')));
+
+// Two extra upcoming rows so there are draggable neighbors to work with.
+await page.evaluate(async () => {
+  await Bridge.invoke('add_to_queue', { song: { id: 'd1', title: 'Drag A', artist: 'A', album: '', duration_secs: 100, file_path: '/a' } });
+  await Bridge.invoke('add_to_queue', { song: { id: 'd2', title: 'Drag B', artist: 'B', album: '', duration_secs: 110, file_path: '/b' } });
+});
+await page.waitForTimeout(250);
+
+// Drag-to-reorder: the stub applies the move to the store so the panel
+// re-renders like it does on the real queue-changed event.
+await page.evaluate(() => {
+  window.__ipc = [];
+  const orig = window.Bridge.invoke.bind(window.Bridge);
+  window.Bridge.invoke = (cmd, ...rest) => {
+    window.__ipc.push([cmd, rest[0]]);
+    if (cmd === 'queue_move') {
+      const { from, to } = rest[0] || {};
+      const q = window.MusicoStore.get('queue');
+      if (Number.isInteger(from) && Number.isInteger(to) && from !== to && q[from] && q[to]) {
+        const [s] = q.splice(from, 1);
+        q.splice(to, 0, s);
+        window.MusicoStore.set('queue', [...q]);
+      }
+      return Promise.resolve(true);
+    }
+    return orig(cmd, ...rest);
+  };
+});
+await page.waitForTimeout(200);
+await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.qp-row[draggable="true"]')];
+  const dt = new DataTransfer();
+  rows[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  rows[1].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+  rows[1].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+});
+await page.waitForTimeout(250);
+check('drag fires an adjacent queue_move', await page.evaluate(() => {
+  const calls = (window.__ipc || []).filter(([c]) => c === 'queue_move');
+  const a = calls[calls.length - 1]?.[1];
+  return !!a && a.to === a.from + 1;
+}));
+check('reorder re-renders the panel in store order', await page.evaluate(() => {
+  const q = window.MusicoStore.get('queue');
+  const offset = q[0]?.id === App.state.currentSong?.id ? 1 : 0;
+  const titles = [...document.querySelectorAll('.qp-row[draggable="true"] .qp-title')]
+    .map((e) => e.textContent);
+  return titles.length > 0 && titles.every((t, i) => t === q[i + offset]?.title);
+}));
+
+// Keyboard reorder: Alt+↓ on the first draggable row.
+await page.evaluate(() => {
+  document.querySelector('.qp-row[draggable="true"]')
+    .dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true }));
+});
+await page.waitForTimeout(250);
+check('Alt+ArrowDown fires queue_move', await page.evaluate(() => {
+  const calls = (window.__ipc || []).filter(([c]) => c === 'queue_move');
+  const a = calls[calls.length - 1]?.[1];
+  return !!a && a.to === a.from + 1;
+}));
+
+// Click-to-jump: an upcoming row is consumed and played via queue_play_at
+// (mock parity emits Playing, so currentSong follows the jumped row).
+const jumpTarget = await page.evaluate(
+  () => document.querySelector('.qp-row[draggable="true"] .qp-title')?.textContent);
+await page.evaluate(() => document.querySelector('.qp-row[draggable="true"]').click());
+await page.waitForTimeout(300);
+check('row click jumps via queue_play_at', await page.evaluate(() => {
+  const calls = (window.__ipc || []).filter(([c]) => c === 'queue_play_at');
+  return calls.length >= 1 && Number.isInteger(calls[0][1]?.index);
+}));
+check('jumped row is now current', await page.evaluate((t) =>
+  App.state.currentSong?.title === t, jumpTarget));
+
 console.log(results.join('\n'));
 console.log('JS errors:', errors.length ? errors : 'none');
 await browser.close();
