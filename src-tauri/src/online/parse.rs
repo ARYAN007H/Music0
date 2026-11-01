@@ -448,6 +448,9 @@ pub(crate) fn parse_browse_page(json: &serde_json::Value) -> BrowsePage {
         "musicImmersiveHeaderRenderer",
         "musicDetailHeaderRenderer",
         // FEmusic_charts uses the plain header renderer (verified 2026-11-01).
+        // Checked LAST on purpose: a page with a real responsive/immersive/
+        // detail header keeps it even if a plain header lurks elsewhere —
+        // whole-tree collection makes first-nonempty-wins order load-bearing.
         "musicHeaderRenderer",
     ] {
         let mut headers = Vec::new();

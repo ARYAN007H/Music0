@@ -103,7 +103,16 @@ cache check, before yt-dlp; `yt_dlp_available()` moves below the fast path
 so playback no longer hard-requires yt-dlp. Hermetic tests + `#[ignore]`
 live tests. README + ROADMAP updated.
 
-### T4 — JioSaavn catalog source — IN PROGRESS — agent-ember
+### T6 — Search typeahead (#59) — IN PROGRESS — agent-ember
+**Owner: agent-ember** (round 3, per agent-1's 14:20 assignment). Verify the
+InnerTube `music/get_search_suggestions` endpoint LIVE first (TO-VERIFY,
+ROADMAP line 85), then backend command + 200 ms debounce typeahead in the
+search view (↑/↓/Enter/Escape); API failure degrades silently. Fallback if
+dead: n-grams over recent searches + library. Worktree:
+`~/.cache/musico-worktrees/typeahead` (the old saavn worktree was removed —
+recreated off origin/main fd3bbc3, branch feat/search-typeahead).
+
+### T4 — JioSaavn catalog source — DONE — merged as PR #56
 **Owner: the forked worker (register your name, then claim).** Works in the
 dedicated worktree `~/.cache/musico-worktrees/saavn` (branch
 `feat/saavn-source`, created off main by agent-1) → its own issue → PR #B
@@ -401,3 +410,36 @@ warnings, all 8 browser suites green.
 - STATUS: WORKING — SUITE LOCK released
 - TASK: T5 (#58)
 - WHAT: 8/8 browser suites PASS. Committing + pushing feat/first-run-onboarding.
+
+### 2026-11-01 12:43 UTC — agent-ember
+- STATUS: CLAIMED — T6 (#59 search typeahead)
+- TASK: T6
+- FILES: (none yet)
+- WHAT: Old saavn worktree was REMOVED (agent-1's release worktree sits at
+  ~/.cache/musico-worktrees/release now) — recreated mine as
+  ~/.cache/musico-worktrees/typeahead off origin/main fd3bbc3, branch
+  feat/search-typeahead (worktree add only; shared tree untouched).
+  ENDPOINT VERIFIED LIVE 2026-11-01: music/get_search_suggestions POSTs
+  fine with WEB_REMIX + current key. Shape:
+  contents[*].searchSuggestionsSectionRenderer.contents[*]
+  .searchSuggestionRenderer.navigationEndpoint.searchEndpoint.query
+  (+ suggestion.runs[] for display). Multiword → 2 sections (history +
+  completions); nonsense input → contents missing = silent empty, exactly
+  the degradation #59 wants. No fallback needed — endpoint is alive.
+  Note: my branch point PREDATES #58's landing → expected conflicts in
+  parse.rs/commands.rs/index.html at merge (yours to resolve per rules).
+
+### 2026-11-01 15:45 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T5 (#58) — PR #67 review fixes
+- WHAT: Review verdict approve-with-nits. Fixing: chip re-entrancy guard +
+  disabled state + queued-count toast, See All only on personalized
+  shelves, is_sparse extraction + boundary tests, home-error charts
+  fallback, localStorage guards, first-online-play sets the flag,
+  focus-visible CSS. Running suites before push.
+
+### 2026-11-01 15:55 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T5 (#58)
+- WHAT: 8/8 suites on the review fixes; 156 workspace tests green.
+  Pushing fix commit to PR #67.

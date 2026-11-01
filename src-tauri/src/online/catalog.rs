@@ -119,22 +119,39 @@ fn spawn_browse_refresh(key: (String, String), browse_id: String, params: Option
 /// "Languages", "Top artists" carousels under a top-level `contents` node)
 /// are PREPENDED, so Home always opens on real catalog content.  A charts
 /// failure degrades to the plain home feed.
-pub fn home_feed() -> Result<BrowsePage, String> {
-    let page = browse("FEmusic_home", None)?;
+/// Sparse = a fresh or near-empty profile: fewer than two shelves, or so
+/// few rows that Home feels dead (#58).  Pure — boundary-tested.
+fn is_sparse(page: &BrowsePage) -> bool {
     let total_items: usize = page.shelves.iter().map(|s| s.items.len()).sum();
-    let sparse = page.shelves.len() < 2 || total_items < 8;
-    if !sparse {
-        return Ok(page);
-    }
-    match browse("FEmusic_charts", None) {
-        Ok(charts) if !charts.shelves.is_empty() => Ok(merge_sparse_home(page, charts)),
-        Ok(_) => {
-            log::debug!("charts parse empty; serving sparse home feed unchanged");
-            Ok(page)
-        }
-        Err(e) => {
-            log::debug!("charts fetch failed: {e}; serving sparse home feed unchanged");
-            Ok(page)
+    page.shelves.len() < 2 || total_items < 8
+}
+
+pub fn home_feed() -> Result<BrowsePage, String> {
+    match browse("FEmusic_home", None) {
+        Ok(page) if !is_sparse(&page) => Ok(page),
+        // Sparse OR failed home: charts are the guaranteed-content fallback,
+        // so a drifted/failed home parse must not dead-end a first run
+        // either — both endpoints failing is the only honest error.
+        home => {
+            let home_page = home.unwrap_or_else(|_| BrowsePage {
+                title: String::new(),
+                shelves: Vec::new(),
+                next_continuation: None,
+                header: None,
+            });
+            match browse("FEmusic_charts", None) {
+                Ok(charts) if !charts.shelves.is_empty() => Ok(merge_sparse_home(home_page, charts)),
+                Ok(_) if home_page.shelves.is_empty() => Err("home feed unreachable".into()),
+                Ok(_) => {
+                    log::debug!("charts parse empty; serving sparse home feed unchanged");
+                    Ok(home_page)
+                }
+                Err(ce) if home_page.shelves.is_empty() => Err(format!("home feed unreachable ({ce})")),
+                Err(ce) => {
+                    log::debug!("charts fetch failed: {ce}; serving sparse home feed unchanged");
+                    Ok(home_page)
+                }
+            }
         }
     }
 }
@@ -359,6 +376,36 @@ mod tests {
         let merged = merge_sparse_home(home, charts);
         let titles: Vec<&str> = merged.shelves.iter().map(|s| s.title.as_str()).collect();
         assert_eq!(titles, vec!["Video charts", "Top artists", "Quick picks"]);
+    }
+
+    /// The PR's central behavior — pin the boundaries (#67 review): a rich
+    /// single shelf still counts as sparse by shelf count; two shelves at
+    /// exactly 8 total items are NOT sparse; just under is.
+    #[test]
+    fn sparse_threshold_boundaries() {
+        let n_shelf = |title: &str, n: usize| Shelf {
+            title: title.into(),
+            items: (0..n)
+                .map(|i| ShelfItem {
+                    kind: crate::online::models::ItemKind::Unknown,
+                    title: format!("{title} {i}"),
+                    subtitle: String::new(),
+                    thumbnail: None,
+                    video_id: None,
+                    browse_id: None,
+                    params: None,
+                    playlist_id: None,
+                })
+                .collect(),
+        };
+        // One shelf × 8 items: rich content, but < 2 shelves → sparse.
+        assert!(is_sparse(&page(vec![n_shelf("Quick picks", 8)])));
+        // Two shelves × 4 = 8 total: NOT sparse (boundary).
+        assert!(!is_sparse(&page(vec![n_shelf("A", 4), n_shelf("B", 4)])));
+        // Two shelves × 3 = 6 total: sparse.
+        assert!(is_sparse(&page(vec![n_shelf("A", 3), n_shelf("B", 3)])));
+        // Nothing at all: sparse (a failed/empty parse recovers via charts).
+        assert!(is_sparse(&page(vec![])));
     }
 
     #[test]

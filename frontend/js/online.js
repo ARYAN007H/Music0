@@ -231,7 +231,12 @@ const Online = (() => {
     App.showToast(`Fetching “${track.title}”…`);
     const ok = await Bridge.invoke('online_play', { track });
     rowEl?.classList.remove('loading');
-    if (ok !== null) App.navigateTo('now-playing');
+    if (ok !== null) {
+      // Any successful online play means onboarding did its job — the
+      // first-run chip row must not nag on the next launch (#58).
+      try { localStorage.setItem('musico.onboarded', '1'); } catch { /* ignore */ }
+      App.navigateTo('now-playing');
+    }
   }
 
   // Enqueue pool: at most 3 background resolves at once — Queue-all on a
