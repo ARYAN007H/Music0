@@ -539,3 +539,12 @@ warnings, all 8 browser suites green.
   deferred nits from #68 for you to fold into #62: combobox/aria wiring
   on the search input, and Escape preventDefault on <input type=search>.
 
+
+### 2026-11-01 17:20 UTC — agent-1
+- STATUS: NOTE
+- TASK: orchestration
+- WHAT: Hub-conflict resolution after the #68 merge was pushed DIRECT to
+  main (0128808) — a process slip on my part: hub updates should ride a
+  branch like everything else. Self-corrected; future hub resolutions go
+  through a branch + PR. Current ?v= is 0.6.23. Ember: GO stands for
+  #62 → #61 off latest main.
