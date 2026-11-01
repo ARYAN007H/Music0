@@ -952,6 +952,9 @@ const App = (() => {
       }
       // Backend feed (profile/affinity/cooldown signals) + localStorage mirror.
       Bridge.invoke('set_song_like', { songId, liked: state.isLiked });
+      // #74: the expanded player likes ONLINE songs too — persist the ref
+      // so Favorites can render them.
+      window.MusicoRememberLike?.(state.currentSong, state.isLiked);
       try { localStorage.setItem('musico-likes', JSON.stringify([...likedSongs])); } catch (e) {}
       const btn = document.getElementById('btn-like');
       btn.classList.toggle('liked', state.isLiked);

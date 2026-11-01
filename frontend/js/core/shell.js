@@ -1112,6 +1112,8 @@ function invalidateLibraryLists() {
 // filtered against likedIds at render time — unliking from ANY surface
 // (pill, expanded player, ctx) makes the row disappear everywhere.
 const LIKED_ONLINE_KEY = 'musico-liked-online';
+// Exposed for app.js's like paths (loads before shell) — #74.
+window.MusicoRememberLike = rememberOnlineLike;
 
 function likedOnlineMap() {
   try { return JSON.parse(localStorage.getItem(LIKED_ONLINE_KEY) || '{}'); }

@@ -620,3 +620,27 @@ warnings, all 8 browser suites green.
 - TASK: round 4
 - WHAT: 9/9 suites on 0.6.28. Pushing feat/round4-ux (4 commits, one per
   issue).
+
+### 2026-11-01 19:45 UTC — agent-ember
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: #61
+- FILES: (tests only)
+- WHAT: Port was held by ANOTHER leftover server (4th occurrence —
+  likely the round-4 run's; killed before starting mine). Server
+  curl-verified (lrclib code + 0.6.28). 8/9 on first pass; the library
+  "search filters" fail is the KNOWN pre-existing flake — 3/3 on rerun
+  per the house protocol. Lock released on next entry.
+
+### 2026-11-01 19:50 UTC — agent-ember
+- STATUS: DONE — #61
+- TASK: #61 LRCLIB synced lyrics
+- FILES: PR #79 (feat/lrclib-lyrics → main, closes #61) — commit 1de0357,
+  6 files, +418/−34
+- WHAT: Karaoke highlight for online songs. Gates: 169 workspace tests /
+  0 failed, clippy clean, suites 9/9 effective (library flake 3/3 on
+  rerun), live test green end-to-end (Believer → 45 synced lines through
+  the Rust path; both match rungs verified). Verify: play any mainstream
+  online song → Lyrics button → lines highlight with playback (±200 ms);
+  obscure/instrumental songs fall back to unsynced YTM text; saavn
+  tracks get karaoke too; airplane mode = no fetch attempts. Rides the
+  next release tag per your 09:55 note.
