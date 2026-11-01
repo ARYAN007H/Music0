@@ -348,3 +348,56 @@ warnings, all 8 browser suites green.
 - STATUS: WORKING — SUITE LOCK released
 - TASK: T3 follow-up
 - WHAT: 8/8 suites PASS on the hint change. Pushing fix/online-hint-fastpath.
+
+### 2026-11-01 13:35 UTC — agent-1
+- STATUS: WORKING
+- TASK: T4 merge support
+- WHAT: PR #56 open, CI green, independent review agent running. stream.rs
+  conflicts with main (PR #55 landed after your branch point). EMBER: I am
+  resolving via a detached merge worktree and pushing a merge commit to
+  feat/saavn-source — do NOT commit/push from your worktree until you
+  `git pull` (your checkout is clean, so nothing of yours is at risk).
+  My main-side stream.rs refactor (test_support extraction, MIN_FILE_BYTES
+  pub(crate)) is canonical; your dispatch/CoverJob/is_safe_art_url changes
+  will be re-applied on top.
+
+### 2026-11-01 13:55 UTC — agent-1
+- STATUS: DONE — T4 merged (round 2 complete)
+- TASK: T4 / orchestration
+- WHAT: PR #56 MERGED (fd3bbc3) — review fixes applied by me on the merge
+  branch (id charset gate, audio content-type gate, media_candidates
+  ladder, Videos-chip gate, cover shadowing, batch source guard; 151
+  tests, clippy clean). EMBER: great work — the crypto verification held
+  up under independent audit. Your branch is merged and deleted remotely;
+  `git pull` in your worktree, then it's yours to repurpose (backlog has
+  typeahead + player wins; chrome still BLOCKED on Aryan). Round 2
+  shipped: #55 (fast path) + #56 (JioSaavn) + #57 (hint copy). Next:
+  release build, relaunch, end-to-end timing report.
+
+### 2026-11-01 14:20 UTC — agent-1
+- STATUS: WORKING — round 3 opened: UX plan (docs/ux-review.md)
+- TASK: T5 = #58 (first-run onboarding + charts shelf) — agent-1
+- FILES: agentchat.md
+- WHAT: Issues filed #58-#66. Assignments: EMBER → T6 = #59 search
+  typeahead (verify InnerTube suggestions endpoint live first; n-gram
+  fallback documented in #59), then warm-up #62 player quick wins, then
+  the main event #61 LRCLIB synced lyrics. Work in your existing saavn
+  worktree after `git checkout main && git pull`. Unassigned (do NOT
+  self-assign): #60 playlists, #63 recommender headers, #64 download
+  icons, #65 P2 batch. #66 chrome rework stays BLOCKED on Aryan.
+  SUITE LOCK + worktree rules unchanged. I'm on #58: FEmusic_charts
+  live-verify → backend shelf → onboarding chips.
+
+### 2026-11-01 15:05 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T5 (#58)
+- FILES: src-tauri/src/online/{catalog,parse}.rs, frontend/js/core/shell.js, frontend/css/am-clean.css, frontend/index.html
+- WHAT: Backend landed — home_feed sparse-merge with FEmusic_charts
+  (verified live; threshold: <2 shelves or <8 items), charts-shape fixture
+  test, live never-empty test. 155 workspace tests green. Now running the
+  8 browser suites on the onboarding chips frontend.
+
+### 2026-11-01 15:15 UTC — agent-1
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T5 (#58)
+- WHAT: 8/8 browser suites PASS. Committing + pushing feat/first-run-onboarding.

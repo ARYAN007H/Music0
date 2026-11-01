@@ -447,6 +447,8 @@ pub(crate) fn parse_browse_page(json: &serde_json::Value) -> BrowsePage {
         "musicResponsiveHeaderRenderer",
         "musicImmersiveHeaderRenderer",
         "musicDetailHeaderRenderer",
+        // FEmusic_charts uses the plain header renderer (verified 2026-11-01).
+        "musicHeaderRenderer",
     ] {
         let mut headers = Vec::new();
         collect_values(json, header_key, &mut headers);
@@ -849,6 +851,105 @@ mod browse_tests {
         assert_eq!(ItemKind::from_ids(Some("UCxyz"), None), ItemKind::Artist);
         assert_eq!(ItemKind::from_ids(None, Some("dQw4w9WgXcQ")), ItemKind::Song);
         assert_eq!(ItemKind::from_ids(None, None), ItemKind::Unknown);
+    }
+
+    /// FEmusic_charts shape, trimmed from the live response (verified
+    /// 2026-11-01): NO tabs node — `contents` sits at the top level, the
+    /// page header is the plain `musicHeaderRenderer`, carousels carry
+    /// `musicCarouselShelfBasicHeaderRenderer` titles, and the one empty
+    /// `musicShelfRenderer` (lazy-loaded song chart) must be dropped.
+    #[test]
+    fn parses_charts_page_shape() {
+        let json: serde_json::Value = serde_json::from_str(r#"{
+          "responseContext": {},
+          "header": {
+            "musicHeaderRenderer": { "title": { "runs": [{ "text": "Charts" }] } }
+          },
+          "contents": {
+            "sectionListRenderer": {
+              "contents": [
+                {
+                  "musicCarouselShelfRenderer": {
+                    "header": {
+                      "musicCarouselShelfBasicHeaderRenderer": {
+                        "title": { "runs": [{ "text": "Video charts" }] }
+                      }
+                    },
+                    "contents": [
+                      {
+                        "musicTwoRowItemRenderer": {
+                          "title": { "runs": [{ "text": "Top Music Videos" }] },
+                          "subtitle": { "runs": [{ "text": "Weekly" }] },
+                          "navigationEndpoint": {
+                            "browseEndpoint": { "browseId": "VLPLwk1", "params": "qq" }
+                          },
+                          "thumbnailRenderer": {
+                            "musicThumbnailRenderer": {
+                              "thumbnail": { "thumbnails": [{ "url": "https://ytimg.com/v/w544-h288" }] }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "musicCarouselShelfRenderer": {
+                    "header": {
+                      "musicCarouselShelfBasicHeaderRenderer": {
+                        "title": { "runs": [{ "text": "Top songs" }] }
+                      }
+                    },
+                    "contents": [
+                      {
+                        "musicResponsiveListItemRenderer": {
+                          "thumbnail": {
+                            "musicThumbnailRenderer": {
+                              "thumbnail": { "thumbnails": [{ "url": "https://ytimg.com/v/w120" }] }
+                            }
+                          },
+                          "flexColumns": [
+                            {
+                              "musicResponsiveListItemFlexColumnRenderer": {
+                                "text": { "runs": [
+                                  { "text": "Espresso",
+                                    "navigationEndpoint": { "watchEndpoint": { "videoId": "espresso01" } } }
+                                ] }
+                              }
+                            },
+                            {
+                              "musicResponsiveListItemFlexColumnRenderer": {
+                                "text": { "runs": [{ "text": "Sabrina Carpenter" }] }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                { "musicShelfRenderer": { "contents": [] } }
+              ]
+            }
+          }
+        }"#).unwrap();
+        let page = parse_browse_page(&json);
+        assert_eq!(page.title, "Charts", "plain musicHeaderRenderer supplies the page title");
+        assert_eq!(page.shelves.len(), 2, "empty shelf dropped");
+        assert_eq!(page.shelves[0].title, "Video charts");
+        assert_eq!(page.shelves[0].items.len(), 1);
+        assert_eq!(
+            page.shelves[0].items[0].browse_id.as_deref(),
+            Some("VLPLwk1"),
+            "carousel basic-header shape parses titles and links"
+        );
+        assert_eq!(page.shelves[1].title, "Top songs");
+        assert_eq!(page.shelves[1].items.len(), 1);
+        assert_eq!(
+            page.shelves[1].items[0].video_id.as_deref(),
+            Some("espresso01"),
+            "chart song rows convert to playable items"
+        );
     }
 
     #[test]

@@ -583,6 +583,24 @@ function HomeFeed() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
 
+  // First-run onboarding (#58): AM/Spotify never open on a dead screen — the
+  // vibe chips ARE the intent signal.  Clicking one searches the genre and
+  // plays through the NORMAL pipeline, which is what actually teaches the
+  // recommender (no synthetic seeds); the row hides once the user has any
+  // history or has picked once (durable flag — restarts must not nag).
+  const onboarding = !localStorage.getItem('musico.onboarded') && !(history?.length);
+  const startVibe = async (genre) => {
+    const page = await Bridge0().invoke('online_search', { query: genre });
+    const tracks = (page?.tracks || []).slice(0, 8);
+    if (!tracks.length) {
+      window.App?.showToast?.(`Nothing for ${genre} yet — try again in a moment.`);
+      return;
+    }
+    localStorage.setItem('musico.onboarded', '1');
+    window.Online?.playTrack?.(tracks[0], null);
+    for (const t of tracks.slice(1)) window.Online?.enqueueTrack?.(t, null, { silent: true });
+  };
+
   const playItem = (item) => {
     if (item.video_id) {
       window.Online?.playTrack?.({
@@ -598,6 +616,15 @@ function HomeFeed() {
 
   return html`
     <div class="home-feed">
+      ${onboarding ? html`
+      <section class="vibe-pick" aria-label="Pick your vibe">
+        <h2 class="shelf-title">Pick your vibe</h2>
+        <div class="vibe-chips">
+          ${['Pop', 'Hip-Hop', 'Bollywood'].map((g) => html`
+            <button class="vibe-chip" key=${g} onClick=${() => startVibe(g)}>${g}</button>
+          `)}
+        </div>
+      </section>` : null}
       ${heroA ? html`
       <div class="am-hero-row">
         <div class="am-hero" role="button" tabindex="0" aria-label="Play ${heroA.title}"
@@ -628,7 +655,7 @@ function HomeFeed() {
       </div>` : null}
 
       ${sh1.items?.length ? html`
-        <${Shelf} shelf=${{ title: 'Made for you', items: sh1.items }} seeAll=${true} />` : null}
+        <${Shelf} shelf=${{ title: sh1.title || 'Made for you', items: sh1.items }} seeAll=${true} />` : null}
 
       ${history.length ? html`
         <section class="shelf" aria-label="Recently played">

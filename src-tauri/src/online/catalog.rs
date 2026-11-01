@@ -111,8 +111,48 @@ fn spawn_browse_refresh(key: (String, String), browse_id: String, params: Option
 
 /// The home (Listen Now) feed: editorial shelves personalized by YouTube
 /// Music — our server-side recommendation layer.
+///
+/// Never empty (#58): a fresh profile's personalized feed is sparse (often a
+/// single placeholder shelf), which used to strand first-run users on a dead
+/// Home.  When the feed yields fewer than two shelves, the YTM editorial
+/// charts (`FEmusic_charts` — verified live 2026-11-01: "Video charts",
+/// "Languages", "Top artists" carousels under a top-level `contents` node)
+/// are PREPENDED, so Home always opens on real catalog content.  A charts
+/// failure degrades to the plain home feed.
 pub fn home_feed() -> Result<BrowsePage, String> {
-    browse("FEmusic_home", None)
+    let page = browse("FEmusic_home", None)?;
+    let total_items: usize = page.shelves.iter().map(|s| s.items.len()).sum();
+    let sparse = page.shelves.len() < 2 || total_items < 8;
+    if !sparse {
+        return Ok(page);
+    }
+    match browse("FEmusic_charts", None) {
+        Ok(charts) if !charts.shelves.is_empty() => Ok(merge_sparse_home(page, charts)),
+        Ok(_) => {
+            log::debug!("charts parse empty; serving sparse home feed unchanged");
+            Ok(page)
+        }
+        Err(e) => {
+            log::debug!("charts fetch failed: {e}; serving sparse home feed unchanged");
+            Ok(page)
+        }
+    }
+}
+
+/// Pure merge behind [`home_feed`]'s sparse-first-run path: chart shelves go
+/// FIRST (fresh users see guaranteed content up top), shelves whose title
+/// already exists in the home feed are dropped (no duplicated rows), and the
+/// home page's own metadata is kept.
+fn merge_sparse_home(mut home: BrowsePage, mut charts: BrowsePage) -> BrowsePage {
+    let seen: HashSet<&str> = home.shelves.iter().map(|s| s.title.as_str()).collect();
+    let mut shelves: Vec<_> = charts
+        .shelves
+        .drain(..)
+        .filter(|s| !seen.contains(s.title.as_str()))
+        .collect();
+    shelves.append(&mut home.shelves);
+    home.shelves = shelves;
+    home
 }
 
 /// The mood/genre category grid (Browse tab): ~50 category cards, each
@@ -234,6 +274,7 @@ fn browse_cache_put(key: (String, String), page: &BrowsePage) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::models::Shelf;
 
     #[test]
     fn stale_serving_has_hard_bounds() {
@@ -287,5 +328,71 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].title, "Chill");
         assert_eq!(got[0].params.as_deref(), Some("ggSUChAK"));
+    }
+
+    // -- sparse-home charts merge (#58) --------------------------------------
+
+    fn shelf(title: &str) -> Shelf {
+        Shelf {
+            title: title.into(),
+            items: vec![ShelfItem {
+                kind: crate::online::models::ItemKind::Unknown,
+                title: format!("{title} item"),
+                subtitle: String::new(),
+                thumbnail: None,
+                video_id: None,
+                browse_id: None,
+                params: None,
+                playlist_id: None,
+            }],
+        }
+    }
+
+    fn page(shelves: Vec<Shelf>) -> BrowsePage {
+        BrowsePage { title: String::new(), shelves, next_continuation: None, header: None }
+    }
+
+    #[test]
+    fn sparse_home_gets_charts_prepended() {
+        let home = page(vec![shelf("Quick picks")]);
+        let charts = page(vec![shelf("Video charts"), shelf("Top artists")]);
+        let merged = merge_sparse_home(home, charts);
+        let titles: Vec<&str> = merged.shelves.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["Video charts", "Top artists", "Quick picks"]);
+    }
+
+    #[test]
+    fn charts_shelves_already_in_home_are_dropped() {
+        let home = page(vec![shelf("Quick picks"), shelf("Top artists")]);
+        let charts = page(vec![shelf("Top artists"), shelf("Video charts")]);
+        let merged = merge_sparse_home(home, charts);
+        let titles: Vec<&str> = merged.shelves.iter().map(|s| s.title.as_str()).collect();
+        // Home's own "Top artists" wins; only the missing chart is added.
+        assert_eq!(titles, vec!["Video charts", "Quick picks", "Top artists"]);
+    }
+
+    #[test]
+    fn rich_home_is_returned_untouched_by_the_merge() {
+        // The merge helper itself is honest — home_feed only calls it when
+        // the feed is sparse, but the merge must not reorder a rich feed
+        // even if it were.
+        let home = page(vec![shelf("A"), shelf("B"), shelf("C")]);
+        let charts = page(vec![shelf("Video charts")]);
+        let merged = merge_sparse_home(home, charts);
+        let titles: Vec<&str> = merged.shelves.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, vec!["Video charts", "A", "B", "C"]);
+    }
+
+    /// Live check for #58: Home must open on real content.  Opt-in:
+    ///   MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_home -- --ignored --nocapture
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_home_feed_never_empty() {
+        let page = home_feed().expect("home feed");
+        assert!(!page.shelves.is_empty(), "home feed must never be empty (#58)");
+        println!("home: {} shelves", page.shelves.len());
+        for s in &page.shelves {
+            println!("  - {:?} ({} items)", s.title, s.items.len());
+        }
     }
 }
