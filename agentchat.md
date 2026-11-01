@@ -177,7 +177,7 @@ done for you) and the SUITE LOCK rule above.
 **Before pushing:** `cargo test --workspace` green, `cargo clippy` no NEW
 warnings, all 8 browser suites green.
 
-### T10 — macOS release support — IN PROGRESS — agent-falcon
+### T10 — macOS release support — DONE — PR #84 (agent-falcon, pending agent-1 review)
 **Owner: agent-falcon** (direct assignment from Aryan, 2026-11-01; design
 clarified by Aryan 2026-11-02 — see Log). Works in the worktree
 `~/.cache/musico-worktrees/mac-release` (branch `feat/mac-release`, created
@@ -221,72 +221,6 @@ off origin/main 2b86b70) → PR into `main`.
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
 ## Log
-### 2026-11-01 18:20 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T7 (#66)
-- WHAT: 9/9 suites (one library "search filters" flake passed 3/3 on
-  rerun — pre-existing timing sensitivity, not from this diff). Pushing
-  feat/chrome-persistent-pill.
-
-### 2026-11-01 18:50 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T7 (#66) — PR #69 review fixes
-- WHAT: Review verdict request-changes, all real: P0 seek.js still
-  dereferenced the removed dock (every seek drag threw) — fixed; P1
-  body.has-mini clearance rules were dead → now unconditional in the
-  <860px blocks (library/queue/settings); P2 sweep: knob/vinyl/anim/
-  liquid/online leftovers removed, stale comments fixed, tabIndex
-  casing unified, shell suite now asserts BOTH pill doors from a real
-  route (browse). Running 9 suites.
-
-### 2026-11-01 19:05 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T7 (#66)
-- WHAT: Library flake passed 3/3 again (pre-existing). Pushing review
-  fixes to PR #69.
-
-### 2026-11-01 14:12 UTC — agent-ember
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: #62 player quick wins
-- FILES: (tests only)
-- WHAT: Implementation complete: PlaybackQueue::move_at (+tests),
-  queue_move/queue_play_at commands, OnlineTrack.artist_browse_id parsed
-  from search rows (UC* filter, fixture-tested; all 8 literals updated
-  incl. the merged playlistPanel path), expanded-player volume row
-  (knob.js now drives #mini-volume AND #fs-volume from one state),
-  np-artist is a real link (UC* → MusicoRouter.detailRoute; fallback =
-  search the artist name), Playing Next rows are draggable + Alt+↑/↓ +
-  click-to-jump (queue_play_at consumes the row), bridge mockCommand
-  parity for the two new commands, panel suite gains 6 asserts, the two
-  deferred #68 aria nits folded in (combobox wiring + Escape
-  preventDefault only while the popover is open). ?v=0.6.24. Tests: 159
-  passed / 0 failed / 12 ignored. clippy: no new warnings in the two
-  touched crates. HEads-up for merge: my branch (feat/player-quick-wins,
-  off 7df99bf) touches index.html/app.js/shell.js that #66 (PR #69) also
-  reshapes — expected conflicts, yours to resolve per rules. Running all
-  9 suites now (absolute --directory + curl-verified server).
-
-### 2026-11-01 19:25 UTC — agent-1
-- STATUS: DONE — T7 (#66) merged
-- TASK: T7
-- FILES: (PR #69, merged)
-- WHAT: PR #69 MERGED (e3d39a0) after review (request-changes — all
-  real: seek.js P0, dead has-mini clearance rules, full dead-ref sweep)
-  + fix commit. The pill is the one transport everywhere and opens the
-  big player from BOTH its art/title region and its expand button.
-  ?v=0.6.24. Next per Aryan's plan: #60 playlists (me), ember on
-  #62/#61, then #63/#64/#65, then the v0.6.0 release.
-
-### 2026-11-01 14:35 UTC — agent-ember
-- STATUS: WORKING — SUITE LOCK released
-- TASK: #62
-- FILES: (tests only)
-- WHAT: 9/9 suites PASS — after catching ANOTHER stray server on 8143
-  (pid 123875, rooted at the SHARED tree, presumably a #69 suite run
-  whose kill didn't land). My curl-verify flagged it (served page had no
-  fs-volume); killed it, re-ran on a verified server: 9/9. Please
-  double-kill + verify port release after suite runs.
-
 ### 2026-11-01 14:40 UTC — agent-ember
 - STATUS: DONE — #62
 - TASK: #62 player quick wins
@@ -509,3 +443,94 @@ off origin/main 2b86b70) → PR into `main`.
   d67092e+; expect index.html/shell.js/CSS conflicts (mine per
   rules); ping at PR open and I take the merge. NEXT: 0.6.1 release
   train (bump PR → tag v0.6.1-online → workflow → local rebuild).
+
+### 2026-11-01 21:40 UTC — agent-falcon
+- STATUS: WORKING — SUITE LOCK taken
+- TASK: T10
+- FILES: (tests only)
+- WHAT: Gates so far: cargo test --workspace 165 passed / 0 failed /
+  12 ignored (matches agent-1's baseline exactly); clippy zero errors —
+  OPS NOTE: this machine's clippy is now 1.99 and DENIES never_loop in
+  musico_playback/src/decoder.rs:291 (pre-existing on main, for+break) —
+  the whole workspace clippy was un-runnable until I replaced it with
+  visuals().first() (behavior-identical, flagged in the PR); remaining
+  recommender/playback/online warnings are pre-existing 1.99 lints in
+  regions this diff never touches. Now running all 9 suites on an
+  absolute --directory server + curl verification.
+
+### 2026-11-01 21:55 UTC — agent-falcon
+- STATUS: WORKING — SUITE LOCK released
+- TASK: T10
+- WHAT: 9/9 suites PASS (shell suite now 36 asserts — 13 new T10 ones:
+  stubbed mac + windows pages via addInitScript platform override; server
+  was absolute --directory + curl-verified, double-killed, port verified
+  free). Committing feat/mac-release → PR next; agent-1 review request
+  follows.
+
+### 2026-11-01 22:25 UTC — agent-falcon
+- STATUS: WORKING — SUITE LOCK taken (2nd pass)
+- TASK: T10
+- WHAT: Merged origin/main (v0.6.1-online: #78/#79 + gitignore fix) into
+  feat/mac-release b6d62cb — only index.html conflicted (kept native.css
+  link + chrome-root div; ?v= unified at 0.6.30 since 0.6.29 is burned by
+  the lyrics P0 fix and my shell.js/topbar.css contents changed). Merged
+  tree: cargo test 170/0/13 (canonical; 2 of 6 runs had ONE intermittent
+  failure + 2-test shortfall — audio-device-contention pattern with the
+  live app, 5 straight green after; NOT from this diff), clippy zero
+  errors. Re-running 9 suites on the merged frontend.
+
+### 2026-11-01 22:40 UTC — agent-falcon
+- STATUS: DONE — T10 (review requested)
+- TASK: T10
+- FILES: PR #84 (feat/mac-release → main, closes #83) — 3 commits:
+  bb57dbe (clippy gate fix) + 48279c4 (T10) + b6d62cb (merge of
+  v0.6.1-online, ?v= unified 0.6.30), 13 files, ~+500/−40
+- WHAT: macOS release support + native window chrome per Aryan's
+  clarified spec: NO extra title bar on any platform; controls in the
+  sidebar top-left above the brand (mac = native traffic lights via
+  Overlay + hiddenTitle + trafficLightPosition; Windows = decorations
+  removed at runtime + drawn min/max/close; Linux = system bar kept,
+  strip hidden). Full-height sidebar grid (LCD spans content column
+  only). Native mac App/Edit/View/Window menu (⌘C/⌘V/⌘A). SF Pro stack.
+  release.yml macos universal job (native mac test run type-checks the
+  cfg(macos) code). Gates on the MERGED tree: cargo 170/0/13, clippy
+  zero errors, suites 9/9 (library "search filters" flake passed 3/3
+  rerun per protocol; shell suite now 36 asserts). agent-1: REQUESTING
+  REVIEW on PR #84 — no merge conflicts remain (I merged main in; PR
+  should show MERGEABLE). Aryan: on-Mac + on-Windows verification needs
+  real hardware — CI builds the dmg; windows resize = tao undecorated
+  hit-test (no snap-layouts flyout), noted in README + PR body.
+
+### 2026-11-01 21:52 UTC — agent0 (opencode)
+- STATUS: CLAIMED
+- TASK: Apple Music desktop redesign (Aryan direct request)
+- FILES: frontend/index.html, frontend/css/**, frontend/js/** (additive)
+- WHAT: I'm opencode, aka agent0, working on the full Apple Music desktop
+  1:1 redesign in the TEST BRANCH `test/apple-music-redesign` (off main,
+  shared tree is mine for this task — no other agent should edit while I
+  work). Scope: AM chrome + glass materials, sidebar/toolbar, home/detail/
+  library/settings/now-playing, player bar, dark + light. All existing
+  commands/IDs/browser suites stay working. Will log WORKING/DONE + suite
+  results here. — agent0
+
+### 2026-11-01 22:45 UTC — agent-1
+- STATUS: DONE — T10 merged after review; hub updated
+- TASK: orchestration
+- WHAT: PR #84 MERGED (54de8e5) after independent review verdict
+  request-changes. Review P1-1: core:window:allow-start-dragging is NOT
+  in core:window:default for tauri 2.12.5 — every drag region silently
+  no-op'd; granted explicitly + regions upgraded to ="deep" (verified
+  against 2.12.5 drag.js; topbar-logo's bare attr dropped — it
+  short-circuited deep topbar dragging; shell assert updated). P1-2:
+  cfg(macos) code compiled by nothing — release.yml gains
+  workflow_dispatch (publish gated to tags) and the dispatched macos
+  job ran cargo test NATIVELY green + built the universal dmg before
+  merge (local aarch64 cross-check is impossible on Linux — objc2
+  needs the mac SDK). P2s: native.css dup rules merged, README notes
+  the Windows launch flash, unused LyricLine re-export dropped.
+  ?v=0.6.31. Also corrected my own misread: there never was a
+  duplicate runs-on in publish; the first dispatch's publish job
+  failed harmlessly ("requires a tag", nothing created) and that is
+  what the gate now prevents. AGENT0: claim logged — shared tree is
+  yours; I built this hub update in a separate worktree and touched
+  nothing of yours. 9/9 suites ran ONLY on my own trees tonight.
