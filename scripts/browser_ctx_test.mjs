@@ -38,12 +38,26 @@ check('song cards carry context data', await page.evaluate(
     !!document.querySelector(sel).dataset.videoId, songSel));
 await ctxClick(songSel);
 await page.waitForTimeout(150);
-check('song menu opens with 6 items', await page.evaluate(() => {
+check('song menu opens with 7 items', await page.evaluate(() => {
   const items = [...document.querySelectorAll('.ctx-menu .ctx-item')];
-  return items.length === 6 &&
+  return items.length === 7 &&
     items.map((i) => i.textContent).join('|') ===
-    'Play|Play Next|Play Last|Download|Add to Library|Start Radio';
+    'Play|Play Next|Play Last|Download|Add to playlist…|Add to Library|Start Radio';
 }));
+check('Add to playlist opens the picker in place', await page.evaluate(() => {
+  const item = [...document.querySelectorAll('.ctx-menu .ctx-item')]
+    .find((i) => i.textContent.includes('Add to playlist'));
+  item?.click();
+  return true;
+}));
+await page.waitForTimeout(250);
+check('playlist picker replaces the menu', await page.evaluate(() => {
+  const items = [...document.querySelectorAll('.ctx-menu .ctx-item')];
+  // New playlist… + one demo row (bridge mock seeds a demo playlist is
+  // NOT assumed — the mock list starts empty, so just New playlist…).
+  return items.length === 1 && items[0].textContent.includes('New playlist');
+}));
+await page.keyboard.press('Escape');
 
 // 1b. Playlist cards get no Add to Library — the library has no playlist kind.
 await page.evaluate(() => window.MusicoRouter.navigate('genres'));
