@@ -47,6 +47,8 @@ pub struct CrossfadeConfig {
     pub curve: CrossfadeCurve,
     /// Whether crossfade is enabled at all.
     pub enabled: bool,
+    /// Whether Beat-Aligned Auto-DJ phrase & tempo sync is enabled.
+    pub beat_aligned: bool,
 }
 
 impl Default for CrossfadeConfig {
@@ -55,8 +57,34 @@ impl Default for CrossfadeConfig {
             duration_secs: 3.0,
             curve: CrossfadeCurve::EqualPower,
             enabled: false,
+            beat_aligned: true,
         }
     }
+}
+
+/// Computes the pitch-safe tempo stretch ratio (`0.97..=1.03`) and phrase-aligned
+/// crossfade duration in seconds for Beat-Aligned Auto-DJ transitions.
+pub fn compute_beat_aligned_transition(
+    outgoing_bpm: f32,
+    incoming_bpm: f32,
+    target_crossfade_secs: f32,
+) -> (f32, f32) {
+    let out_bpm = outgoing_bpm.clamp(60.0, 200.0);
+    let in_bpm = incoming_bpm.clamp(60.0, 200.0);
+    let candidates = [in_bpm, in_bpm * 2.0, in_bpm * 0.5];
+    let mut best_in = in_bpm;
+    let mut min_diff = f32::MAX;
+    for c in candidates {
+        let d = (out_bpm - c).abs();
+        if d < min_diff {
+            min_diff = d;
+            best_in = c;
+        }
+    }
+    let stretch_ratio = (out_bpm / best_in).clamp(0.97, 1.03);
+    let bar_secs = (60.0 / out_bpm) * 4.0;
+    let bars = (target_crossfade_secs / bar_secs).round().max(1.0);
+    (stretch_ratio, bars * bar_secs)
 }
 
 /// Crossfade mixer state — lives in the decoder thread.

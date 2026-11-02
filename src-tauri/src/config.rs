@@ -54,6 +54,51 @@ pub struct AppSettings {
     /// Airplane mode (C4.3): online features fast-fail; downloads queue.
     #[serde(default)]
     pub offline_mode: bool,
+    /// Streaming audio quality: "low" (96kbps) | "normal" (160kbps) | "high" (320kbps) | "lossless"
+    #[serde(default = "default_streaming_quality")]
+    pub streaming_quality: String,
+    /// Offline download quality: "normal" (160kbps) | "high" (320kbps) | "lossless"
+    #[serde(default = "default_download_quality")]
+    pub download_quality: String,
+    /// Output sample rate in Hz: 44100 | 48000 | 96000
+    #[serde(default = "default_sample_rate")]
+    pub audio_sample_rate: u32,
+    /// Gapless playback transition enabled
+    #[serde(default = "default_true")]
+    pub gapless_playback: bool,
+    /// Predictive prefetching of upcoming queue & high-probability recommended tracks
+    #[serde(default = "default_true")]
+    pub predictive_prefetch: bool,
+    /// Number of upcoming/recommended tracks to pre-warm (1..=5)
+    #[serde(default = "default_prefetch_count")]
+    pub prefetch_count: u8,
+    /// Initial progressive stream buffer threshold in KB before starting playback
+    #[serde(default = "default_instant_buffer_kb")]
+    pub instant_play_buffer_kb: u32,
+    /// Beat-Aligned Auto-DJ phrase & downbeat crossfade sync
+    #[serde(default = "default_true")]
+    pub autodj_beat_sync: bool,
+    /// Real-time stem separation mode: "full" | "instrumental" | "vocals"
+    #[serde(default = "default_stem_mode")]
+    pub stem_mode: String,
+    /// EBU R128 loudness normalization enabled
+    #[serde(default = "default_true")]
+    pub loudness_norm_enabled: bool,
+    /// Target loudness in LUFS (-14.0 streaming, -16.0 audiophile, -11.0 club)
+    #[serde(default = "default_target_lufs")]
+    pub target_lufs: f32,
+    /// Headphone AutoEQ profile ID
+    #[serde(default = "default_autoeq_profile")]
+    pub autoeq_profile: String,
+    /// Analog tube saturation warmth enabled
+    #[serde(default)]
+    pub tube_warmth: bool,
+    /// Show romanized pronunciation overlay in synced lyrics
+    #[serde(default = "default_true")]
+    pub lyrics_romanize: bool,
+    /// Show English translation overlay in synced lyrics
+    #[serde(default = "default_true")]
+    pub lyrics_translate: bool,
 }
 
 fn default_volume() -> f32 { 0.68 }
@@ -64,6 +109,14 @@ fn default_norm() -> String { "Off".into() }
 fn default_crossfade_duration() -> f32 { 3.0 }
 fn default_view_mode() -> String { "list".into() }
 fn default_theme() -> String { "light".into() }
+fn default_streaming_quality() -> String { "high".into() }
+fn default_download_quality() -> String { "high".into() }
+fn default_sample_rate() -> u32 { 48000 }
+fn default_prefetch_count() -> u8 { 3 }
+fn default_instant_buffer_kb() -> u32 { 64 }
+fn default_stem_mode() -> String { "full".into() }
+fn default_target_lufs() -> f32 { -14.0 }
+fn default_autoeq_profile() -> String { "flat_studio".into() }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -85,6 +138,21 @@ impl Default for AppSettings {
             autoplay: true,
             online_cache_mb: None,
             offline_mode: false,
+            streaming_quality: default_streaming_quality(),
+            download_quality: default_download_quality(),
+            audio_sample_rate: default_sample_rate(),
+            gapless_playback: true,
+            predictive_prefetch: true,
+            prefetch_count: default_prefetch_count(),
+            instant_play_buffer_kb: default_instant_buffer_kb(),
+            autodj_beat_sync: true,
+            stem_mode: default_stem_mode(),
+            loudness_norm_enabled: true,
+            target_lufs: default_target_lufs(),
+            autoeq_profile: default_autoeq_profile(),
+            tube_warmth: false,
+            lyrics_romanize: true,
+            lyrics_translate: true,
         }
     }
 }

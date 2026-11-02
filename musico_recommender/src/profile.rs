@@ -97,7 +97,52 @@ pub(crate) fn on_listen(
         *v = *v * (1.0 - EMA_ALPHA) + (w * s) * EMA_ALPHA;
     }
 
+    update_subprofile(store, &song_vec, w)?;
     save(store, &vec, n + 1)
+}
+
+const KEY_SUBPROFILES: &[u8] = b"profile:subprofiles";
+const MAX_SUBPROFILES: usize = 6;
+
+/// Updates the closest taste sub-profile (persona) or spawns a new one when
+/// fewer than `MAX_SUBPROFILES` exist and cosine similarity is below 0.55.
+fn update_subprofile(
+    store: &Store,
+    song_vec: &[f32],
+    weight: f32,
+) -> Result<(), crate::errors::RecommenderError> {
+    if weight <= 0.0 {
+        return Ok(());
+    }
+    let mut personas: Vec<Vec<f32>> = match store.db.get(KEY_SUBPROFILES)? {
+        Some(bytes) => bincode::deserialize(&bytes).unwrap_or_default(),
+        None => Vec::new(),
+    };
+    if personas.len() < MAX_SUBPROFILES {
+        let best_sim = personas
+            .iter()
+            .map(|p| vector_store::cosine_similarity(p, song_vec))
+            .fold(-1.0_f32, f32::max);
+        if best_sim < 0.55 {
+            personas.push(song_vec.to_vec());
+            let bytes = bincode::serialize(&personas).map_err(|e| bin_err("subprofiles", e))?;
+            store.db.insert(KEY_SUBPROFILES, bytes)?;
+            return Ok(());
+        }
+    }
+    if let Some((best_idx, _)) = personas
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (i, vector_store::cosine_similarity(p, song_vec)))
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    {
+        for (p, &s) in personas[best_idx].iter_mut().zip(song_vec.iter()) {
+            *p = *p * (1.0 - EMA_ALPHA * 1.5) + s * (EMA_ALPHA * 1.5);
+        }
+        let bytes = bincode::serialize(&personas).map_err(|e| bin_err("subprofiles", e))?;
+        store.db.insert(KEY_SUBPROFILES, bytes)?;
+    }
+    Ok(())
 }
 
 /// Look up the weighted feature vector of a song id (for like-profile means).

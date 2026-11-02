@@ -1,0 +1,5 @@
+{
+  "name": "Musico Online",
+  "description": "High-speed multi-source music player and Spotify-grade hybrid recommendation engine with predictive prefetching.",
+  "requestFramePermissions": []
+}

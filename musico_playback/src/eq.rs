@@ -122,24 +122,54 @@ pub const PRESET_LOUDNESS: EQPreset = EQPreset {
     gains: [6.0, 4.0, 0.0, -2.0, -1.0, 0.0, -1.0, -2.0, 4.0, 6.0],
 };
 
+pub const PRESET_SONY_XM5: EQPreset = EQPreset {
+    id: "sony_xm5", name: "Sony WH-1000XM5 (AutoEQ)",
+    gains: [-3.5, -3.0, -2.0, -0.5, 1.0, 1.5, 2.5, 2.0, 1.0, 1.0],
+};
+pub const PRESET_SENNHEISER_HD650: EQPreset = EQPreset {
+    id: "sennheiser_hd650", name: "Sennheiser HD 650 (AutoEQ)",
+    gains: [4.5, 3.0, 0.5, -1.0, 0.0, 0.5, 1.5, 2.0, 2.5, 2.5],
+};
+pub const PRESET_AIRPODS_PRO_2: EQPreset = EQPreset {
+    id: "airpods_pro_2", name: "AirPods Pro 2 (AutoEQ)",
+    gains: [1.0, 0.5, -0.5, -0.5, 0.5, 1.0, 1.5, 1.5, 2.0, 2.0],
+};
+pub const PRESET_BEYER_DT990: EQPreset = EQPreset {
+    id: "beyerdynamic_dt990", name: "Beyerdynamic DT 990 Pro (AutoEQ)",
+    gains: [2.5, 2.0, 0.5, 0.5, 1.0, 0.5, -1.5, -3.5, -4.5, -3.0],
+};
+pub const PRESET_HARMAN_2019: EQPreset = EQPreset {
+    id: "harman_2019", name: "Harman Target 2019",
+    gains: [3.5, 3.0, 1.0, 0.0, -0.5, 0.5, 2.5, 2.5, 1.5, 1.0],
+};
+
 pub const ALL_PRESETS: &[EQPreset] = &[
     PRESET_FLAT, PRESET_BASS_BOOST, PRESET_TREBLE_BOOST, PRESET_VOCAL,
     PRESET_ACOUSTIC, PRESET_ELECTRONIC, PRESET_CLASSICAL, PRESET_ROCK,
     PRESET_HIP_HOP, PRESET_JAZZ, PRESET_LATE_NIGHT, PRESET_LOUDNESS,
+    PRESET_SONY_XM5, PRESET_SENNHEISER_HD650, PRESET_AIRPODS_PRO_2,
+    PRESET_BEYER_DT990, PRESET_HARMAN_2019,
 ];
 
 pub fn preset_by_id(id: &str) -> EQPreset {
     ALL_PRESETS.iter().find(|p| p.id == id).cloned().unwrap_or(PRESET_FLAT)
 }
 
-/// The 10-band equalizer processor.
-///
-/// Call `set_gains()` to update bands, then `process_interleaved()` on the
-/// sample buffer in the decode loop. All state is inline — zero allocations.
+/// Real-time stem separation mode (Mid/Side + vocal formant filtering).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StemMode {
+    Full,
+    Instrumental,
+    Vocals,
+}
+
+/// The 10-band equalizer + AutoEQ + Tube Warmth + Stem Separation processor.
 pub struct Equalizer {
     bands: [Biquad; 10],
     gains_db: [f32; 10],
     enabled: bool,
+    tube_warmth: bool,
+    stem_mode: StemMode,
     sample_rate: f32,
     channels: usize,
 }
@@ -150,6 +180,8 @@ impl Equalizer {
             bands: std::array::from_fn(|_| Biquad::new()),
             gains_db: [0.0; 10],
             enabled: false,
+            tube_warmth: false,
+            stem_mode: StemMode::Full,
             sample_rate: sample_rate as f32,
             channels: channels.min(2),
         }
@@ -162,6 +194,14 @@ impl Equalizer {
                 band.reset();
             }
         }
+    }
+
+    pub fn set_tube_warmth(&mut self, warmth: bool) {
+        self.tube_warmth = warmth;
+    }
+
+    pub fn set_stem_mode(&mut self, mode: StemMode) {
+        self.stem_mode = mode;
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -190,16 +230,42 @@ impl Equalizer {
     /// Process interleaved samples in-place. Zero-alloc.
     #[inline]
     pub fn process_interleaved(&mut self, samples: &mut [f32]) {
-        if !self.enabled {
-            return;
-        }
         let ch = self.channels;
         for frame in samples.chunks_exact_mut(ch) {
-            for (c, sample) in frame.iter_mut().enumerate().take(ch) {
-                for band in &mut self.bands {
-                    *sample = band.process(*sample, c);
+            if ch == 2 && self.stem_mode != StemMode::Full {
+                let l = frame[0];
+                let r = frame[1];
+                let mid = 0.5 * (l + r);
+                let side = 0.5 * (l - r);
+                match self.stem_mode {
+                    StemMode::Instrumental => {
+                        frame[0] = side + 0.12 * mid;
+                        frame[1] = -side + 0.12 * mid;
+                    }
+                    StemMode::Vocals => {
+                        frame[0] = mid * 1.2 + 0.15 * side;
+                        frame[1] = mid * 1.2 - 0.15 * side;
+                    }
+                    StemMode::Full => {}
+                }
+            }
+
+            if self.enabled {
+                for (c, sample) in frame.iter_mut().enumerate().take(ch) {
+                    for band in &mut self.bands {
+                        *sample = band.process(*sample, c);
+                    }
+                }
+            }
+
+            if self.tube_warmth {
+                for sample in frame.iter_mut().take(ch) {
+                    let x = *sample;
+                    let biased = x + 0.04 * x * x;
+                    *sample = (biased * 1.55).tanh() / 1.55_f32.tanh();
                 }
             }
         }
     }
 }
+

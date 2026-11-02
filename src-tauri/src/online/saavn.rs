@@ -300,9 +300,8 @@ pub(crate) fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<Pa
     if let Some(path) = stream::cached_file(&track.song_id()) {
         return Ok(path);
     }
-    // Art fetch shadows the download (same rule as stream::resolve_track):
-    // spawned up front, joined before the Playing event so the cover is on
-    // disk when the frontend looks.
+    // Art fetch runs asynchronously on interactive play so playback starts
+    // without waiting on thumbnail HTTP round-trips.
     let cover = stream::CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let deadline = Instant::now() + if interactive { PLAY_BUDGET } else { RESOLVE_BUDGET };
 
@@ -316,19 +315,52 @@ pub(crate) fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<Pa
         .ok_or("saavn resolve: no encrypted media url")?;
     let base = decrypt_media_url(enc).ok_or("saavn resolve: media url decrypt failed")?;
     let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
+    let pref_quality = crate::config::AppSettings::load().streaming_quality;
 
     let mut last_err = String::new();
-    for url in media_candidates(&base, has_320) {
+    for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match fetch_audio(&url, remaining).and_then(|bytes| land_audio(track, &bytes)) {
             Ok(path) => {
-                cover.join();
+                if !interactive {
+                    cover.join();
+                }
                 return Ok(path);
             }
             Err(e) => last_err = e,
         }
     }
     Err(last_err)
+}
+
+/// Phase 1 Cross-Source Instant Resolver: attempts to find an exact title + artist + duration
+/// match on JioSaavn's direct CDN for a track from another source (e.g. YouTube) so it can
+/// resolve in ~200ms via direct HTTPS instead of waiting on slow extractors.
+pub(crate) fn try_cross_source_resolve(track: &OnlineTrack) -> Option<PathBuf> {
+    if track.title.trim().is_empty() {
+        return None;
+    }
+    let query = format!("{} {}", track.title, track.artist);
+    let candidates = search_songs(&query, 4);
+    let req_title = track.title.to_lowercase();
+    let req_artist = track.artist.to_lowercase();
+
+    let matched = candidates.into_iter().find(|c| {
+        let ct = c.title.to_lowercase();
+        let ca = c.artist.to_lowercase();
+        let title_ok = ct.contains(&req_title) || req_title.contains(&ct);
+        let artist_ok = req_artist.is_empty()
+            || req_artist
+                .split_whitespace()
+                .any(|tok| tok.len() >= 2 && ca.contains(tok));
+        let dur_ok = match (track.duration_secs, c.duration_secs) {
+            (Some(a), Some(b)) if a > 0 && b > 0 => a.abs_diff(b) <= 4,
+            _ => true,
+        };
+        title_ok && artist_ok && dur_ok
+    })?;
+
+    resolve_track(&matched, true).ok()
 }
 
 /// Fetches song details by id (the resolve path — the [`OnlineTrack`] the
@@ -382,12 +414,29 @@ fn decrypt_media_url(enc: &str) -> Option<String> {
     (url.starts_with("https://aac.saavncdn.com/") && url.contains("_96.")).then_some(url)
 }
 
-/// Bitrate ladder (#54: fall back, never guess) — the rungs `resolve_track`
-/// tries, in order.  The `_320` substitution is anchored to the filename
-/// suffix (the decrypt allowlist guarantees `_96.` in a `…_96.mp4` URL) so a
-/// path segment that merely contains `_96` is never rewritten.  The
-/// decrypted `_96` baseline is always a rung: some catalog entries declare
-/// 320 but the CDN serves only 96.
+/// Quality-aware bitrate ladder (#54 + audio quality settings).
+fn media_candidates_with_quality(base: &str, has_320: bool, quality: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    match quality {
+        "low" => {
+            candidates.push(base.to_string());
+        }
+        "normal" => {
+            candidates.push(base.replace("_96.mp4", "_160.mp4"));
+            candidates.push(base.to_string());
+        }
+        _ => {
+            if has_320 {
+                candidates.push(base.replace("_96.mp4", "_320.mp4"));
+            }
+            candidates.push(base.replace("_96.mp4", "_160.mp4"));
+            candidates.push(base.to_string());
+        }
+    }
+    candidates.dedup();
+    candidates
+}
+
 fn media_candidates(base: &str, has_320: bool) -> Vec<String> {
     let mut candidates = Vec::new();
     if has_320 {

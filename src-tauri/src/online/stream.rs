@@ -286,13 +286,25 @@ pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, 
     if !track.source.is_empty() && track.source != "yt" {
         return Err(format!("unknown online source `{}`", track.source));
     }
+    if let Some(cached) = cached_file(&track.video_id) {
+        return Ok(cached);
+    }
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
+    // Phase 1 Cross-Source Fast Path: check if JioSaavn CDN has an exact match
+    // for this YouTube track before waiting on Piped/yt-dlp extraction.
+    if interactive {
+        if let Some(saavn_path) = super::saavn::try_cross_source_resolve(track) {
+            return Ok(saavn_path);
+        }
+    }
     let result = if interactive {
         resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
     } else {
         resolve_with(&track.video_id, RESOLVE_ATTEMPTS, BG_PER_ATTEMPT, None)
     };
-    cover.join();
+    if !interactive {
+        cover.join();
+    }
     result
 }
 

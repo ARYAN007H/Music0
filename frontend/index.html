@@ -4,7 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Musico Online</title>
-<meta name="description" content="Musico — A beautiful neumorphic music player with skeuomorphic vinyl disc, rotary volume knob, and M3 Expressive navigation"/>
+<meta name="description" content="High-speed multi-source music player and Spotify-grade hybrid recommendation engine with predictive prefetching."/>
+<meta property="og:title" content="Musico Online"/>
+<meta property="og:description" content="High-speed multi-source music player and Spotify-grade hybrid recommendation engine with predictive prefetching."/>
 
 <!-- Apply the persisted theme BEFORE stylesheets resolve — dark-theme users
      otherwise get a white flash on every launch. -->
@@ -82,7 +84,7 @@
       <div class="browse">
         <header class="browse-header">
           <h1 class="browse-title">Home</h1>
-          <p class="browse-sub">Tuned for you, searchable for everything — downloads cache locally via yt-dlp.</p>
+          <p class="browse-sub" style="display:none;">Tuned for you, searchable for everything — downloads cache locally via yt-dlp.</p>
         </header>
 
         <!-- Listen Now feed (Preact shell) -->
@@ -250,13 +252,29 @@
           <input type="range" id="fs-volume" min="0" max="100" value="100" aria-label="Volume"/>
         </div>
 
+        <!-- Feature 3: Real-Time Stem Separation & Karaoke / Vocal Isolation + Auto-DJ / LUFS Telemetry -->
+        <div id="stem-mode-bar" style="display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin: 6px 0 4px;">
+          <button type="button" class="sort-pill active" data-stem-mode="full" title="Original Studio Mix">Full Mix</button>
+          <button type="button" class="sort-pill" data-stem-mode="instrumental" title="Suppress center vocals (-18dB) for karaoke sing-along">🎤 Karaoke · Instrumental</button>
+          <button type="button" class="sort-pill" data-stem-mode="vocals" title="Isolate lead vocal frequencies">🎙️ Vocal Isolation</button>
+        </div>
+        <div id="np-dsp-telemetry" style="text-align:center; font-size:11px; color:var(--text-secondary); margin-bottom:6px;">
+          Auto-DJ Beat Lock Ready · EBU R128 -14.0 LUFS Guard Active
+        </div>
+
         <!-- Mode indicator -->
         <div class="mode-indicator" id="mode-indicator"></div>
 
-        <!-- Lyrics -->
+        <!-- Feature 8: Word-By-Word Synced Lyrics + Romanization & Translation Overlay -->
         <div class="recs-section" id="lyrics-section" style="display:none;">
-          <div class="recs-header">LYRICS</div>
-          <div id="lyrics-list" style="max-height:200px; overflow-y:auto; padding:0 4px;"></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+            <div class="recs-header" style="margin:0;">SYNCED LYRICS · WORD-BY-WORD</div>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="sort-pill active" id="btn-lyrics-romanize" style="font-size:11px; padding:3px 9px;">Romanized</button>
+              <button type="button" class="sort-pill active" id="btn-lyrics-translate" style="font-size:11px; padding:3px 9px;">Translation</button>
+            </div>
+          </div>
+          <div id="lyrics-list" style="max-height:220px; overflow-y:auto; padding:4px 6px; display:flex; flex-direction:column; gap:10px;"></div>
         </div>
 
         <!-- Suggested: YouTube Music's related list, auto-filled per song -->
@@ -328,6 +346,22 @@
             Clear
           </button>
         </div>
+
+        <!-- Feature 7: Live Collaborative Jam Session Card -->
+        <div class="s-card" id="jam-session-card" style="margin: 0 var(--space-16) var(--space-12);">
+          <div class="s-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Live Collaborative Jam Session</span>
+            <span id="jam-room-badge" style="font-size:11px; color:var(--accent-text); font-weight:600;">Not in a room</span>
+          </div>
+          <div style="padding: var(--space-8) var(--space-20) var(--space-12); display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button type="button" class="s-action-btn" id="btn-start-jam">Start Live Jam</button>
+            <input type="text" id="jam-code-input" placeholder="Room code (e.g. JAM-777)" style="padding:6px 10px; border-radius:8px; border:1px solid var(--border-subtle, rgba(0,0,0,0.12)); background:var(--surface-1, rgba(255,255,255,0.6)); font-size:12px; width:165px;" aria-label="Jam room code"/>
+            <button type="button" class="sort-pill" id="btn-join-jam">Join Room</button>
+            <span id="jam-participants" style="font-size:12px; color:var(--text-secondary); margin-left:auto;">Host a room to sync playback &amp; upvote tracks together</span>
+          </div>
+          <div id="jam-queue-list" style="padding: 0 var(--space-20) var(--space-12); display:none; flex-direction:column; gap:6px;"></div>
+        </div>
+
         <div class="queue-list" id="queue-list">
           <div class="queue-empty" id="queue-empty">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
@@ -406,12 +440,17 @@
           </button>
           <button class="settings-tab" data-tab="audio">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 6h4l3-3h6l3 3h4v12H2z"/><circle cx="12" cy="13" r="4"/></svg>
-            Audio
+            Audio &amp; DSP
+          </button>
+          <button class="settings-tab" data-tab="lab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Sonic Lab
           </button>
           <button class="settings-tab" data-tab="themes">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
             Themes
           </button>
+          <button type="button" class="sort-pill" id="btn-open-cmd-palette" style="margin-left:auto;" title="Open Sonic Command Palette (Ctrl/Cmd + K)">⌘K Sonic Command</button>
         </div>
 
         <div class="settings-content">
@@ -461,6 +500,42 @@
                   <div class="s-hint" id="offline-hint">Online — YouTube Music reachable</div>
                 </div>
                 <div class="s-toggle" id="toggle-offline" role="switch" aria-checked="false" tabindex="0" aria-label="Airplane mode"></div>
+              </div>
+            </div>
+
+            <!-- Predictive Prefetching -->
+            <div class="s-card" id="card-predictive-prefetch">
+              <div class="s-row" style="border-top:none;">
+                <div class="s-icon blue">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </div>
+                <div class="s-info">
+                  <div class="s-label">Predictive Prefetching</div>
+                  <div class="s-hint" id="prefetch-status-hint">Pre-warms upcoming queue &amp; top hybrid taste recommendations for &lt;250ms instant start</div>
+                </div>
+                <div class="s-toggle on" id="toggle-prefetch" role="switch" aria-checked="true" tabindex="0" aria-label="Predictive Prefetching"></div>
+              </div>
+              <div class="s-slider-row">
+                <div class="s-slider-label">
+                  <span class="s-hint">Lookahead Queue &amp; Radio Warmup</span>
+                  <span class="s-value" id="prefetch-count-value">3 tracks</span>
+                </div>
+                <input type="range" class="s-slider" id="prefetch-count-slider" min="1" max="5" step="1" value="3" aria-label="Predictive prefetch lookahead count"/>
+              </div>
+              <div id="prefetch-items-list" style="padding: 0 var(--space-20) var(--space-16); display:flex; flex-direction:column; gap:6px; font-size:var(--text-caption); color:var(--text-secondary);"></div>
+            </div>
+
+            <!-- Smart Radio -->
+            <div class="s-card">
+              <div class="s-row" style="border-top:none;">
+                <div class="s-icon green">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5"/><circle cx="12" cy="12" r="10"/></svg>
+                </div>
+                <div class="s-info">
+                  <div class="s-label">Smart Radio</div>
+                  <div class="s-hint">Auto-pick songs that match what you're playing</div>
+                </div>
+                <div class="s-toggle on" id="toggle-smart-rec" role="switch" aria-checked="true" tabindex="0" aria-label="Smart Radio"></div>
               </div>
             </div>
 
@@ -519,34 +594,99 @@
               </div>
             </div>
 
-            <!-- Smart Radio -->
-            <div class="s-card">
-              <div class="s-row" style="border-top:none;">
-                <div class="s-icon green">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".5"/><circle cx="12" cy="12" r="10"/></svg>
-                </div>
-                <div class="s-info">
-                  <div class="s-label">Smart Radio</div>
-                  <div class="s-hint">Auto-pick songs that match what you're playing</div>
-                </div>
-                <div class="s-toggle on" id="toggle-smart-rec" role="switch" aria-checked="true" tabindex="0" aria-label="Smart Radio"></div>
-              </div>
-            </div>
-
             <!-- About -->
             <div class="s-card">
               <div class="about-section">
                 <div>
                   <div class="about-name">Musico</div>
-                  <div class="about-detail">Tauri · Symphonia · Pure Rust Backend</div>
+                  <div class="about-detail">Tauri · Symphonia · Hybrid Taste Engine v2 · Hedged Multi-Source Streaming</div>
                 </div>
-                <span class="version-badge">v0.3.0</span>
+                <span class="version-badge">v0.7.0</span>
               </div>
             </div>
           </div>
 
           <!-- AUDIO TAB -->
           <div class="settings-panel" id="panel-audio">
+            <!-- Streaming Quality -->
+            <div class="s-card" id="card-streaming-quality">
+              <div class="s-card-header">Streaming Quality</div>
+              <div class="s-card-desc" id="streaming-quality-desc">Bitrate target for live multi-source streaming (JioSaavn Direct CDN &amp; Hedged Piped)</div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-16); display:flex; gap:var(--space-8); flex-wrap:wrap;">
+                <button class="sort-pill" data-streaming-quality="low">Low · 96 kbps</button>
+                <button class="sort-pill" data-streaming-quality="normal">Normal · 160 kbps</button>
+                <button class="sort-pill active" data-streaming-quality="high">High · 320 kbps</button>
+                <button class="sort-pill" data-streaming-quality="lossless">Hi-Res · Lossless</button>
+              </div>
+            </div>
+
+            <!-- Download Quality -->
+            <div class="s-card" id="card-download-quality">
+              <div class="s-card-header">Download Quality</div>
+              <div class="s-card-desc">Audio bitrate and container format for offline library caching</div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-16); display:flex; gap:var(--space-8); flex-wrap:wrap;">
+                <button class="sort-pill" data-download-quality="normal">Normal · 160 kbps</button>
+                <button class="sort-pill active" data-download-quality="high">High · 320 kbps</button>
+                <button class="sort-pill" data-download-quality="lossless">Lossless · FLAC/ALAC</button>
+              </div>
+            </div>
+
+            <!-- Audio Output & Fast-Start Buffer -->
+            <div class="s-card" id="card-audio-output">
+              <div class="s-card-header">Audio Output &amp; Instant-Start Engine</div>
+              <div class="s-card-desc">DAC output resampler rate and progressive initial stream buffer threshold</div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-12);">
+                <div class="s-hint" style="margin-bottom:6px;">Output Sample Rate</div>
+                <div style="display:flex; gap:var(--space-8); flex-wrap:wrap;">
+                  <button class="sort-pill" data-sample-rate="44100">44.1 kHz</button>
+                  <button class="sort-pill active" data-sample-rate="48000">48 kHz · Studio</button>
+                  <button class="sort-pill" data-sample-rate="96000">96 kHz · Hi-Res</button>
+                </div>
+              </div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-12);">
+                <div class="s-hint" style="margin-bottom:6px;">Instant-Play Progressive Buffer</div>
+                <div style="display:flex; gap:var(--space-8); flex-wrap:wrap;">
+                  <button class="sort-pill" data-instant-buffer="32">32 KB · Ultra-Fast</button>
+                  <button class="sort-pill active" data-instant-buffer="64">64 KB · Balanced</button>
+                  <button class="sort-pill" data-instant-buffer="128">128 KB · High Stability</button>
+                </div>
+              </div>
+              <div class="s-row">
+                <div class="s-icon green">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </div>
+                <div class="s-info">
+                  <div class="s-label">Gapless Playback</div>
+                  <div class="s-hint">Pre-buffer next decoder frame for zero-silence track transitions</div>
+                </div>
+                <div class="s-toggle on" id="toggle-gapless" role="switch" aria-checked="true" tabindex="0" aria-label="Gapless Playback"></div>
+              </div>
+            </div>
+
+            <!-- Feature 6: Headphone AutoEQ & Tube Warmth Profiles -->
+            <div class="s-card" id="card-autoeq">
+              <div class="s-card-header">Headphone AutoEQ &amp; Analog Tube Saturation</div>
+              <div class="s-card-desc" id="autoeq-desc">Oratory1990 / Harman calibrated headphone frequency response &amp; 2nd-order triode warmth</div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-12); display:flex; gap:var(--space-8); flex-wrap:wrap;" id="autoeq-profile-bar">
+                <button class="sort-pill active" data-autoeq="flat_studio">Studio Flat</button>
+                <button class="sort-pill" data-autoeq="sony_xm5">Sony WH-1000XM5</button>
+                <button class="sort-pill" data-autoeq="sennheiser_hd650">Sennheiser HD 650</button>
+                <button class="sort-pill" data-autoeq="airpods_pro_2">AirPods Pro 2</button>
+                <button class="sort-pill" data-autoeq="beyerdynamic_dt990">Beyerdynamic DT 990</button>
+                <button class="sort-pill" data-autoeq="harman_2019">Harman Target 2019</button>
+              </div>
+              <div class="s-row">
+                <div class="s-icon red">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                </div>
+                <div class="s-info">
+                  <div class="s-label">Analog Tube Warmth (Triode 2nd-Harmonic Saturation)</div>
+                  <div class="s-hint">Soft-clipping asymmetric saturation stage for rich analog low-mid body</div>
+                </div>
+                <div class="s-toggle" id="toggle-tube-warmth" role="switch" aria-checked="false" tabindex="0" aria-label="Analog Tube Warmth"></div>
+              </div>
+            </div>
+
             <!-- Equalizer -->
             <div class="s-card">
               <div class="s-row" style="border-top:none;">
@@ -555,7 +695,7 @@
                 </div>
                 <div class="s-info">
                   <div class="s-label">Equalizer</div>
-                  <div class="s-hint">10-band audio equalizer</div>
+                  <div class="s-hint">Parametric biquad audio equalizer</div>
                 </div>
                 <div class="s-toggle on" id="toggle-eq" role="switch" aria-checked="true" tabindex="0" aria-label="Equalizer"></div>
               </div>
@@ -568,39 +708,141 @@
                 <button class="sort-pill" data-eq-preset="Classical">Classical</button>
               </div>
               <div class="eq-bands" id="eq-bands">
-                <!-- Populated by JS: 10 vertical sliders -->
+                <!-- Populated by JS -->
               </div>
             </div>
 
-            <!-- Normalization -->
-            <div class="s-card">
-              <div class="s-card-header">Audio Normalization</div>
-              <div class="s-card-desc">Match perceived loudness across tracks</div>
-              <div style="padding: var(--space-4) var(--space-20) var(--space-16); display:flex; gap:var(--space-8);">
-                <button class="sort-pill active" data-normalization="Off">Off</button>
-                <button class="sort-pill" data-normalization="Track">Track</button>
-                <button class="sort-pill" data-normalization="Album">Album</button>
+            <!-- Feature 4: EBU R128 Loudness Normalization & Dynamic Range Guard -->
+            <div class="s-card" id="card-loudness-norm">
+              <div class="s-card-header">EBU R128 Loudness Normalization &amp; True-Peak Guard</div>
+              <div class="s-card-desc" id="loudness-norm-status">EBU R128 -14.0 LUFS (+0.8 dB · True-Peak Guard Active)</div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-12); display:flex; gap:var(--space-8); flex-wrap:wrap;">
+                <button class="sort-pill" data-normalization="Off">Off</button>
+                <button class="sort-pill active" data-normalization="Track" data-lufs="-14">-14 LUFS · Streaming</button>
+                <button class="sort-pill" data-normalization="Album" data-lufs="-16">-16 LUFS · Audiophile</button>
+                <button class="sort-pill" data-normalization="Club" data-lufs="-11">-11 LUFS · Club</button>
               </div>
             </div>
 
-            <!-- Crossfade -->
-            <div class="s-card">
+            <!-- Feature 1: Beat-Aligned "Auto-DJ" Crossfader -->
+            <div class="s-card" id="card-crossfade">
               <div class="s-row" style="border-top:none;">
                 <div class="s-icon red">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg>
                 </div>
                 <div class="s-info">
                   <div class="s-label">Crossfade</div>
-                  <div class="s-hint">Smooth blend between tracks</div>
+                  <div class="s-hint">Equal-power overlap between outgoing and incoming tracks</div>
                 </div>
-                <div class="s-toggle" id="toggle-crossfade" role="switch" aria-checked="false" tabindex="0" aria-label="Crossfade"></div>
+                <div class="s-toggle on" id="toggle-crossfade" role="switch" aria-checked="true" tabindex="0" aria-label="Crossfade"></div>
+              </div>
+              <div class="s-row">
+                <div class="s-icon blue">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="s-info">
+                  <div class="s-label">Beat-Aligned "Auto-DJ" Phrase &amp; Downbeat Sync</div>
+                  <div class="s-hint" id="autodj-status-hint">Beat-Locked 2-bar phrase (105 → 105.0 BPM, ±3% pitch-safe stretch)</div>
+                </div>
+                <div class="s-toggle on" id="toggle-autodj-sync" role="switch" aria-checked="true" tabindex="0" aria-label="Beat-Aligned Auto-DJ Sync"></div>
               </div>
               <div class="s-slider-row">
                 <div class="s-slider-label">
                   <span class="s-hint">Duration</span>
-                  <span class="s-value">3.0s</span>
+                  <span class="s-value" id="crossfade-value">4.0s</span>
                 </div>
-                <input type="range" class="s-slider" min="0.5" max="10" step="0.5" value="3" aria-label="Crossfade duration in seconds"/>
+                <input type="range" class="s-slider" id="crossfade-slider" min="0.5" max="10" step="0.5" value="4" aria-label="Crossfade duration in seconds"/>
+              </div>
+            </div>
+          </div>
+
+          <!-- SONIC LAB TAB (Features 2, 5, 9) -->
+          <div class="settings-panel" id="panel-lab">
+            <!-- Feature 2: Interactive Taste DNA & Persona Mixer Sliders -->
+            <div class="s-card" id="card-taste-dna">
+              <div class="s-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>Interactive "Taste DNA" &amp; Persona Mixer</span>
+                <button type="button" class="s-action-btn" id="btn-apply-taste-dna">Re-Sculpt Queue &amp; Recs</button>
+              </div>
+              <div class="s-card-desc">Dial in your 6 multi-modal taste sub-profiles and contextual bandit weights in real time</div>
+              <div style="padding: var(--space-8) var(--space-20) var(--space-12); display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;">
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span>Synthwave &amp; Midnight Drive</span><strong id="dna-val-synth">85%</strong>
+                  </div>
+                  <input type="range" class="s-slider dna-slider" data-persona-id="synthwave_night" min="0" max="100" value="85"/>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span>Ambient &amp; Post-Rock</span><strong id="dna-val-ambient">75%</strong>
+                  </div>
+                  <input type="range" class="s-slider dna-slider" data-persona-id="ambient_focus" min="0" max="100" value="75"/>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span>Electronic &amp; French Touch</span><strong id="dna-val-elec">80%</strong>
+                  </div>
+                  <input type="range" class="s-slider dna-slider" data-persona-id="electronic_pulse" min="0" max="100" value="80"/>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span>Indie &amp; Folk Warmth</span><strong id="dna-val-indie">65%</strong>
+                  </div>
+                  <input type="range" class="s-slider dna-slider" data-persona-id="indie_warmth" min="0" max="100" value="65"/>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span>Camelot Harmonic Lock</span><strong id="dna-val-harmonic">80%</strong>
+                  </div>
+                  <input type="range" class="s-slider" id="dna-slider-harmonic" min="0" max="100" value="80"/>
+                </div>
+                <div>
+                  <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+                    <span>Exploration / Fresh Discovery</span><strong id="dna-val-explore">45%</strong>
+                  </div>
+                  <input type="range" class="s-slider" id="dna-slider-explore" min="0" max="100" value="45"/>
+                </div>
+              </div>
+              <div id="taste-dna-results" style="padding: 0 var(--space-20) var(--space-16); display:flex; flex-direction:column; gap:6px; font-size:12px;"></div>
+            </div>
+
+            <!-- Feature 5: "Sonic Bridge" Pathfinding Between Any Two Songs -->
+            <div class="s-card" id="card-sonic-bridge">
+              <div class="s-card-header">Sonic Bridge Pathfinder (A* Harmonic &amp; BPM Morphing)</div>
+              <div class="s-card-desc">Compute the smoothest multi-track acoustic &amp; Camelot key transition path between any two songs</div>
+              <div style="padding: var(--space-8) var(--space-20) var(--space-12); display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <label style="font-size:12px; color:var(--text-secondary);">Start:
+                  <select id="sonic-bridge-start" style="margin-left:4px; padding:5px 8px; border-radius:8px; border:1px solid rgba(0,0,0,0.15); font-size:12px;">
+                    <option value="1">Midnight City — M83 (105 BPM · 10A)</option>
+                    <option value="6">Blue (Da Ba Dee) — Eiffel 65 (128 BPM · 6A)</option>
+                    <option value="12">Everything In Its Right Place — Radiohead (124 BPM · 7A)</option>
+                  </select>
+                </label>
+                <span style="font-weight:700; color:var(--accent-text);">→</span>
+                <label style="font-size:12px; color:var(--text-secondary);">Target:
+                  <select id="sonic-bridge-target" style="margin-left:4px; padding:5px 8px; border-radius:8px; border:1px solid rgba(0,0,0,0.15); font-size:12px;">
+                    <option value="8" selected>Holocene — Bon Iver (74 BPM · 5B)</option>
+                    <option value="2">Teardrop — Massive Attack (77 BPM · 8A)</option>
+                    <option value="9">Svefn-g-englar — Sigur Rós (78 BPM · 7B)</option>
+                  </select>
+                </label>
+                <button type="button" class="s-action-btn" id="btn-build-bridge">Build Sonic Bridge</button>
+                <button type="button" class="sort-pill" id="btn-play-bridge">Queue &amp; Play Bridge</button>
+              </div>
+              <div id="sonic-bridge-steps" style="padding: 0 var(--space-20) var(--space-16); display:flex; flex-direction:column; gap:6px; font-size:12px;"></div>
+            </div>
+
+            <!-- Feature 9: "Time Capsule" & Contextual Daypart Memory -->
+            <div class="s-card" id="card-time-capsule">
+              <div class="s-card-header">Time Capsule &amp; Contextual Daypart Memory</div>
+              <div class="s-card-desc" id="daypart-active-banner">Active Daypart: Late Night Coding &amp; Synth Drive</div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-12);">
+                <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-secondary); margin-bottom:6px;">Rediscover Forgotten Gems (High Affinity · Unplayed Recently)</div>
+                <div id="time-capsule-gems" style="display:flex; flex-direction:column; gap:6px; font-size:12px;"></div>
+              </div>
+              <div style="padding: var(--space-4) var(--space-20) var(--space-16);">
+                <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-secondary); margin-bottom:6px;">24-Hour Daypart Sonic Fingerprint</div>
+                <div id="time-capsule-breakdown" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px; font-size:12px;"></div>
               </div>
             </div>
           </div>
@@ -656,6 +898,28 @@
 
   <!-- Playlist-name modal portal (#75) -->
   <div id="pl-modal-root"></div>
+
+  <!-- Feature 10: Command Palette (Cmd/Ctrl + K) with Natural-Language Sonic Filters -->
+  <div id="cmd-palette-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(15, 14, 26, 0.48); backdrop-filter:blur(8px); align-items:flex-start; justify-content:center; padding-top:80px;">
+    <div style="width:min(640px, 92vw); background:var(--bg-elevated, #f7f4ef); color:var(--text-primary, #1d1b26); border-radius:16px; box-shadow:0 24px 60px rgba(0,0,0,0.28); border:1px solid rgba(124,107,196,0.25); overflow:hidden;">
+      <div style="padding:14px 18px; display:flex; align-items:center; gap:10px; border-bottom:1px solid rgba(0,0,0,0.08);">
+        <span style="font-weight:700; color:var(--accent-text, #6353b4); font-size:14px;">⌘K</span>
+        <input type="text" id="cmd-palette-input" placeholder="Try 'bpm:95..115', 'bridge Midnight City to Holocene', 'like Midnight City', 'eq hd650'…" style="flex:1; border:none; outline:none; background:transparent; font-size:14px; color:inherit;" aria-label="Sonic Command Palette Input"/>
+        <button type="button" class="sort-pill" id="btn-close-cmd-palette" style="font-size:11px; padding:3px 8px;">ESC</button>
+      </div>
+      <div style="padding:8px 18px; display:flex; gap:6px; flex-wrap:wrap; border-bottom:1px solid rgba(0,0,0,0.06);">
+        <button type="button" class="sort-pill cmd-chip" data-cmd-query="bpm:95..115">bpm:95..115</button>
+        <button type="button" class="sort-pill cmd-chip" data-cmd-query="like Midnight City">like Midnight City</button>
+        <button type="button" class="sort-pill cmd-chip" data-cmd-query="bridge Midnight City to Holocene">bridge Midnight City to Holocene</button>
+        <button type="button" class="sort-pill cmd-chip" data-cmd-query="eq sennheiser hd650">eq sennheiser hd650</button>
+        <button type="button" class="sort-pill cmd-chip" data-cmd-query="stem karaoke">stem karaoke</button>
+      </div>
+      <div id="cmd-palette-interp" style="padding:8px 18px; font-size:11px; font-weight:600; color:var(--accent-text, #6353b4); background:rgba(124,107,196,0.08);">
+        Type a natural-language sonic query or click a preset chip above
+      </div>
+      <div id="cmd-palette-results" style="max-height:300px; overflow-y:auto; padding:8px 14px; display:flex; flex-direction:column; gap:4px;"></div>
+    </div>
+  </div>
 
   <!-- ══════════════════════════════════════════════════════════════════════════
        BOTTOM NAVIGATION PILL (compact <860px only; sidebar takes over above)

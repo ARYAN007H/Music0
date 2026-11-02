@@ -64,21 +64,46 @@ const Bridge = (() => {
     };
   }
 
-  // Mock data for standalone HTML preview
+  // Mock data for standalone HTML preview & web mode
   const DEMO_SONGS = [
-    { id: '1', title: 'Midnight City', artist: 'M83', album: 'Hurry Up, We\'re Dreaming', duration_secs: 244 },
-    { id: '2', title: 'Teardrop', artist: 'Massive Attack', album: 'Mezzanine', duration_secs: 329 },
-    { id: '3', title: 'Breathe (In the Air)', artist: 'Pink Floyd', album: 'Dark Side of the Moon', duration_secs: 165 },
-    { id: '4', title: 'Intro', artist: 'The xx', album: 'xx', duration_secs: 127 },
-    { id: '5', title: 'Motion Picture Soundtrack', artist: 'Radiohead', album: 'Kid A', duration_secs: 421 },
-    { id: '6', title: 'Blue (Da Ba Dee)', artist: 'Eiffel 65', album: 'Europop', duration_secs: 220 },
-    { id: '7', title: 'Crystalised', artist: 'The xx', album: 'xx', duration_secs: 227 },
-    { id: '8', title: 'Holocene', artist: 'Bon Iver', album: 'Bon Iver', duration_secs: 337 },
-    { id: '9', title: 'Svefn-g-englar', artist: 'Sigur Rós', album: 'Ágætis byrjun', duration_secs: 610 },
-    { id: '10', title: 'Porcelain', artist: 'Moby', album: 'Play', duration_secs: 238 },
-    { id: '11', title: 'Teardrop', artist: 'José González', album: 'Veneer', duration_secs: 191 },
-    { id: '12', title: 'Everything In Its Right Place', artist: 'Radiohead', album: 'Kid A', duration_secs: 252 },
+    { id: '1', title: 'Midnight City', artist: 'M83', album: 'Hurry Up, We\'re Dreaming', duration_secs: 244, file_path: '/api/audio/1' },
+    { id: '2', title: 'Teardrop', artist: 'Massive Attack', album: 'Mezzanine', duration_secs: 329, file_path: '/api/audio/2' },
+    { id: '3', title: 'Breathe (In the Air)', artist: 'Pink Floyd', album: 'Dark Side of the Moon', duration_secs: 165, file_path: '/api/audio/3' },
+    { id: '4', title: 'Intro', artist: 'The xx', album: 'xx', duration_secs: 127, file_path: '/api/audio/4' },
+    { id: '5', title: 'Motion Picture Soundtrack', artist: 'Radiohead', album: 'Kid A', duration_secs: 421, file_path: '/api/audio/5' },
+    { id: '6', title: 'Blue (Da Ba Dee)', artist: 'Eiffel 65', album: 'Europop', duration_secs: 220, file_path: '/api/audio/6' },
+    { id: '7', title: 'Crystalised', artist: 'The xx', album: 'xx', duration_secs: 227, file_path: '/api/audio/7' },
+    { id: '8', title: 'Holocene', artist: 'Bon Iver', album: 'Bon Iver', duration_secs: 337, file_path: '/api/audio/8' },
+    { id: '9', title: 'Svefn-g-englar', artist: 'Sigur Rós', album: 'Ágætis byrjun', duration_secs: 610, file_path: '/api/audio/9' },
+    { id: '10', title: 'Porcelain', artist: 'Moby', album: 'Play', duration_secs: 238, file_path: '/api/audio/10' },
+    { id: '11', title: 'Teardrop', artist: 'José González', album: 'Veneer', duration_secs: 191, file_path: '/api/audio/11' },
+    { id: '12', title: 'Everything In Its Right Place', artist: 'Radiohead', album: 'Kid A', duration_secs: 252, file_path: '/api/audio/12' },
   ];
+
+  let webAudio = null;
+  let webPosTimer = null;
+  let webPosSecs = 0;
+
+  function startWebAudio(song) {
+    try {
+      if (!webAudio && typeof Audio !== 'undefined') {
+        webAudio = new Audio();
+        webAudio.loop = true;
+      }
+      if (webAudio) {
+        const trackId = encodeURIComponent(song?.id || '1');
+        webAudio.src = `/api/audio/${trackId}`;
+        webAudio.volume = 0.68;
+        webAudio.play().catch(() => {});
+      }
+      if (webPosTimer) clearInterval(webPosTimer);
+      webPosSecs = 0;
+      webPosTimer = setInterval(() => {
+        webPosSecs += 0.5;
+        emit('playback-event', { type: 'PositionUpdate', position_secs: webPosSecs });
+      }, 500);
+    } catch (e) {}
+  }
 
   function mockCommand(cmd, args) {
     switch (cmd) {
@@ -86,18 +111,47 @@ const Bridge = (() => {
         return Promise.resolve(DEMO_SONGS);
       case 'get_queue':
         return Promise.resolve([...mockQueue]);
-      case 'play_song':
-        emit('playback-event', { type: 'Playing', song: args.song });
+      case 'play_song': {
+        const song = args.song || DEMO_SONGS[0];
+        startWebAudio(song);
+        emit('playback-event', { type: 'Playing', song });
+        if (typeof fetch === 'function') {
+          fetch('/api/invoke/play_song', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ song }),
+          })
+            .then(() => emit('prefetch-updated', {}))
+            .catch(() => {});
+        }
         return Promise.resolve(null);
+      }
       case 'resume':
+        try { webAudio?.play?.().catch(() => {}); } catch (e) {}
         emit('playback-event', { type: 'Resumed' });
         return Promise.resolve(null);
       case 'pause':
-        emit('playback-event', { type: 'Paused', position_secs: 0 });
+        try { webAudio?.pause?.(); } catch (e) {}
+        if (webPosTimer) { clearInterval(webPosTimer); webPosTimer = null; }
+        emit('playback-event', { type: 'Paused', position_secs: webPosSecs });
         return Promise.resolve(null);
-      case 'next':
-      case 'previous':
+      case 'seek':
+        webPosSecs = Number(args?.position_secs ?? args?.positionSecs ?? 0);
+        emit('playback-event', { type: 'Seeked', position_secs: webPosSecs });
         return Promise.resolve(null);
+      case 'next': {
+        const nextSong = mockQueue.shift() || DEMO_SONGS[Math.floor(Math.random() * DEMO_SONGS.length)];
+        startWebAudio(nextSong);
+        emit('playback-event', { type: 'Playing', song: nextSong });
+        emit('queue-changed', [...mockQueue]);
+        emit('prefetch-updated', {});
+        return Promise.resolve(null);
+      }
+      case 'previous': {
+        webPosSecs = 0;
+        emit('playback-event', { type: 'Seeked', position_secs: 0 });
+        return Promise.resolve(null);
+      }
       case 'add_to_queue':
         mockQueue.push(args.song);
         emit('queue-changed', [...mockQueue]);
@@ -129,25 +183,44 @@ const Bridge = (() => {
         return Promise.resolve(false);
       }
       case 'queue_play_at': {
-        // Jump parity (#62): remove the row, then play it like play_song.
-        // Integer-clamped like queue_move — undefined/NaN must not eat row 0.
-        // An out-of-range jump is a visible no-op: still emit queue-changed
-        // so the panel re-renders in sync with the (unchanged) queue.
         const idx = Number.isInteger(args?.index) ? args.index : -1;
         if (idx < 0 || idx >= mockQueue.length) {
           emit('queue-changed', [...mockQueue]);
           return Promise.resolve(null);
         }
         const song = mockQueue.splice(idx, 1)[0];
-        if (song) emit('playback-event', { type: 'Playing', song });
+        if (song) {
+          startWebAudio(song);
+          emit('playback-event', { type: 'Playing', song });
+        }
         emit('queue-changed', [...mockQueue]);
         return Promise.resolve(null);
       }
-      case 'get_recommendations':
+      case 'get_recommendations': {
+        if (typeof fetch === 'function') {
+          return fetch('/api/invoke/get_recommendations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(args || {}),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+            .then((recs) => (Array.isArray(recs) && recs.length ? recs : DEMO_SONGS.slice(3, 7)));
+        }
         return Promise.resolve(DEMO_SONGS.slice(3, 7));
+      }
       case 'set_song_like': {
         const { songId, liked } = args || {};
         if (liked) mockLikes.add(songId); else mockLikes.delete(songId);
+        if (typeof fetch === 'function') {
+          fetch('/api/invoke/set_song_like', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ songId, liked }),
+          })
+            .then(() => emit('prefetch-updated', {}))
+            .catch(() => {});
+        }
         return Promise.resolve(true);
       }
       case 'get_liked_ids':
@@ -358,16 +431,131 @@ const Bridge = (() => {
         return Promise.resolve(true);
       case 'get_cover':
         return Promise.resolve(null);
-      case 'get_settings':
-        return Promise.resolve({
+      case 'get_settings': {
+        let saved = {};
+        try {
+          saved = JSON.parse(localStorage.getItem('musico-settings') || '{}') || {};
+        } catch (e) {}
+        const merged = Object.assign({
           music_folder: null, volume: 0.68, palette: 'nebula', art_tint: true,
           smart_recs: true, eq_enabled: true, eq_preset: 'Flat', normalization: 'Off',
           crossfade_enabled: false, crossfade_duration: 3.0, library_view_mode: 'list',
           shuffle_mode: 0, repeat_mode: 0, theme: 'light',
           autoplay: mockSettings.autoplay,
-        });
-      case 'save_settings':
+          streaming_quality: 'high',
+          download_quality: 'high',
+          audio_sample_rate: 48000,
+          gapless_playback: true,
+          predictive_prefetch: true,
+          prefetch_count: 3,
+          instant_play_buffer_kb: 64,
+          autodj_beat_sync: true,
+          stem_mode: 'full',
+          loudness_norm_enabled: true,
+          target_lufs: -14.0,
+          autoeq_profile: 'flat_studio',
+          tube_warmth: false,
+          lyrics_romanize: true,
+          lyrics_translate: true,
+        }, saved);
+        return Promise.resolve(merged);
+      }
+      case 'save_settings': {
+        if (args && args.settings) {
+          Object.assign(mockSettings, args.settings);
+          try {
+            const prev = JSON.parse(localStorage.getItem('musico-settings') || '{}') || {};
+            localStorage.setItem('musico-settings', JSON.stringify(Object.assign(prev, args.settings)));
+          } catch (e) {}
+          if (typeof fetch === 'function') {
+            fetch('/api/invoke/save_settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            }).catch(() => {});
+          }
+          emit('prefetch-updated', {});
+        }
         return Promise.resolve(null);
+      }
+      case 'get_prefetch_plan': {
+        if (typeof fetch === 'function') {
+          return fetch('/api/invoke/get_prefetch_plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(args || {}),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+            .then((plan) => {
+              if (plan) return plan;
+              return fallbackPrefetchPlan();
+            });
+        }
+        return Promise.resolve(fallbackPrefetchPlan());
+      }
+      case 'get_autodj_plan':
+      case 'get_taste_dna':
+      case 'apply_taste_dna':
+      case 'set_stem_mode':
+      case 'set_loudness_norm':
+      case 'build_sonic_bridge':
+      case 'get_autoeq_profiles':
+      case 'apply_autoeq_profile':
+      case 'create_jam_session':
+      case 'join_jam_session':
+      case 'vote_jam_track':
+      case 'get_jam_session':
+      case 'get_enhanced_lyrics':
+      case 'get_daypart_capsule':
+      case 'execute_sonic_command': {
+        if (typeof fetch === 'function') {
+          return fetch(`/api/invoke/${cmd}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(args || {}),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((res) => {
+              if (cmd === 'set_stem_mode' && res?.streamUrl && webAudio && !webAudio.paused) {
+                const curTime = webAudio.currentTime || 0;
+                webAudio.src = res.streamUrl;
+                webAudio.currentTime = curTime;
+                webAudio.play().catch(() => {});
+              }
+              return res;
+            })
+            .catch(() => null);
+        }
+        return Promise.resolve(null);
+      }
+      case 'home_recommendation': {
+        if (typeof fetch === 'function') {
+          return fetch('/api/invoke/home_recommendation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(args || {}),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+        }
+        return Promise.resolve(null);
+      }
+      case 'online_related': {
+        if (window.__offline) return Promise.resolve(null);
+        return Promise.resolve(
+          DEMO_SONGS.slice(0, 6).map((s) => ({
+            video_id: `rel_${s.id}`,
+            title: s.title,
+            artist: s.artist,
+            album: s.album,
+            duration_secs: s.duration_secs,
+            thumbnail: null,
+            cached: true,
+            source: 'saavn',
+          }))
+        );
+      }
       case 'set_autoplay':
         mockSettings.autoplay = !!(args && args.enabled);
         return Promise.resolve(true);
@@ -376,8 +564,8 @@ const Bridge = (() => {
       case 'set_playback_modes':
         return Promise.resolve(null);
       case 'get_stats':
-        return Promise.resolve({ total_plays: 0, total_listened_secs: 0, total_skips: 0,
-          streak_days: 0, avg_listen_ratio: 0, top_songs: [], top_artists: [], daily_minutes: [] });
+        return Promise.resolve({ total_plays: 18, total_listened_secs: 4320, total_skips: 1,
+          streak_days: 5, avg_listen_ratio: 0.92, top_songs: [], top_artists: [], daily_minutes: [] });
       case 'get_playlists':
         return Promise.resolve([
           { id: 'pl-late-night', name: 'Late Night Drive', max_songs: 25, rules: [] },
@@ -409,6 +597,37 @@ const Bridge = (() => {
       default:
         return Promise.resolve(null);
     }
+  }
+
+  function fallbackPrefetchPlan() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('musico-settings') || '{}') || {}; } catch (e) {}
+    const enabled = saved.predictive_prefetch !== undefined ? !!saved.predictive_prefetch : true;
+    const count = Number(saved.prefetch_count || 3);
+    const streamingQuality = saved.streaming_quality || 'high';
+    const bitrateMap = { low: 96, normal: 160, high: 320, lossless: 1411 };
+    const targetBitrateKbps = bitrateMap[streamingQuality] || 320;
+    return {
+      enabled,
+      count,
+      streamingQuality,
+      downloadQuality: saved.download_quality || 'high',
+      sampleRate: saved.audio_sample_rate || 48000,
+      instantBufferKb: saved.instant_play_buffer_kb || 64,
+      items: enabled
+        ? DEMO_SONGS.slice(1, 1 + count).map((s, i) => ({
+            trackId: s.id,
+            title: s.title,
+            artist: s.artist,
+            source: i % 2 === 0 ? 'saavn' : 'local',
+            reason: i === 0 ? 'queue-next' : 'smart-radio',
+            confidence: 0.94 - i * 0.05,
+            targetBitrateKbps,
+            estimatedBufferKb: saved.instant_play_buffer_kb || 64,
+            status: 'ready',
+          }))
+        : [],
+    };
   }
 
   const api = { invoke, listen, isTauri, DEMO_SONGS, setErrorHandler: (fn) => { onError = fn; } };

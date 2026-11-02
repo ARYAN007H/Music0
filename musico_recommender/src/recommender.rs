@@ -146,8 +146,22 @@ pub(crate) fn recommend(
                 1.0
             };
 
+        // Harmonic (12-bin chroma cosine) + Tempo transition continuity bonus
+        let harmonic_bonus = if let Some(anchor_rec) = cache.get(&req.current_song_id) {
+            let chroma_sim = vector_store::cosine_similarity(
+                &anchor_rec.feature_vector.chroma,
+                &record.feature_vector.chroma,
+            )
+            .clamp(0.0, 1.0);
+            let tempo_diff = (anchor_rec.feature_vector.tempo_bpm - record.feature_vector.tempo_bpm).abs();
+            let tempo_sim = (1.0 - tempo_diff * 1.5).clamp(0.0, 1.0);
+            0.06 * (0.6 * chroma_sim + 0.4 * tempo_sim)
+        } else {
+            0.0
+        };
+
         let contributions: [(&'static str, f32); 8] = [
-            ("similarity", w.similarity * similarity_score),
+            ("similarity", w.similarity * similarity_score + harmonic_bonus),
             ("affinity", w.affinity * affinity),
             ("profile", w.profile * profile_strength * profile_match),
             ("session", w.session * session_match),

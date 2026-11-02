@@ -324,10 +324,61 @@ pub(crate) fn play_and_track(
             let _ = r.on_song_changed(&song.id);
         }
     }
+    // Phase 2: Auto-index resolved online tracks (saavn: / yt:) in the background
+    // so the hybrid recommender learns from online plays alongside local files.
+    if (song.id.starts_with("yt:") || song.id.starts_with("saavn:")) && !song.file_path.is_empty() {
+        if let Some(rec) = state.recommender.clone() {
+            let song_clone = song.clone();
+            let _ = std::thread::Builder::new()
+                .name("online-indexer".into())
+                .spawn(move || {
+                    if let Ok(mut r) = rec.lock() {
+                        if r.get_song_by_id(&song_clone.id).ok().flatten().is_none() {
+                            let _ = r.index_song(&song_clone.file_path);
+                        }
+                    }
+                });
+        }
+    }
     apply_normalization(eng, state, &song.id);
     preresolve_next_online(state);
+    predictive_prefetch_upcoming(state);
     warm_radio_next(state, &song.id);
     true
+}
+
+/// Predictive Prefetching: pre-resolves up to `prefetch_count` upcoming tracks in the queue
+/// so transitions and skips are instant cache hits.
+fn predictive_prefetch_upcoming(state: &tauri::State<AppState>) {
+    if state.offline.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let (enabled, count) = {
+        let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+        (s.predictive_prefetch, s.prefetch_count.clamp(1, 5) as usize)
+    };
+    if !enabled {
+        return;
+    }
+    let upcoming_ids: Vec<String> = state
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .current_queue()
+        .iter()
+        .take(count)
+        .filter_map(|s| s.id.strip_prefix("yt:").map(str::to_string))
+        .collect();
+    if upcoming_ids.is_empty() {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("predictive-prefetch".into())
+        .spawn(move || {
+            for vid in upcoming_ids {
+                let _ = crate::online::resolve_stream(&vid, Duration::from_secs(120));
+            }
+        });
 }
 
 /// How long to wait before spending a speculative radio download — and how

@@ -97,6 +97,7 @@ const App = (() => {
     setupScanButton();
     setupLikedFilter();
     setupQueueClear();
+    setupStandoutCapabilities();
 
     // Load library
     state.library = await Bridge.invoke('get_library');
@@ -154,6 +155,10 @@ const App = (() => {
     'toggle-crossfade': 'crossfade_enabled',
     'toggle-art-tint': 'art_tint',
     'toggle-smart-rec': 'smart_recs',
+    'toggle-prefetch': 'predictive_prefetch',
+    'toggle-gapless': 'gapless_playback',
+    'toggle-autodj-sync': 'autodj_beat_sync',
+    'toggle-tube-warmth': 'tube_warmth',
   };
 
   function applySettings(s) {
@@ -172,7 +177,10 @@ const App = (() => {
     }
     Object.entries(TOGGLE_KEYS).forEach(([id, key]) => {
       const el = document.getElementById(id);
-      if (el) el.classList.toggle('on', !!s[key]);
+      if (el && s[key] !== undefined) {
+        el.classList.toggle('on', !!s[key]);
+        el.setAttribute('aria-checked', String(!!s[key]));
+      }
     });
     if (s.music_folder) {
       const tag = document.getElementById('folder-tag');
@@ -181,9 +189,6 @@ const App = (() => {
         tag.lastChild.textContent = ` ${short}`;
       }
     }
-    // library_view_mode retired by C4.1c — the merged Songs list replaced
-    // the legacy list/grid views; restoring the click would un-hide the
-    // retired grid over it.
     if (typeof s.shuffle_mode === 'number') {
       state.shuffleMode = s.shuffle_mode;
       document.getElementById('btn-shuffle')?.classList.toggle('active', s.shuffle_mode > 0);
@@ -197,6 +202,33 @@ const App = (() => {
     document.querySelectorAll('[data-normalization]').forEach((pill) => {
       pill.classList.toggle('active', pill.dataset.normalization === s.normalization);
     });
+    // Streaming Quality pills
+    const streamQual = s.streaming_quality || 'high';
+    document.querySelectorAll('[data-streaming-quality]').forEach((pill) => {
+      pill.classList.toggle('active', pill.dataset.streamingQuality === streamQual);
+    });
+    // Download Quality pills
+    const dlQual = s.download_quality || 'high';
+    document.querySelectorAll('[data-download-quality]').forEach((pill) => {
+      pill.classList.toggle('active', pill.dataset.downloadQuality === dlQual);
+    });
+    // Output Sample Rate pills
+    const sampleRate = String(s.audio_sample_rate || 48000);
+    document.querySelectorAll('[data-sample-rate]').forEach((pill) => {
+      pill.classList.toggle('active', pill.dataset.sampleRate === sampleRate);
+    });
+    // Instant-Play Buffer pills
+    const bufKb = String(s.instant_play_buffer_kb || 64);
+    document.querySelectorAll('[data-instant-buffer]').forEach((pill) => {
+      pill.classList.toggle('active', pill.dataset.instantBuffer === bufKb);
+    });
+    // Predictive Prefetch slider
+    const pfSlider = document.getElementById('prefetch-count-slider');
+    const pfVal = document.getElementById('prefetch-count-value');
+    const pfCount = Number(s.prefetch_count || 3);
+    if (pfSlider) pfSlider.value = String(pfCount);
+    if (pfVal) pfVal.textContent = `${pfCount} track${pfCount === 1 ? '' : 's'}`;
+
     // EQ: restore preset curve
     const presetName = s.eq_preset && EQ_PRESETS[s.eq_preset] ? s.eq_preset : 'Flat';
     document.querySelectorAll('#eq-presets .sort-pill').forEach((p) => {
@@ -211,17 +243,77 @@ const App = (() => {
     });
     if (s.eq_enabled && typeof Bridge !== 'undefined') applyEq(gains ?? []);
     // Crossfade slider
-    const slider = document.querySelector('.s-slider');
+    const slider = document.getElementById('crossfade-slider') || document.querySelector('#panel-audio .s-slider');
     if (slider && s.crossfade_duration) {
       slider.value = s.crossfade_duration;
-      const val = document.querySelector('.s-value');
+      const val = document.getElementById('crossfade-value') || slider.parentElement?.querySelector('.s-value');
       if (val) val.textContent = `${Number(s.crossfade_duration).toFixed(1)}s`;
     }
+    // Stem Mode pills
+    const stemMode = s.stem_mode || 'full';
+    document.querySelectorAll('[data-stem-mode]').forEach((pill) => {
+      pill.classList.toggle('active', pill.dataset.stemMode === stemMode);
+    });
+    // AutoEQ Profile pills
+    const autoEq = s.autoeq_profile || 'flat_studio';
+    document.querySelectorAll('[data-autoeq]').forEach((pill) => {
+      pill.classList.toggle('active', pill.dataset.autoeq === autoEq);
+    });
+    refreshPrefetchPanel();
   }
 
   function persistSettings(patch) {
     Object.assign(state.settings, patch);
-    Bridge.invoke('save_settings', { settings: state.settings });
+    Bridge.invoke('save_settings', { settings: state.settings }).then(() => {
+      refreshPrefetchPanel();
+    });
+  }
+
+  async function refreshPrefetchPanel() {
+    const listEl = document.getElementById('prefetch-items-list');
+    const hintEl = document.getElementById('prefetch-status-hint');
+    if (!listEl) return;
+    const plan = await Bridge.invoke('get_prefetch_plan', {
+      currentTrackId: state.currentSong?.id || '1',
+      upcomingQueueIds: (state.queue || []).map((q) => q.id),
+    });
+    if (!plan) return;
+    if (!plan.enabled) {
+      if (hintEl) hintEl.textContent = 'Predictive prefetching is paused — streams resolve on demand';
+      listEl.innerHTML = '';
+      return;
+    }
+    const items = plan.items || [];
+    if (hintEl) {
+      hintEl.textContent = `Pre-warmed ${items.length} upcoming track${items.length === 1 ? '' : 's'} at ${plan.streamingQuality?.toUpperCase() || 'HIGH'} (${plan.sampleRate ? (plan.sampleRate / 1000).toFixed(1) + ' kHz' : '48 kHz'} · ${plan.instantBufferKb || 64} KB instant buffer)`;
+    }
+    listEl.innerHTML = items
+      .map(
+        (item, idx) =>
+          `<div style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-radius:8px; background:var(--bg-elevated, rgba(120,120,140,0.08));">
+            <span><strong>#${idx + 1} ${escapeHtml(item.title)}</strong> · ${escapeHtml(item.artist)}</span>
+            <span style="font-weight:600; color:var(--accent-text, #d6336c);">${item.reason === 'queue-next' ? 'Queue Next' : item.reason === 'smart-radio' ? 'Harmonic Match' : 'Taste Persona'} · ${item.targetBitrateKbps} kbps Ready</span>
+          </div>`
+      )
+      .join('');
+
+    // Update Auto-DJ & EBU R128 telemetry hints
+    if (plan.autodjPlan) {
+      const adjHint = document.getElementById('autodj-status-hint');
+      if (adjHint) adjHint.textContent = plan.autodjPlan.label;
+    }
+    if (plan.loudnessNorm) {
+      const normEl = document.getElementById('loudness-norm-status');
+      if (normEl) normEl.textContent = plan.loudnessNorm.label;
+    }
+    const npTelemetry = document.getElementById('np-dsp-telemetry');
+    if (npTelemetry && (plan.autodjPlan || plan.loudnessNorm)) {
+      const parts = [];
+      if (plan.autodjPlan) parts.push(plan.autodjPlan.label);
+      if (plan.loudnessNorm) parts.push(plan.loudnessNorm.label);
+      if (plan.stemMode && plan.stemMode.id !== 'full') parts.push(`Stem: ${plan.stemMode.label}`);
+      npTelemetry.textContent = parts.join(' · ');
+    }
   }
 
   // ─── Airplane Mode (C4.3) ────────────────────────────────────────────────────
@@ -336,10 +428,63 @@ const App = (() => {
       });
     });
 
-    // Crossfade duration slider (toggling crossfade stays an explicit choice)
-    const slider = document.querySelector('.s-slider');
+    // Streaming Quality pills
+    document.querySelectorAll('[data-streaming-quality]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('[data-streaming-quality]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        const streaming_quality = pill.dataset.streamingQuality;
+        persistSettings({ streaming_quality });
+        showToast(`Streaming quality set to ${pill.textContent.trim()}`);
+      });
+    });
+
+    // Download Quality pills
+    document.querySelectorAll('[data-download-quality]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('[data-download-quality]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        const download_quality = pill.dataset.downloadQuality;
+        persistSettings({ download_quality });
+        showToast(`Download quality set to ${pill.textContent.trim()}`);
+      });
+    });
+
+    // Output Sample Rate pills
+    document.querySelectorAll('[data-sample-rate]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('[data-sample-rate]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        const audio_sample_rate = Number(pill.dataset.sampleRate);
+        persistSettings({ audio_sample_rate });
+        showToast(`Output sample rate set to ${pill.textContent.trim()}`);
+      });
+    });
+
+    // Instant-Play Buffer pills
+    document.querySelectorAll('[data-instant-buffer]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('[data-instant-buffer]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        const instant_play_buffer_kb = Number(pill.dataset.instantBuffer);
+        persistSettings({ instant_play_buffer_kb });
+        showToast(`Instant-start buffer set to ${instant_play_buffer_kb} KB`);
+      });
+    });
+
+    // Predictive Prefetch count slider
+    const pfSlider = document.getElementById('prefetch-count-slider');
+    const pfVal = document.getElementById('prefetch-count-value');
+    pfSlider?.addEventListener('input', () => {
+      const c = Number(pfSlider.value);
+      if (pfVal) pfVal.textContent = `${c} track${c === 1 ? '' : 's'}`;
+      persistSettings({ prefetch_count: c });
+    });
+
+    // Crossfade duration slider
+    const slider = document.getElementById('crossfade-slider') || document.querySelector('#panel-audio .s-slider');
     slider?.addEventListener('input', () => {
-      const val = document.querySelector('.s-value');
+      const val = document.getElementById('crossfade-value') || slider.parentElement?.querySelector('.s-value');
       if (val) val.textContent = `${Number(slider.value).toFixed(1)}s`;
       persistSettings({ crossfade_duration: Number(slider.value) });
     });
@@ -348,7 +493,11 @@ const App = (() => {
   // ─── Playback Event Handling (replaces fake progress simulation) ──────────
   function initPlaybackEvents() {
     Bridge.listen('playback-event', (e) => handlePlaybackEvent(e.payload ?? e));
-    Bridge.listen('queue-changed', (e) => renderQueue(e.payload ?? e));
+    Bridge.listen('queue-changed', (e) => {
+      renderQueue(e.payload ?? e);
+      refreshPrefetchPanel();
+    });
+    Bridge.listen('prefetch-updated', () => refreshPrefetchPanel());
   }
 
   function handlePlaybackEvent(ev) {
@@ -464,27 +613,46 @@ const App = (() => {
     });
   }
 
-  // ─── Lyrics (sidecar .lrc, karaoke highlight) ─────────────────────────────
-  let lyricLines = []; // { time_secs, el }
+  // ─── Lyrics (Enhanced Word-By-Word Synced + Romanization & Translation) ───
+  let lyricLines = []; // { time_secs, words, el }
+  let showRomanized = true;
+  let showTranslated = true;
+
+  function renderEnhancedLyricsDto(dto) {
+    const list = document.getElementById('lyrics-list');
+    if (!list || !dto || !Array.isArray(dto.lines)) return;
+    list.innerHTML = '';
+    lyricLines = dto.lines.map((line) => {
+      const el = document.createElement('div');
+      el.className = 'lyric-line';
+      el.style.cssText = 'padding:6px 10px; border-radius:8px; transition:background 0.2s ease;';
+      const wordsHtml = Array.isArray(line.words) && line.words.length
+        ? line.words
+            .map(
+              (w) =>
+                `<span class="lyric-word" data-start="${w.startSec}" data-end="${w.endSec}" style="margin-right:4px; transition:color 0.15s ease;">${escapeHtml(w.word)}</span>`
+            )
+            .join('')
+        : escapeHtml(line.text);
+      el.innerHTML = `
+        <div class="lyric-primary" style="font-weight:600; font-size:13px;">${wordsHtml}</div>
+        ${line.romanized ? `<div class="lyric-romanized" style="font-size:11px; color:var(--accent-text, #6353b4); margin-top:2px; display:${showRomanized ? 'block' : 'none'};">${escapeHtml(line.romanized)}</div>` : ''}
+        ${line.translation ? `<div class="lyric-translation" style="font-size:11px; color:var(--text-secondary); font-style:italic; margin-top:1px; display:${showTranslated ? 'block' : 'none'};">${escapeHtml(line.translation)}</div>` : ''}
+      `;
+      list.appendChild(el);
+      return { time_secs: line.timeSec ?? line.time_secs ?? 0, el };
+    });
+    updateLyricsHighlight(state.position);
+  }
 
   function loadLyrics(song) {
     lyricLines = [];
-    const section = document.getElementById('lyrics-section');
     const list = document.getElementById('lyrics-list');
-    section.style.display = 'none';
-    Bridge.invoke('get_lyrics', { songId: song.id }).then((dto) => {
-      if (!dto || !dto.lines || !dto.lines.length) return;
-      if (state.currentSong && state.currentSong.id !== song.id) return;
-      list.innerHTML = '';
-      lyricLines = dto.lines.map((line) => {
-        const el = document.createElement('div');
-        el.className = 'lyric-line';
-        el.textContent = line.text;
-        list.appendChild(el);
-        return { time_secs: line.time_secs, el };
-      });
-      section.style.display = '';
-      updateLyricsHighlight(state.position);
+    if (!list || !song) return;
+    Bridge.invoke('get_enhanced_lyrics', { trackId: song.id }).then((dto) => {
+      if (dto && Array.isArray(dto.lines) && dto.lines.length) {
+        renderEnhancedLyricsDto(dto);
+      }
     });
   }
 
@@ -496,8 +664,21 @@ const App = (() => {
       else break;
     }
     lyricLines.forEach((l, i) => {
-      l.el.classList.toggle('active', i === active);
+      const isAct = i === active;
+      l.el.classList.toggle('active', isAct);
       l.el.classList.toggle('past', active !== -1 && i < active);
+      l.el.style.background = isAct ? 'rgba(124,107,196,0.12)' : 'transparent';
+      l.el.querySelectorAll('.lyric-word').forEach((wEl) => {
+        const st = Number(wEl.dataset.start || 0);
+        const en = Number(wEl.dataset.end || 0);
+        if (position >= st && position <= en) {
+          wEl.style.color = 'var(--accent-text, #d6336c)';
+          wEl.style.textDecoration = 'underline';
+        } else {
+          wEl.style.color = '';
+          wEl.style.textDecoration = 'none';
+        }
+      });
     });
     if (active >= 0) {
       lyricLines[active].el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1319,13 +1500,15 @@ const App = (() => {
       card.className = 'rec-card';
       card.setAttribute('role', 'button');
       card.tabIndex = 0;
+      const reason = song.explanation || song.matched_persona || '';
+      if (reason) card.title = `${song.title} — ${reason}`;
       card.setAttribute('aria-label', `Play ${song.title} by ${song.artist}`);
       card.innerHTML = `
         <div class="rec-art" style="background:${artFor(song)}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
         </div>
         <div class="rec-name">${song.title}</div>
-        <div class="rec-artist">${song.artist}</div>`;
+        <div class="rec-artist">${song.artist}${song.matched_persona ? ` · ${song.matched_persona}` : ''}</div>`;
 
       const activate = () => playSong(song);
       card.addEventListener('click', activate);
@@ -1791,6 +1974,389 @@ const App = (() => {
     // EQ toggle also applies the current curve
     document.getElementById('toggle-eq')?.addEventListener('click', () => {
       applyEq(currentEqGains());
+    });
+  }
+
+  // ─── 10 Standout Capabilities Controller ───────────────────────────────────
+  let lastComputedBridgeSteps = [];
+
+  function setupStandoutCapabilities() {
+    // 1. Beat-Aligned Auto-DJ Toggle
+    document.getElementById('toggle-autodj-sync')?.addEventListener('click', () => {
+      const on = document.getElementById('toggle-autodj-sync')?.classList.contains('on');
+      persistSettings({ autodj_beat_sync: !!on });
+      showToast(on ? 'Beat-Aligned Auto-DJ Sync enabled' : 'Standard Crossfade enabled');
+    });
+
+    // 2. Interactive Taste DNA & Persona Mixer
+    const dnaIdMap = {
+      synthwave_night: 'dna-val-synth',
+      ambient_focus: 'dna-val-ambient',
+      electronic_pulse: 'dna-val-elec',
+      indie_warmth: 'dna-val-indie',
+    };
+
+    function readDnaConfigFromDom() {
+      const personaWeights = {};
+      document.querySelectorAll('.dna-slider').forEach((sl) => {
+        const pid = sl.dataset.personaId;
+        if (pid) personaWeights[pid] = Number(sl.value);
+      });
+      return {
+        personaWeights,
+        harmonicWeight: Number(document.getElementById('dna-slider-harmonic')?.value ?? 80),
+        explorationWeight: Number(document.getElementById('dna-slider-explore')?.value ?? 45),
+        similarityWeight: 85,
+      };
+    }
+
+    function renderTasteDnaResults(recs) {
+      const box = document.getElementById('taste-dna-results');
+      if (!box || !Array.isArray(recs)) return;
+      box.innerHTML = recs
+        .slice(0, 4)
+        .map(
+          (r, i) => `
+          <div class="dna-rec-row" data-song-id="${escapeAttr(r.id)}" style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-radius:8px; background:var(--bg-elevated, rgba(120,120,140,0.08)); cursor:pointer;">
+            <span><strong>#${i + 1} ${escapeHtml(r.title)}</strong> · ${escapeHtml(r.artist)}</span>
+            <span style="color:var(--accent-text, #6353b4); font-weight:600;">${escapeHtml(r.explanation || r.matched_persona || '')}</span>
+          </div>`
+        )
+        .join('');
+      box.querySelectorAll('.dna-rec-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          const found = recs.find((x) => String(x.id) === String(row.dataset.songId));
+          if (found) playSong(found);
+        });
+      });
+    }
+
+    document.querySelectorAll('.dna-slider').forEach((sl) => {
+      sl.addEventListener('input', () => {
+        const labelEl = document.getElementById(dnaIdMap[sl.dataset.personaId]);
+        if (labelEl) labelEl.textContent = `${sl.value}%`;
+      });
+    });
+    document.getElementById('dna-slider-harmonic')?.addEventListener('input', (e) => {
+      const el = document.getElementById('dna-val-harmonic');
+      if (el) el.textContent = `${e.target.value}%`;
+    });
+    document.getElementById('dna-slider-explore')?.addEventListener('input', (e) => {
+      const el = document.getElementById('dna-val-explore');
+      if (el) el.textContent = `${e.target.value}%`;
+    });
+
+    document.getElementById('btn-apply-taste-dna')?.addEventListener('click', async () => {
+      const config = readDnaConfigFromDom();
+      const res = await Bridge.invoke('apply_taste_dna', { config });
+      if (res && Array.isArray(res.recommendations)) {
+        state.recommendations = res.recommendations;
+        renderRecommendations();
+        renderTasteDnaResults(res.recommendations);
+        showToast('Taste DNA applied — Recommendations & Smart Radio re-sculpted');
+      }
+    });
+
+    Bridge.invoke('get_taste_dna').then((res) => {
+      if (res && Array.isArray(res.recommendations)) {
+        renderTasteDnaResults(res.recommendations);
+      }
+    });
+
+    // 3. Real-Time Stem Separation & Karaoke / Vocal Isolation
+    document.querySelectorAll('[data-stem-mode]').forEach((pill) => {
+      pill.addEventListener('click', async () => {
+        const mode = pill.dataset.stemMode || 'full';
+        document.querySelectorAll('[data-stem-mode]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        persistSettings({ stem_mode: mode });
+        const res = await Bridge.invoke('set_stem_mode', { mode });
+        if (res?.spec) {
+          showToast(`Stem DSP: ${res.spec.label}`);
+          refreshPrefetchPanel();
+        }
+      });
+    });
+
+    // 4. EBU R128 Loudness Normalization & True-Peak Guard
+    document.querySelectorAll('#card-loudness-norm [data-normalization]').forEach((pill) => {
+      pill.addEventListener('click', async () => {
+        const mode = pill.dataset.normalization;
+        const lufs = Number(pill.dataset.lufs || -14);
+        const enabled = mode !== 'Off';
+        persistSettings({
+          normalization: mode,
+          loudness_norm_enabled: enabled,
+          target_lufs: lufs,
+        });
+        const norm = await Bridge.invoke('set_loudness_norm', {
+          enabled,
+          targetLufs: lufs,
+        });
+        const statusEl = document.getElementById('loudness-norm-status');
+        if (statusEl && norm) {
+          statusEl.textContent = enabled ? norm.label : 'Loudness Normalization Disabled (Bit-Perfect Bypass)';
+        }
+      });
+    });
+
+    // 5. Sonic Bridge Pathfinder (A* Harmonic & BPM Morphing)
+    async function runSonicBridge() {
+      const startTrackId = document.getElementById('sonic-bridge-start')?.value || '1';
+      const targetTrackId = document.getElementById('sonic-bridge-target')?.value || '8';
+      const res = await Bridge.invoke('build_sonic_bridge', {
+        startTrackId,
+        targetTrackId,
+        steps: 2,
+      });
+      const stepsEl = document.getElementById('sonic-bridge-steps');
+      if (!stepsEl || !res || !Array.isArray(res.steps)) return;
+      lastComputedBridgeSteps = res.steps;
+      stepsEl.innerHTML = res.steps
+        .map(
+          (st, i) => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-radius:8px; background:var(--bg-elevated, rgba(120,120,140,0.08));">
+            <span><strong>Step ${i + 1}: ${escapeHtml(st.song.title)}</strong> · ${escapeHtml(st.song.artist)}</span>
+            <span style="color:var(--accent-text, #6353b4); font-weight:600;">${escapeHtml(st.reason)}</span>
+          </div>`
+        )
+        .join('');
+    }
+
+    document.getElementById('btn-build-bridge')?.addEventListener('click', () => {
+      runSonicBridge().then(() => showToast('Sonic Bridge path computed'));
+    });
+
+    document.getElementById('btn-play-bridge')?.addEventListener('click', async () => {
+      if (!lastComputedBridgeSteps.length) await runSonicBridge();
+      if (!lastComputedBridgeSteps.length) return;
+      await Bridge.invoke('clear_queue');
+      for (const st of lastComputedBridgeSteps.slice(1)) {
+        await Bridge.invoke('add_to_queue', { song: st.song });
+      }
+      playSong(lastComputedBridgeSteps[0].song);
+      showToast(`Playing ${lastComputedBridgeSteps.length}-track Sonic Bridge`);
+    });
+
+    runSonicBridge();
+
+    // 6. Headphone AutoEQ & Analog Tube Warmth
+    document.querySelectorAll('[data-autoeq]').forEach((pill) => {
+      pill.addEventListener('click', async () => {
+        const profileId = pill.dataset.autoeq || 'flat_studio';
+        document.querySelectorAll('[data-autoeq]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        persistSettings({ autoeq_profile: profileId, eq_enabled: profileId !== 'flat_studio' });
+        const res = await Bridge.invoke('apply_autoeq_profile', { profileId });
+        if (res?.activeProfile) {
+          const desc = document.getElementById('autoeq-desc');
+          if (desc) desc.textContent = `${res.activeProfile.name} (${res.activeProfile.model}) — ${res.activeProfile.description}`;
+          // Map 5-band AutoEQ profile onto the 10-band visual sliders
+          const b5 = res.activeProfile.bands5 || [0, 0, 0, 0, 0];
+          const b10 = [b5[0], b5[0], b5[1], b5[1], b5[2], b5[2], b5[3], b5[3], b5[4], b5[4]];
+          document.querySelectorAll('.eq-slider').forEach((s, i) => {
+            const v = Math.round(b10[i] || 0);
+            s.value = v;
+            const lbl = s.parentElement?.querySelector('.eq-band-value');
+            if (lbl) lbl.textContent = String(v);
+          });
+          showToast(`AutoEQ: ${res.activeProfile.name}`);
+        }
+      });
+    });
+
+    document.getElementById('toggle-tube-warmth')?.addEventListener('click', async () => {
+      const warm = document.getElementById('toggle-tube-warmth')?.classList.contains('on');
+      persistSettings({ tube_warmth: !!warm });
+      await Bridge.invoke('apply_autoeq_profile', { tubeWarmth: !!warm });
+      showToast(warm ? 'Analog Tube Warmth (Triode 2nd-Harmonic) enabled' : 'Tube Warmth bypassed');
+    });
+
+    // 7. Live Collaborative Jam Sessions
+    function renderJamSession(session) {
+      if (!session) return;
+      const badge = document.getElementById('jam-room-badge');
+      const partEl = document.getElementById('jam-participants');
+      const listEl = document.getElementById('jam-queue-list');
+      const codeInput = document.getElementById('jam-code-input');
+      if (badge) badge.textContent = `Room ${session.roomCode} · Live Sync`;
+      if (codeInput && !codeInput.value) codeInput.value = session.roomCode;
+      if (partEl) partEl.textContent = `Listeners (${session.participants.length}): ${session.participants.join(', ')}`;
+      if (listEl) {
+        listEl.style.display = 'flex';
+        listEl.innerHTML = (session.sharedQueue || [])
+          .map(
+            (item, idx) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-radius:8px; background:var(--bg-elevated, rgba(120,120,140,0.08)); font-size:12px;">
+              <span><strong>#${idx + 1} ${escapeHtml(item.title)}</strong> · ${escapeHtml(item.artist)} <em style="color:var(--text-secondary);">(${escapeHtml(item.addedBy)})</em></span>
+              <button type="button" class="sort-pill jam-upvote-btn" data-track-id="${escapeAttr(item.id)}" style="padding:3px 10px; font-size:11px;">▲ ${item.votes}</button>
+            </div>`
+          )
+          .join('');
+        listEl.querySelectorAll('.jam-upvote-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const updated = await Bridge.invoke('vote_jam_track', {
+              roomCode: session.roomCode,
+              trackId: btn.dataset.trackId,
+              delta: 1,
+            });
+            if (updated) renderJamSession(updated);
+          });
+        });
+      }
+    }
+
+    document.getElementById('btn-start-jam')?.addEventListener('click', async () => {
+      const session = await Bridge.invoke('create_jam_session', { hostName: 'You' });
+      if (session) {
+        renderJamSession(session);
+        showToast(`Live Jam started: ${session.roomCode}`);
+      }
+    });
+
+    document.getElementById('btn-join-jam')?.addEventListener('click', async () => {
+      const code = document.getElementById('jam-code-input')?.value || 'JAM-777';
+      const session = await Bridge.invoke('join_jam_session', { roomCode: code, userName: 'You' });
+      if (session) {
+        renderJamSession(session);
+        showToast(`Joined Jam Room ${session.roomCode}`);
+      }
+    });
+
+    // 8. Lyrics Romanization & Translation Toggles
+    document.getElementById('btn-lyrics-romanize')?.addEventListener('click', (e) => {
+      showRomanized = !showRomanized;
+      e.currentTarget.classList.toggle('active', showRomanized);
+      persistSettings({ lyrics_romanize: showRomanized });
+      document.querySelectorAll('.lyric-romanized').forEach((el) => {
+        el.style.display = showRomanized ? 'block' : 'none';
+      });
+    });
+
+    document.getElementById('btn-lyrics-translate')?.addEventListener('click', (e) => {
+      showTranslated = !showTranslated;
+      e.currentTarget.classList.toggle('active', showTranslated);
+      persistSettings({ lyrics_translate: showTranslated });
+      document.querySelectorAll('.lyric-translation').forEach((el) => {
+        el.style.display = showTranslated ? 'block' : 'none';
+      });
+    });
+
+    // 9. Time Capsule & Contextual Daypart Memory
+    Bridge.invoke('get_daypart_capsule').then((report) => {
+      if (!report) return;
+      const banner = document.getElementById('daypart-active-banner');
+      if (banner) banner.textContent = `${report.activeDaypart} — ${report.activeVibeDescription}`;
+      const gemsEl = document.getElementById('time-capsule-gems');
+      if (gemsEl && Array.isArray(report.forgottenGems)) {
+        gemsEl.innerHTML = report.forgottenGems
+          .map(
+            (g) => `
+            <div class="capsule-gem-row" data-gem-id="${escapeAttr(g.id)}" style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border-radius:8px; background:var(--bg-elevated, rgba(120,120,140,0.08)); cursor:pointer;">
+              <span><strong>${escapeHtml(g.title)}</strong> · ${escapeHtml(g.artist)}</span>
+              <span style="color:var(--accent-text, #6353b4); font-weight:600;">${g.affinityPct}% Affinity · Last played ${escapeHtml(g.lastPlayedLabel)}</span>
+            </div>`
+          )
+          .join('');
+        gemsEl.querySelectorAll('.capsule-gem-row').forEach((row) => {
+          row.addEventListener('click', () => {
+            const song = state.library.find((s) => String(s.id) === String(row.dataset.gemId)) || state.library[0];
+            if (song) playSong(song);
+          });
+        });
+      }
+      const bdEl = document.getElementById('time-capsule-breakdown');
+      if (bdEl && Array.isArray(report.daypartBreakdown)) {
+        bdEl.innerHTML = report.daypartBreakdown
+          .map(
+            (b) => `
+            <div style="padding:8px 10px; border-radius:8px; background:var(--bg-elevated, rgba(120,120,140,0.08));">
+              <div style="font-weight:600;">${escapeHtml(b.label)} · ${b.pct}%</div>
+              <div style="color:var(--text-secondary); font-size:11px;">${escapeHtml(b.dominantGenre)}</div>
+            </div>`
+          )
+          .join('');
+      }
+    });
+
+    // 10. Command Palette (Cmd/Ctrl + K) with Natural-Language Sonic Filters
+    const modal = document.getElementById('cmd-palette-modal');
+    const cmdInput = document.getElementById('cmd-palette-input');
+    const cmdInterp = document.getElementById('cmd-palette-interp');
+    const cmdResults = document.getElementById('cmd-palette-results');
+
+    async function runSonicCommandQuery(query) {
+      const res = await Bridge.invoke('execute_sonic_command', { query });
+      if (!res) return;
+      if (cmdInterp) cmdInterp.textContent = res.interpretation;
+      if (res.actionType === 'apply_setting' && res.updatedSettings) {
+        applySettings(res.updatedSettings);
+        if (cmdResults) {
+          cmdResults.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--accent-text); font-weight:600;">✓ Applied setting: ${escapeHtml(res.interpretation)}</div>`;
+        }
+        return;
+      }
+      if (cmdResults) {
+        cmdResults.innerHTML = (res.matchedTracks || [])
+          .map(
+            (m) => `
+            <div class="cmd-result-row" data-song-id="${escapeAttr(m.id)}" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:8px; cursor:pointer; font-size:12px; background:rgba(120,120,140,0.06);">
+              <span><strong>${escapeHtml(m.title)}</strong> · ${escapeHtml(m.artist)}</span>
+              <span style="color:var(--accent-text, #6353b4); font-weight:600;">${escapeHtml(m.badge)}</span>
+            </div>`
+          )
+          .join('');
+        cmdResults.querySelectorAll('.cmd-result-row').forEach((row) => {
+          row.addEventListener('click', () => {
+            const match = (res.matchedTracks || []).find((x) => String(x.id) === String(row.dataset.songId));
+            if (match?.song) {
+              playSong(match.song);
+              closeCmdPalette();
+            }
+          });
+        });
+      }
+    }
+
+    function openCmdPalette(initialQuery = '') {
+      if (!modal) return;
+      modal.style.display = 'flex';
+      if (cmdInput) {
+        cmdInput.value = initialQuery;
+        cmdInput.focus();
+      }
+      runSonicCommandQuery(initialQuery || 'bpm:95..115');
+    }
+
+    function closeCmdPalette() {
+      if (modal) modal.style.display = 'none';
+    }
+
+    document.getElementById('btn-open-cmd-palette')?.addEventListener('click', () => openCmdPalette(''));
+    document.getElementById('btn-close-cmd-palette')?.addEventListener('click', closeCmdPalette);
+    modal?.addEventListener('click', (e) => {
+      if (e.target === modal) closeCmdPalette();
+    });
+    cmdInput?.addEventListener('input', () => runSonicCommandQuery(cmdInput.value));
+    cmdInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeCmdPalette();
+    });
+    document.querySelectorAll('.cmd-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const q = chip.dataset.cmdQuery || '';
+        if (cmdInput) cmdInput.value = q;
+        runSonicCommandQuery(q);
+      });
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (modal?.style.display === 'flex') closeCmdPalette();
+        else openCmdPalette('');
+      } else if (e.key === 'Escape' && modal?.style.display === 'flex') {
+        closeCmdPalette();
+      }
     });
   }
 

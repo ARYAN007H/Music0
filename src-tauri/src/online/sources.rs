@@ -135,7 +135,7 @@ fn instances_from_env(env_value: Option<&str>, defaults: &[&str]) -> Vec<String>
 }
 
 /// Builds the failover pool: Piped instances first (richer metadata, direct
-/// proxied URLs), then Invidious. Production entry point.
+/// proxied URLs), then Invidious, dynamically ordered by EWMA health score.
 pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
     let mut specs = Vec::new();
     for host in instances_from_env(std::env::var(ENV_PIPED).ok().as_deref(), DEFAULT_PIPED) {
@@ -144,7 +144,60 @@ pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
     for host in instances_from_env(std::env::var(ENV_INVIDIOUS).ok().as_deref(), DEFAULT_INVIDIOUS) {
         specs.push(SourceSpec { host, kind: SourceKind::Invidious });
     }
+    sort_specs_by_health(&mut specs);
     specs.into_iter().map(|s| s.into_source()).collect()
+}
+
+#[derive(Clone, Debug)]
+struct InstanceHealth {
+    ewma_ms: f64,
+    success_rate: f64,
+    failures: u32,
+    demoted_until: Option<Instant>,
+}
+
+static HEALTH_BOARD: LazyLock< std::sync::Mutex<std::collections::HashMap<String, InstanceHealth>> > =
+    LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+pub(crate) fn record_instance_outcome(host: &str, ok: bool, elapsed: Duration) {
+    let Ok(mut map) = HEALTH_BOARD.lock() else { return };
+    let entry = map.entry(host.to_string()).or_insert(InstanceHealth {
+        ewma_ms: 400.0,
+        success_rate: 1.0,
+        failures: 0,
+        demoted_until: None,
+    });
+    let ms = elapsed.as_millis() as f64;
+    if ok {
+        entry.ewma_ms = 0.7 * entry.ewma_ms + 0.3 * ms;
+        entry.success_rate = 0.7 * entry.success_rate + 0.3 * 1.0;
+        entry.failures = 0;
+        entry.demoted_until = None;
+    } else {
+        entry.ewma_ms = 0.7 * entry.ewma_ms + 0.3 * ms.max(2500.0);
+        entry.success_rate *= 0.7;
+        entry.failures += 1;
+        if entry.failures >= 2 {
+            entry.demoted_until = Some(Instant::now() + Duration::from_secs(15 * 60));
+        }
+    }
+}
+
+fn sort_specs_by_health(specs: &mut [SourceSpec]) {
+    let Ok(map) = HEALTH_BOARD.lock() else { return };
+    let now = Instant::now();
+    specs.sort_by(|a, b| {
+        let ha = map.get(&a.host);
+        let hb = map.get(&b.host);
+        let dem_a = ha.and_then(|h| h.demoted_until).is_some_and(|t| t > now);
+        let dem_b = hb.and_then(|h| h.demoted_until).is_some_and(|t| t > now);
+        if dem_a != dem_b {
+            return dem_a.cmp(&dem_b);
+        }
+        let score_a = ha.map(|h| h.ewma_ms / h.success_rate.max(0.1)).unwrap_or(400.0);
+        let score_b = hb.map(|h| h.ewma_ms / h.success_rate.max(0.1)).unwrap_or(400.0);
+        score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 impl SourceSpec {
