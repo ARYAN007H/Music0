@@ -213,11 +213,10 @@ const App = (() => {
     document.querySelectorAll('[data-download-quality]').forEach((pill) => {
       pill.classList.toggle('active', pill.dataset.downloadQuality === dlQual);
     });
-    // Output Sample Rate pills
-    const sampleRate = String(s.audio_sample_rate || 48000);
-    document.querySelectorAll('[data-sample-rate]').forEach((pill) => {
-      pill.classList.toggle('active', pill.dataset.sampleRate === sampleRate);
-    });
+    // (Sample-rate pills removed 2026-11-04: the setting was echo-only —
+    // the output stream follows the device's native rate; forcing a
+    // 44.1/96 kHz reopen is engine work that doesn't exist yet, so the
+    // toggle lied.)
     // Instant-Play Buffer pills
     const bufKb = String(s.instant_play_buffer_kb || 64);
     document.querySelectorAll('[data-instant-buffer]').forEach((pill) => {
@@ -459,17 +458,6 @@ const App = (() => {
         const download_quality = pill.dataset.downloadQuality;
         persistSettings({ download_quality });
         showToast(`Download quality set to ${pill.textContent.trim()}`);
-      });
-    });
-
-    // Output Sample Rate pills
-    document.querySelectorAll('[data-sample-rate]').forEach((pill) => {
-      pill.addEventListener('click', () => {
-        document.querySelectorAll('[data-sample-rate]').forEach((p) => p.classList.remove('active'));
-        pill.classList.add('active');
-        const audio_sample_rate = Number(pill.dataset.sampleRate);
-        persistSettings({ audio_sample_rate });
-        showToast(`Output sample rate set to ${pill.textContent.trim()}`);
       });
     });
 

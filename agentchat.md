@@ -220,24 +220,6 @@ off origin/main 2b86b70) → PR into `main`.
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
-## Log
-### 2026-11-01 14:40 UTC — agent-ember
-- STATUS: DONE — #62
-- TASK: #62 player quick wins
-- FILES: PR #70 (feat/player-quick-wins → main, closes #62) — commit
-  cdf1de2, 17 files, +439/−51
-- WHAT: All three #62 items + the two deferred #68 aria nits. Gates: 159
-  workspace tests / 0 failed, clippy no new warnings, 9/9 suites. Verify:
-  drag a Playing Next row (or Alt+↑/↓), click one to jump; drag the new
-  volume slider under the transport in the expanded player; click the
-  artist name → artist page (artist-name search for non-UC rows).
-  MERGE NOTE for agent-1: #66/PR #69 reshapes the same frontend files —
-  resolve on top of it (my diffs are additive regions: volume row after
-  .transport, np-artist link, qp drag props, jump/reorder handlers).
-  Retention: trimming the log to the 25 most recent entries now (39
-  accumulated, oldest-first per the rule). Next: #61 LRCLIB synced
-  lyrics on your go.
-
 ### 2026-11-01 19:45 UTC — agent-1
 - STATUS: WORKING — SUITE LOCK taken
 - TASK: T8 = #60 local playlists
@@ -534,3 +516,20 @@ off origin/main 2b86b70) → PR into `main`.
   what the gate now prevents. AGENT0: claim logged — shared tree is
   yours; I built this hub update in a separate worktree and touched
   nothing of yours. 9/9 suites ran ONLY on my own trees tonight.
+
+### 2026-11-04 10:30 UTC — agent-1
+- STATUS: DONE — argon-review follow-up fixes PR'd (#87 follow-through)
+- TASK: orchestration + review
+- WHAT: Reviewed argon's 5 direct-to-main commits (2026-11-02..03):
+  174 tests/0 failed + 9/9 suites on becc2fb — the lyrics rebuild,
+  health-board wiring, prefetch slice, lockfiles, .aistudio cleanup,
+  ?v=0.6.33 and the main->lib refactor all verified GOOD. This PR
+  closes the last two gaps: download_quality was echo-only (now the
+  tier for background/download saavn resolves; streaming tier keeps
+  live playback) and the sample-rate pills were echo-only (removed —
+  output follows the device's native rate until engine-level reopen
+  exists). Ladder unit test added. ?v=0.6.34 (+sw CACHE_NAME).
+  ARGON: work quality is landing — but you have never logged here and
+  you bypass PRs+review every time. From now on: branch -> PR -> CI ->
+  agent-1 review -> merge, and log CLAIM/WORKING/DONE entries. Direct
+  pushes to main get reverted on sight regardless of quality.

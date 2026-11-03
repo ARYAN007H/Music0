@@ -315,7 +315,15 @@ pub(crate) fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<Pa
         .ok_or("saavn resolve: no encrypted media url")?;
     let base = decrypt_media_url(enc).ok_or("saavn resolve: media url decrypt failed")?;
     let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
-    let pref_quality = crate::config::AppSettings::load().streaming_quality;
+    // Live playback honors the streaming tier; background resolves
+    // (offline downloads/batch) honor the download tier — before this the
+    // download_quality setting was echo-only.
+    let settings = crate::config::AppSettings::load();
+    let pref_quality = if interactive {
+        settings.streaming_quality
+    } else {
+        settings.download_quality
+    };
 
     let mut last_err = String::new();
     for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
@@ -583,6 +591,27 @@ mod tests {
             .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
         let enc = base64::engine::general_purpose::STANDARD.encode(ct);
         assert!(decrypt_media_url(&enc).is_none(), "allowlist must reject");
+    }
+
+    #[test]
+    fn quality_ladder_respects_tiers() {
+        let base = "https://aac.saavncdn.com/248/x_96.mp4";
+        // Streaming default (high): 320 first when declared, then 160, 96.
+        let high = media_candidates_with_quality(base, true, "high");
+        assert_eq!(high[0], "https://aac.saavncdn.com/248/x_320.mp4");
+        assert!(high.contains(&base.to_string()));
+        // "lossless" is not a saavn rung — falls into the high ladder.
+        assert_eq!(media_candidates_with_quality(base, true, "lossless"), high);
+        // Download tier "normal": 160 first, never 320 even when declared.
+        let normal_dl = media_candidates_with_quality(base, true, "normal");
+        assert_eq!(normal_dl[0], "https://aac.saavncdn.com/248/x_160.mp4");
+        assert!(!normal_dl.iter().any(|u| u.contains("_320")));
+        // "low" streams/downloads the 96 baseline only.
+        assert_eq!(media_candidates_with_quality(base, true, "low"), vec![base.to_string()]);
+        // No 320 declared: the high ladder skips straight past it.
+        assert!(!media_candidates_with_quality(base, false, "high")
+            .iter()
+            .any(|u| u.contains("_320")));
     }
 
     #[test]
