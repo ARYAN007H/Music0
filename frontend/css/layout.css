@@ -206,23 +206,79 @@
   .bottom-nav-pill { display: none; }
 }
 
-/* Compact mode (<860px): icon-only pill, strip mini player */
+/* Compact & Mobile Touch Shell (<860px): 5-tab thumb-zone bar + floating mini-player + swipe sheet */
 @media (max-width: 859px) {
   #sidebar { display: none; }
 
-  .bottom-nav-pill .nav-item span { display: none; }
+  .bottom-nav-pill {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    transform: none;
+    border-radius: 0;
+    padding: 4px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    justify-content: space-around;
+    background: color-mix(in srgb, var(--surface-raised, var(--surface)) 92%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-top: 1px solid var(--border-subtle, rgba(124, 107, 196, 0.16));
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.08);
+  }
 
   .bottom-nav-pill .nav-item {
-    padding: var(--space-10) var(--space-12);
+    flex: 1;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 44px;
+    min-height: 48px;
+    padding: 6px 4px;
+    border-radius: 12px;
+    font-size: 10px;
   }
 
-  .bottom-nav-pill {
-    left: var(--space-12);
-    right: var(--space-12);
-    transform: none;
-    justify-content: space-around;
+  .bottom-nav-pill .nav-item span {
+    display: block;
+    font-size: 10px;
+    line-height: 1.1;
+    letter-spacing: -0.01em;
   }
 
+  /* Keep the bottom tab bar to 5 core thumb destinations on mobile viewports */
+  .bottom-nav-pill .nav-item[data-view="queue"],
+  .bottom-nav-pill .nav-item[data-view="playlists"] {
+    display: none;
+  }
+}
+
+/* Mobile sheet grab handle (hidden on desktop, visible on <860px Now Playing sheet) */
+.mobile-sheet-grabber {
+  display: none;
+}
+
+@media (max-width: 859px) {
+  .mobile-sheet-grabber {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 10px 16px 4px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .mobile-sheet-grabber-bar {
+    width: 40px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--text-muted, rgba(128, 128, 140, 0.45));
+    opacity: 0.55;
+  }
+  .mobile-sheet-grabber-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
 }
 
 /* ─── Wide Desktop Layout (>1100px) ─────────────────────────────────────────── */

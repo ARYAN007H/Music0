@@ -5,6 +5,14 @@ edition = "2021"
 rust-version = "1.78"
 description = "Musico Online — clean-room Apple Music-class player on free sources"
 
+[lib]
+name = "musico_online_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "musico-online"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -26,16 +34,19 @@ ecb = { version = "0.1", features = ["alloc"] }
 image = "0.25"
 dirs = "5"
 symphonia = { version = "0.5", features = ["all"] }
-rfd = "0.14"
 rand = "0.8"
-tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["sync", "time", "rt"] }
 # Online music: InnerTube (YT Music) search + thumbnail fetch.
 # http2: connection reuse + header compression on the catalog endpoints.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "http2"] }
 
+# Desktop-only native folder dialog and single-instance lock (not supported on Android).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = "0.14"
+tauri-plugin-single-instance = "2"
+
 # System media controls: SMTC (Windows) / MPNowPlayingInfoCenter (macOS).
-[target.'cfg(not(target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 souvlaki = { version = "0.8", default-features = false }
 
 # MPRIS is a D-Bus (freedesktop.org) interface — Linux only.
@@ -48,3 +59,4 @@ tempfile = "3"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+

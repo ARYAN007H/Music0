@@ -107,9 +107,46 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  windows:
+    name: Windows x86_64 (msi / nsis exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Tests
+        run: cargo test --workspace --exclude musico_playback
+
+      - name: Install Tauri CLI
+        run: npm install --global "@tauri-apps/cli@^2"
+
+      - name: Build Windows bundles
+        run: tauri build --bundles msi,nsis
+
+      - name: Collect packages
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/bundle/msi/*.msi dist/ || true
+          cp target/release/bundle/nsis/*.exe dist/ || true
+          cp target/release/musico-online.exe dist/musico-online-windows-x86_64.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: [linux, macos]
+    needs: [linux, macos, windows]
     # Dispatch runs exist to VERIFY the platform jobs; only tags release
     # (a dispatch ref has no tag — action-gh-release errors harmlessly,
     # but skipping keeps the verification run green).
@@ -125,7 +162,7 @@ jobs:
       - name: Checksums
         run: |
           cd dist
-          sha256sum musico-online-* *.deb *.rpm *.AppImage *.dmg > SHA256SUMS.txt
+          sha256sum * > SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -136,19 +173,12 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
-            **Musico Online** — the Musico player with free online music:
-            InnerTube (YT Music) search + yt-dlp playback, Browse home screen,
-            online radio, fullscreen-only vinyl.
+            **Musico Online** — Cross-platform player (Linux, macOS, Windows, Android APK, and iOS/Mobile PWA) with free online music:
+            InnerTube (YT Music) + JioSaavn + Piped/Invidious + Pure-Rust direct streaming, Browse home screen, synced lyrics, and Sonic Lab DSP.
 
-            **Linux** — `.deb` / `.rpm` / `.AppImage`, or the bare binary in the
-            `.tar.gz`. Install yt-dlp first (`pacman -S yt-dlp` or
-            `pip install yt-dlp`) — the Browse screen warns if it's missing.
+            **Linux** — `.deb` / `.rpm` / `.AppImage`, or the bare binary in the `.tar.gz`.
+            **macOS** — universal `.dmg` (Apple Silicon + Intel). Unsigned: on first open, right-click the app → **Open** (or `xattr -cr /Applications/Musico\ Online.app`).
+            **Windows** — `.msi` / `.exe` installer (or standalone `musico-online-windows-x86_64.exe`).
+            **Android APK** — build locally or in CI with `tauri android init && tauri android build --apk` (uses the pure-Rust InnerTube/Piped/Saavn resolver + AAudio).
+            **iOS & Mobile Web** — open in Safari/Chrome and tap **Install App** / **Add to Home Screen** for full standalone PWA + Lock-Screen MediaSession controls.
 
-            **macOS** — universal `.dmg` (Apple Silicon + Intel). The build is
-            unsigned: on first open, right-click the app → **Open** (or run
-            `xattr -cr /Applications/Musico\ Online.app`). Native menu bar,
-            traffic-light window controls, ⌘-shortcuts included.
-
-            Streams cache to `~/.cache/musico-online/online/` (1 GB LRU cap).
-            Personal-use build: the streaming layer is ToS-gray-area and stays
-            out of the offline Musico release.

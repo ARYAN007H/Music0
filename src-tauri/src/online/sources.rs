@@ -86,6 +86,8 @@ const DEFAULT_INVIDIOUS: &[&str] = &[
 
 const ENV_PIPED: &str = "MUSICO_PIPED_INSTANCES";
 const ENV_INVIDIOUS: &str = "MUSICO_INVIDIOUS_INSTANCES";
+const ENV_INNERTUBE_DIRECT: &str = "MUSICO_INNERTUBE_DIRECT";
+const DEFAULT_INNERTUBE_DIRECT: &[&str] = &["www.youtube.com"];
 
 /// Dedicated HTTP client for source fetches. Separate from the InnerTube
 /// client (`client::http_client`) on purpose: these are untrusted third-party
@@ -117,6 +119,7 @@ struct SourceSpec {
 enum SourceKind {
     Piped,
     Invidious,
+    InnerTubeDirect,
 }
 
 /// Resolves the pool from env overrides (comma-separated hosts; an empty
@@ -135,14 +138,29 @@ fn instances_from_env(env_value: Option<&str>, defaults: &[&str]) -> Vec<String>
 }
 
 /// Builds the failover pool: Piped instances first (richer metadata, direct
-/// proxied URLs), then Invidious, dynamically ordered by EWMA health score.
+/// proxied URLs), then Invidious, then pure-Rust InnerTube ANDROID_VR direct
+/// extraction (essential on Android APK & systems without yt-dlp), dynamically
+/// ordered by EWMA health score.
 pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
     let mut specs = Vec::new();
-    for host in instances_from_env(std::env::var(ENV_PIPED).ok().as_deref(), DEFAULT_PIPED) {
+    let piped_env = std::env::var(ENV_PIPED).ok();
+    let inv_env = std::env::var(ENV_INVIDIOUS).ok();
+    let it_env = std::env::var(ENV_INNERTUBE_DIRECT).ok();
+    for host in instances_from_env(piped_env.as_deref(), DEFAULT_PIPED) {
         specs.push(SourceSpec { host, kind: SourceKind::Piped });
     }
-    for host in instances_from_env(std::env::var(ENV_INVIDIOUS).ok().as_deref(), DEFAULT_INVIDIOUS) {
+    for host in instances_from_env(inv_env.as_deref(), DEFAULT_INVIDIOUS) {
         specs.push(SourceSpec { host, kind: SourceKind::Invidious });
+    }
+    // Include pure-Rust InnerTube direct resolver unless both Piped and Invidious
+    // were explicitly blanked out by a hermetic test without setting ENV_INNERTUBE_DIRECT.
+    let pools_explicitly_blanked = piped_env.as_deref().is_some_and(|s| s.trim().is_empty())
+        && inv_env.as_deref().is_some_and(|s| s.trim().is_empty())
+        && it_env.is_none();
+    if !pools_explicitly_blanked {
+        for host in instances_from_env(it_env.as_deref(), DEFAULT_INNERTUBE_DIRECT) {
+            specs.push(SourceSpec { host, kind: SourceKind::InnerTubeDirect });
+        }
     }
     sort_specs_by_health(&mut specs);
     specs.into_iter().map(|s| s.into_source()).collect()
@@ -206,6 +224,7 @@ impl SourceSpec {
         match self.kind {
             SourceKind::Piped => Box::new(PipedSource { host: self.host }),
             SourceKind::Invidious => Box::new(InvidiousSource { host: self.host }),
+            SourceKind::InnerTubeDirect => Box::new(InnerTubeDirectSource { host: self.host }),
         }
     }
 }
@@ -391,6 +410,140 @@ impl AudioSource for InvidiousSource {
         if !ctype.starts_with("audio/") {
             return Err(format!(
                 "invidious {}: content-type `{ctype}` is not audio",
+                self.host
+            ));
+        }
+        Ok(Box::new(resp))
+    }
+}
+
+/// Pure-Rust InnerTube `ANDROID_VR` direct stream resolver.
+/// Queries `POST https://{host}/youtubei/v1/player?prettyPrint=false` using the
+/// `ANDROID_VR` client context (which returns unthrottled direct `itag 140`
+/// `audio/mp4` URLs in `streamingData.adaptiveFormats`), avoiding any `yt-dlp`
+/// or Python subprocess requirement on Android APK and fresh desktop installs.
+struct InnerTubeDirectSource {
+    host: String,
+}
+
+fn parse_innertube_player_streams(body: &[u8]) -> Vec<PipedAudio> {
+    let Ok(val) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+    let Some(sd) = val.get("streamingData") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for key in ["adaptiveFormats", "formats"] {
+        if let Some(arr) = sd.get(key).and_then(|v| v.as_array()) {
+            for item in arr {
+                let Some(url) = item.get("url").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let mime_type = item
+                    .get("mimeType")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let bitrate = item
+                    .get("bitrate")
+                    .and_then(|v| v.as_u64())
+                    .or_else(|| item.get("averageBitrate").and_then(|v| v.as_u64()));
+                out.push(PipedAudio {
+                    url: url.to_string(),
+                    bitrate,
+                    mime_type,
+                });
+            }
+        }
+    }
+    out
+}
+
+impl AudioSource for InnerTubeDirectSource {
+    fn name(&self) -> &str {
+        &self.host
+    }
+
+    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+        let client = SOURCE_CLIENT
+            .as_ref()
+            .ok_or_else(|| "source HTTP client unavailable".to_string())?;
+        let meta_budget = remaining(deadline)?.min(METADATA_TIMEOUT);
+
+        let payload = serde_json::json!({
+            "videoId": video_id,
+            "context": {
+                "client": {
+                    "clientName": "ANDROID_VR",
+                    "clientVersion": "1.60.19",
+                    "androidSdkVersion": 32,
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
+
+        let meta = client
+            .post(format!(
+                "https://{}/youtubei/v1/player?prettyPrint=false",
+                self.host
+            ))
+            .header(
+                reqwest::header::USER_AGENT,
+                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&payload)
+            .timeout(meta_budget)
+            .send()
+            .map_err(|e| format!("innertube-direct {}: player request: {e}", self.host))?;
+
+        if !meta.status().is_success() {
+            return Err(format!(
+                "innertube-direct {}: HTTP {}",
+                self.host,
+                meta.status()
+            ));
+        }
+        let bytes = read_capped(meta, MAX_METADATA_BYTES)
+            .map_err(|e| format!("innertube-direct {}: body: {e}", self.host))?;
+        let candidates = parse_innertube_player_streams(&bytes);
+        let url = select_best_m4a(&candidates).ok_or_else(|| {
+            format!(
+                "innertube-direct {}: no direct audio/mp4 stream <=192k",
+                self.host
+            )
+        })?;
+
+        let dl_budget = remaining(deadline)?;
+        let resp = client
+            .get(url)
+            .header(
+                reqwest::header::USER_AGENT,
+                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            )
+            .timeout(dl_budget)
+            .send()
+            .map_err(|e| format!("innertube-direct {}: download: {e}", self.host))?;
+
+        if !resp.status().is_success() {
+            return Err(format!(
+                "innertube-direct {}: download HTTP {}",
+                self.host,
+                resp.status()
+            ));
+        }
+        let ctype = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
+            return Err(format!(
+                "innertube-direct {}: content-type `{ctype}` is not audio",
                 self.host
             ));
         }
@@ -759,6 +912,40 @@ mod tests {
         sort_specs_by_health(&mut specs);
         assert_eq!(specs[0].host, "good.example", "healthy host must sort ahead of demoted failing host");
         assert_eq!(specs[1].host, "bad.example");
+    }
+
+    #[test]
+    fn parses_innertube_android_vr_adaptive_formats_for_best_m4a() {
+        let body = br#"{
+            "streamingData": {
+                "adaptiveFormats": [
+                    {
+                        "itag": 251,
+                        "url": "https://rr1---sn-abc.googlevideo.com/videoplayback?itag=251",
+                        "mimeType": "audio/webm; codecs=\"opus\"",
+                        "bitrate": 160000
+                    },
+                    {
+                        "itag": 140,
+                        "url": "https://rr1---sn-abc.googlevideo.com/videoplayback?itag=140",
+                        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                        "bitrate": 130482
+                    },
+                    {
+                        "itag": 139,
+                        "url": "https://rr1---sn-abc.googlevideo.com/videoplayback?itag=139",
+                        "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
+                        "bitrate": 49800
+                    }
+                ]
+            }
+        }"#;
+        let parsed = parse_innertube_player_streams(body);
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(
+            select_best_m4a(&parsed).as_deref(),
+            Some("https://rr1---sn-abc.googlevideo.com/videoplayback?itag=140")
+        );
     }
 
     // -- live (opt-in) --------------------------------------------------------

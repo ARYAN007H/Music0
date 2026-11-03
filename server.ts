@@ -1019,6 +1019,16 @@ app.post('/api/invoke/:cmd', (req, res) => {
       return res.json({ matched: Boolean(match), candidate: match ? toSongMeta(match) : null });
     }
 
+    case 'get_platform_capabilities': {
+      return res.json({
+        platform: 'pwa',
+        rollout: 'option_a_desktop_android_pwa',
+        canPickLocalFolder: false,
+        hasNativeAudio: true,
+        streamResolvers: ['piped', 'invidious', 'saavn', 'innertube_direct'],
+      });
+    }
+
     default:
       return res.json(null);
   }

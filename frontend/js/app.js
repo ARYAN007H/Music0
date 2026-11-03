@@ -98,6 +98,7 @@ const App = (() => {
     setupLikedFilter();
     setupQueueClear();
     setupStandoutCapabilities();
+    setupCrossPlatformAndPwa();
 
     // Load library
     state.library = await Bridge.invoke('get_library');
@@ -589,6 +590,31 @@ const App = (() => {
       duration: s.duration || 0,
       volume: s.volume,
     });
+    syncMediaSession(s, thumb);
+  }
+
+  function syncMediaSession(s, thumb) {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      if (s.currentSong && typeof MediaMetadata !== 'undefined') {
+        const artworkUrl = thumb || coverCache.get(s.currentSong.id) || 'icons/icon-192.png';
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: s.currentSong.title || 'Musico',
+          artist: s.currentSong.artist || 'Musico',
+          album: s.currentSong.album || 'Musico Online',
+          artwork: [{ src: artworkUrl, sizes: '192x192', type: 'image/png' }],
+        });
+      }
+      navigator.mediaSession.playbackState = s.isPlaying ? 'playing' : (s.currentSong ? 'paused' : 'none');
+      if (typeof navigator.mediaSession.setPositionState === 'function' && s.duration > 0) {
+        const pos = Math.max(0, Math.min(Number(s.position) || 0, Number(s.duration) || 0));
+        navigator.mediaSession.setPositionState({
+          duration: Number(s.duration),
+          playbackRate: 1.0,
+          position: pos,
+        });
+      }
+    } catch (e) { /* ignore invalid position state during track transition */ }
   }
 
   function publishHistory(song) {
@@ -2427,6 +2453,119 @@ const App = (() => {
         closeCmdPalette();
       }
     });
+  }
+
+  // ─── Cross-Platform Runtime, PWA Install, MediaSession & Mobile Sheet ──────
+  function setupCrossPlatformAndPwa() {
+    // 1. Register Service Worker for installable PWA & offline shell caching
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator && !window.__TAURI_INTERNALS__) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+
+    // 2. Wire navigator.mediaSession hardware/lock-screen transport handlers
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      const actions = [
+        ['play', () => { if (!state.isPlaying) togglePlay(); }],
+        ['pause', () => { if (state.isPlaying) togglePlay(); }],
+        ['previoustrack', () => Bridge.invoke('previous')],
+        ['nexttrack', () => Bridge.invoke('next')],
+        ['seekto', (details) => {
+          if (details && typeof details.seekTime === 'number') {
+            state.position = details.seekTime;
+            updateProgress();
+            Bridge.invoke('seek', { positionSecs: details.seekTime });
+          }
+        }],
+      ];
+      for (const [action, handler] of actions) {
+        try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) {}
+      }
+    }
+
+    // 3. Query runtime platform capabilities (Desktop / Android APK / PWA)
+    Bridge.invoke('get_platform_capabilities').then((caps) => {
+      if (!caps) return;
+      const badge = document.getElementById('platform-cap-badge');
+      if (badge) {
+        const osLabel = caps.os === 'android' ? 'Android Native APK' : `${caps.os} · ${caps.arch}`;
+        badge.textContent = `${osLabel} · Pure-Rust InnerTube + Saavn`;
+      }
+    }).catch(() => {});
+
+    // 4. PWA beforeinstallprompt & iOS Safari "Add to Home Screen" modal
+    let deferredInstallPrompt = null;
+    const installBtn = document.getElementById('btn-pwa-install');
+    const iosGuideBtn = document.getElementById('btn-ios-install-guide');
+    const iosModal = document.getElementById('ios-pwa-modal');
+    const closeIosModalBtn = document.getElementById('btn-close-ios-modal');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (installBtn) installBtn.style.display = 'inline-flex';
+    });
+
+    installBtn?.addEventListener('click', async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice.catch(() => {});
+        deferredInstallPrompt = null;
+        installBtn.style.display = 'none';
+      } else if (iosModal) {
+        iosModal.style.display = 'flex';
+      }
+    });
+
+    iosGuideBtn?.addEventListener('click', () => {
+      if (iosModal) iosModal.style.display = 'flex';
+    });
+    closeIosModalBtn?.addEventListener('click', () => {
+      if (iosModal) iosModal.style.display = 'none';
+    });
+    iosModal?.addEventListener('click', (e) => {
+      if (e.target === iosModal) iosModal.style.display = 'none';
+    });
+
+    // 5. Mobile touch shell (<860px): collapse Now Playing sheet via grabber tap or swipe-down,
+    //    and expand Now Playing by swiping up on the floating mini-player (#transport-root).
+    let lastNonPlayerView = 'browse';
+    const grabber = document.getElementById('mobile-sheet-grabber');
+    grabber?.addEventListener('click', () => {
+      navigateTo(lastNonPlayerView || 'browse');
+    });
+
+    const npScroll = document.getElementById('now-playing-scroll');
+    let touchStartY = 0;
+    npScroll?.addEventListener('touchstart', (e) => {
+      if (npScroll.scrollTop <= 2 && e.touches?.[0]) {
+        touchStartY = e.touches[0].clientY;
+      } else {
+        touchStartY = 0;
+      }
+    }, { passive: true });
+    npScroll?.addEventListener('touchend', (e) => {
+      if (!touchStartY || !e.changedTouches?.[0]) return;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      touchStartY = 0;
+      if (dy > 72 && npScroll.scrollTop <= 2) {
+        navigateTo(lastNonPlayerView || 'browse');
+      }
+    }, { passive: true });
+
+    const transportRoot = document.getElementById('transport-root');
+    let miniStartY = 0;
+    transportRoot?.addEventListener('touchstart', (e) => {
+      if (e.touches?.[0]) miniStartY = e.touches[0].clientY;
+    }, { passive: true });
+    transportRoot?.addEventListener('touchend', (e) => {
+      if (!miniStartY || !e.changedTouches?.[0]) return;
+      const dy = miniStartY - e.changedTouches[0].clientY;
+      miniStartY = 0;
+      if (dy > 36) {
+        if (state.currentView !== 'now-playing') lastNonPlayerView = state.currentView;
+        navigateTo('now-playing');
+      }
+    }, { passive: true });
   }
 
   // ─── Utility ───────────────────────────────────────────────────────────────

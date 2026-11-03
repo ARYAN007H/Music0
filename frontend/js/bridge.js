@@ -606,6 +606,22 @@ const Bridge = (() => {
           )
         );
       }
+      case 'get_platform_capabilities': {
+        const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
+        const isIOS = /iPhone|iPad|iPod/i.test(ua);
+        const isAndroid = /Android/i.test(ua);
+        const isStandalone = typeof window !== 'undefined' && (
+          window.matchMedia?.('(display-mode: standalone)')?.matches ||
+          window.navigator?.standalone === true
+        );
+        return Promise.resolve({
+          platform: isIOS ? 'ios-pwa' : isAndroid ? 'android' : isStandalone ? 'pwa' : 'web',
+          rollout: 'option_a_desktop_android_pwa',
+          canPickLocalFolder: false,
+          hasNativeAudio: true,
+          streamResolvers: ['piped', 'invidious', 'saavn', 'innertube_direct'],
+        });
+      }
       default:
         return Promise.resolve(null);
     }

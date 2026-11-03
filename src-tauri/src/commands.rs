@@ -368,13 +368,23 @@ pub fn save_settings(state: State<AppState>, settings: AppSettings) -> Result<()
 
 /// Opens a native folder dialog; on success, persists the folder and starts
 /// a scan. Returns the chosen path or null if cancelled.
+/// On Android (where `rfd` native desktop dialogs are unavailable), defaults
+/// to the device Music directory (`/storage/emulated/0/Music`).
 #[tauri::command]
 pub async fn pick_folder(handle: tauri::AppHandle) -> Option<String> {
-    let dir = rfd::AsyncFileDialog::new()
-        .set_title("Choose your music folder")
-        .pick_folder()
-        .await?;
-    let path = dir.path().to_string_lossy().to_string();
+    #[cfg(not(target_os = "android"))]
+    let path = {
+        let dir = rfd::AsyncFileDialog::new()
+            .set_title("Choose your music folder")
+            .pick_folder()
+            .await?;
+        dir.path().to_string_lossy().to_string()
+    };
+    #[cfg(target_os = "android")]
+    let path = dirs::audio_dir()
+        .unwrap_or_else(|| PathBuf::from("/storage/emulated/0/Music"))
+        .to_string_lossy()
+        .to_string();
     apply_music_folder(&handle, path.clone()).await?;
     Some(path)
 }
@@ -1302,10 +1312,19 @@ pub async fn online_browse(
     .map_err(|e| format!("browse task failed: {e}"))?
 }
 
-/// Is yt-dlp present?  Frontend shows an install hint when not.
+/// Is online streaming available? On Android, the pure-Rust resolvers
+/// (Piped + Invidious + JioSaavn + InnerTube Direct) handle streaming without
+/// spawning yt-dlp; on Desktop, checks yt-dlp availability.
 #[tauri::command]
 pub fn online_available() -> bool {
-    crate::online::yt_dlp_available()
+    #[cfg(target_os = "android")]
+    {
+        true
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::online::yt_dlp_available()
+    }
 }
 
 /// Related tracks for a song — the Suggested shelf in the expanded player.
@@ -2188,3 +2207,31 @@ pub fn execute_sonic_command(state: State<AppState>, query: String) -> serde_jso
     })
 }
 
+/// Reports current runtime platform capabilities (Desktop Mac/Win/Linux vs
+/// Native Android APK) so the UI can adapt folder pickers, install prompts,
+/// and active stream resolver badges.
+#[tauri::command]
+pub fn get_platform_capabilities() -> serde_json::Value {
+    let platform = if cfg!(target_os = "android") {
+        "android"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    };
+    let can_pick_local_folder = cfg!(not(target_os = "android"));
+    let resolvers = if cfg!(target_os = "android") {
+        vec!["piped", "invidious", "saavn", "innertube_direct"]
+    } else {
+        vec!["piped", "invidious", "saavn", "innertube_direct", "yt_dlp"]
+    };
+    serde_json::json!({
+        "platform": platform,
+        "rollout": "option_a_desktop_android_pwa",
+        "canPickLocalFolder": can_pick_local_folder,
+        "hasNativeAudio": true,
+        "streamResolvers": resolvers,
+    })
+}

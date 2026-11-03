@@ -1,0 +1,330 @@
+//! # Musico Online — Shared Desktop & Android Tauri Library Entry Point
+//!
+//! Exposes `run()` for both the desktop binary (`src/main.rs`) and the Android
+//! JNI library (`#[cfg_attr(mobile, tauri::mobile_entry_point)]`).
+
+mod commands;
+mod config;
+mod event_bridge;
+mod identity;
+mod lyrics;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod media_controls;
+#[cfg(target_os = "linux")]
+mod mpris;
+mod online;
+mod scanner;
+mod state;
+
+use tauri::Manager;
+
+use state::AppState;
+
+// Native macOS application menu. Without an Edit submenu the standard
+// ⌘C/⌘V/⌘A shortcuts never reach the WKWebView, so on macOS this is a
+// functional requirement, not chrome. Linux/Windows/Android are unaffected.
+#[cfg(target_os = "macos")]
+fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+
+    let app_menu = SubmenuBuilder::new(app, "Musico Online")
+        .about(Some(AboutMetadata {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            copyright: Some("Copyright (c) 2026 Aryan. MIT License.".to_string()),
+            ..Default::default()
+        }))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .separator()
+        .select_all()
+        .build()?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .fullscreen()
+        .build()?;
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize() // renders as “Zoom” on macOS
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu, &view_menu, &window_menu])
+        .build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    // Logs go to ~/.local/share/musico/musico.log (and stderr when RUST_LOG
+    // is set explicitly, for development).
+    let mut builder = env_logger::Builder::new();
+    builder.filter_level(log::LevelFilter::Info);
+    if let Some(dir) = crate::identity::data_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("musico.log"))
+        {
+            builder.target(env_logger::Target::Pipe(Box::new(file)));
+        }
+    }
+    if std::env::var("RUST_LOG").is_ok() {
+        builder.parse_default_env();
+    }
+    let _ = builder.try_init();
+
+    let app_builder = tauri::Builder::default();
+
+    // Desktop-only single-instance plugin: blocks a second instance before it
+    // can touch the sled DB or audio device; focuses the existing window.
+    #[cfg(not(target_os = "android"))]
+    let app_builder = app_builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+    }));
+
+    app_builder
+        .plugin(tauri_plugin_shell::init())
+        .manage(AppState::new())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            // Bootstrap the storage-settings cache cap before anything can
+            // download (env override still wins inside stream.rs).
+            let saved_mb = app
+                .state::<AppState>()
+                .settings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .online_cache_mb;
+            crate::online::stream::set_cache_cap_override_mb(u64::from(saved_mb.unwrap_or(0)));
+            // Resume unfinished batch downloads (C4.2 persistence contract)
+            // — but NOT in Airplane Mode: the lift path picks them up.
+            {
+                let state = app.state::<AppState>();
+                if state.offline.load(std::sync::atomic::Ordering::Relaxed) {
+                    log::info!("offline at boot: deferring batch resume to Airplane-Mode lift");
+                } else {
+                    let resumed = state
+                        .recommender
+                        .as_ref()
+                        .and_then(|r| r.lock().ok())
+                        .and_then(|rec| match rec.batch_resume_pending() {
+                            Ok(ids) => {
+                                Some((ids, rec.store_handle(), state.batch_runners.clone()))
+                            }
+                            Err(e) => {
+                                log::warn!("batch resume failed: {e}");
+                                None
+                            }
+                        });
+                    if let Some((ids, store, registry)) = resumed {
+                        let h = handle.clone();
+                        let _ = std::thread::Builder::new()
+                            .name("online-batch-resume".into())
+                            .spawn(move || {
+                                for id in ids {
+                                    registry
+                                        .lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .insert(id.clone());
+                                    commands::run_batch_worker(
+                                        h.clone(),
+                                        store.clone(),
+                                        registry.clone(),
+                                        id,
+                                    );
+                                }
+                            });
+                    }
+                }
+            }
+            let engine = app.state::<AppState>().engine.clone();
+            if let Some(engine) = engine {
+                event_bridge::spawn(engine, handle.clone());
+            } else {
+                log::warn!("Playback engine failed to initialize — no audio device?");
+            }
+
+            if std::env::args().any(|a| a == "--scan-on-start") {
+                scanner::start_scan(handle.clone());
+            } else {
+                let has_folder = {
+                    let state = app.state::<AppState>();
+                    let guard = state.settings.lock().unwrap_or_else(|e| e.into_inner());
+                    guard.music_folder.is_some()
+                };
+                if has_folder {
+                    scanner::start_scan(handle.clone());
+                }
+            }
+
+            // System media keys off Linux: SMTC on Windows, now-playing on macOS.
+            #[cfg(target_os = "windows")]
+            {
+                let hwnd = app
+                    .get_webview_window("main")
+                    .and_then(|w| w.hwnd().ok())
+                    .map(|h| h.0 as *mut std::ffi::c_void);
+                media_controls::init(&handle, hwnd);
+            }
+            #[cfg(target_os = "macos")]
+            {
+                media_controls::init(&handle, None);
+            }
+
+            #[cfg(target_os = "macos")]
+            if let Err(e) = install_macos_menu(&handle) {
+                log::warn!("macOS menu unavailable: {e}");
+            }
+
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(e) = window.set_decorations(false) {
+                    log::warn!("could not remove window decorations: {e}");
+                }
+            }
+
+            // MPRIS: system media keys, playerctl, desktop widgets (D-Bus — Linux only)
+            #[cfg(target_os = "linux")]
+            {
+                let mpris_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    match mpris::start_mpris_server().await {
+                        Ok((cmd_rx, mpris_state)) => {
+                            mpris::update_mpris_state(
+                                &mpris_state,
+                                mpris::MprisMetadata {
+                                    playback_status: "Stopped".into(),
+                                    ..Default::default()
+                                },
+                            );
+                            *mpris_handle
+                                .state::<AppState>()
+                                .mpris_state
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner()) = Some(mpris_state);
+                            std::thread::spawn(move || {
+                                mpris::command_loop(cmd_rx, mpris_handle);
+                            });
+                        }
+                        Err(e) => log::warn!("MPRIS unavailable: {e}"),
+                    }
+                });
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            // Library
+            commands::get_library,
+            commands::start_scan,
+            commands::get_cover,
+            commands::search_library,
+            // Playback
+            commands::play_song,
+            commands::pause,
+            commands::resume,
+            commands::seek,
+            commands::set_volume,
+            commands::toggle_mute,
+            commands::get_playback_state,
+            commands::next,
+            commands::previous,
+            commands::set_playback_modes,
+            commands::set_autoplay,
+            // Queue
+            commands::get_queue,
+            commands::add_to_queue,
+            commands::play_next,
+            commands::remove_from_queue,
+            commands::clear_queue,
+            // Settings
+            commands::get_settings,
+            commands::save_settings,
+            commands::pick_folder,
+            commands::set_music_folder,
+            // Recommendations
+            commands::get_recommendations,
+            commands::recommended_for_home,
+            commands::set_song_like,
+            commands::get_liked_ids,
+            // Online (InnerTube + Piped/Saavn/Direct + yt-dlp)
+            commands::online_search,
+            commands::online_search_suggestions,
+            commands::queue_move,
+            commands::queue_play_at,
+            commands::online_home,
+            commands::online_browse,
+            commands::online_genres,
+            commands::online_play,
+            commands::online_enqueue,
+            commands::online_play_next,
+            commands::online_start_radio,
+            commands::online_download,
+            commands::online_download_batch,
+            commands::online_batches,
+            commands::online_batch_retry,
+            commands::online_batch_cancel,
+            commands::set_offline,
+            commands::get_offline,
+            commands::online_cache_usage,
+            commands::set_online_cache_cap,
+            commands::library_add,
+            commands::library_remove,
+            commands::library_list,
+            commands::library_contains,
+            commands::playlist_create,
+            commands::playlist_list,
+            commands::playlist_rename,
+            commands::playlist_delete,
+            commands::playlist_add_track,
+            commands::playlist_remove_track,
+            commands::playlist_move_track,
+            commands::online_available,
+            commands::online_related,
+            commands::online_lyrics,
+            commands::online_synced_lyrics,
+            commands::online_clear_cache,
+            // Stats & playlists
+            commands::get_stats,
+            commands::get_playlists,
+            // Lyrics
+            commands::get_lyrics,
+            commands::get_enhanced_lyrics,
+            // EQ, DSP, AutoDJ, Prefetch & Sonic Lab
+            commands::set_eq,
+            commands::set_normalization,
+            commands::set_stem_mode,
+            commands::set_loudness_norm,
+            commands::get_autoeq_profiles,
+            commands::apply_autoeq_profile,
+            commands::get_prefetch_plan,
+            commands::get_autodj_plan,
+            commands::get_taste_dna,
+            commands::apply_taste_dna,
+            commands::build_sonic_bridge,
+            commands::create_jam_session,
+            commands::join_jam_session,
+            commands::vote_jam_track,
+            commands::get_jam_session,
+            commands::get_daypart_capsule,
+            commands::execute_sonic_command,
+            commands::get_platform_capabilities,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error running Musico");
+}

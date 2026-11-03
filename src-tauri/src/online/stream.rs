@@ -291,8 +291,8 @@ pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, 
     }
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     // Phase 1 Cross-Source Fast Path: check if JioSaavn CDN has an exact match
-    // for this YouTube track before waiting on Piped/yt-dlp extraction.
-    if interactive {
+    // for this YouTube track before waiting on Piped/InnerTube/yt-dlp extraction.
+    if !track.title.trim().is_empty() {
         if let Some(saavn_path) = super::saavn::try_cross_source_resolve(track) {
             return Ok(saavn_path);
         }
