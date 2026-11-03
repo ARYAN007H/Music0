@@ -95,6 +95,7 @@ pub(crate) fn compute_stats(store: &Store) -> Result<ListeningStats, Recommender
 }
 
 /// Compute listening statistics for a specific time window.
+#[allow(dead_code)]
 pub(crate) fn compute_stats_for_period(
     store: &Store,
     since: DateTime<Utc>,

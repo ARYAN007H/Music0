@@ -13,8 +13,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-use base64::engine::general_purpose::STANDARD as B64;
-use base64::Engine as _;
 use symphonia::core::codecs::CODEC_TYPE_NULL;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -293,7 +291,7 @@ fn run_scan(folder: PathBuf, handle: AppHandle) {
     log::info!("Scanning {} audio files in {}", total, folder.display());
 
     // Instant library from cache while we verify incrementally.
-    let mut cache = load_cache();
+    let cache = load_cache();
 
     let mut songs: Vec<SongMeta> = Vec::with_capacity(total);
     let mut entries: Vec<CacheEntry> = Vec::with_capacity(total);
@@ -305,7 +303,7 @@ fn run_scan(folder: PathBuf, handle: AppHandle) {
 
         let cached = std::fs::metadata(path)
             .ok()
-            .and_then(|m| {
+            .and_then(|_m| {
                 file_fingerprint(path).zip(cache.get(&path_str))
             })
             .filter(|((mtime, size), entry)| *mtime == entry.mtime && *size == entry.size)
@@ -380,7 +378,7 @@ fn spawn_indexing(handle: AppHandle, songs: Vec<SongMeta>) {
             };
 
             let todo: Vec<String> = {
-                let mut r = rec.lock().unwrap_or_else(|e| e.into_inner());
+                let r = rec.lock().unwrap_or_else(|e| e.into_inner());
                 match r.get_all_songs() {
                     Ok(indexed) => {
                         let have: std::collections::HashSet<String> =

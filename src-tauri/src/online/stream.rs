@@ -638,7 +638,7 @@ pub fn cache_cover_art(song_id: &str, thumbnail: Option<&str>) {
         return;
     }
     let Ok(client) = http_client() else { return };
-    let Ok(mut resp) = client.get(url).timeout(Duration::from_secs(8)).send() else { return };
+    let Ok(resp) = client.get(url).timeout(Duration::from_secs(8)).send() else { return };
     if !resp.status().is_success() {
         return;
     }

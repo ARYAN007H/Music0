@@ -45,7 +45,7 @@ pub mod stream;
 pub use catalog::{browse, genres, home_feed};
 pub use lrclib::{fetch_synced_lyrics, SyncedLyricsDto};
 pub use lyrics::fetch_lyrics;
-pub use models::{BrowsePage, ItemKind, OnlineTrack, SearchResultPage, Shelf, ShelfItem};
+pub use models::{BrowsePage, OnlineTrack, SearchResultPage, ShelfItem};
 pub use radio::{radio_tracks, remember_radio_play};
 pub use saavn::{search_songs, SEARCH_MERGE_LIMIT};
 pub use search::{search, search_suggestions};

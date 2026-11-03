@@ -304,6 +304,7 @@ pub(crate) fn confidence(store: &Store) -> Result<f32, crate::errors::Recommende
 }
 
 /// True when the profile is too young/weak to use as a recommendation anchor.
+#[allow(dead_code)]
 pub(crate) fn is_usable(store: &Store) -> Result<bool, crate::errors::RecommenderError> {
     Ok(confidence(store)? > 0.15)
 }
@@ -421,7 +422,7 @@ mod tests {
     fn no_profile_when_never_listened() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Store::open(tmp.path().to_str().unwrap()).unwrap();
-        let lookup: VecLookup = &|_| None;
+        let _lookup: VecLookup = &|_| None;
         assert!(effective(&store).unwrap().is_none());
         assert!(!is_usable(&store).unwrap());
     }

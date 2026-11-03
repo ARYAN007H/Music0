@@ -364,8 +364,7 @@ fn preload_gapless_if_enabled(eng: &Arc<PlaybackEngine>, state: &tauri::State<Ap
         .queue
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .peek_next()
-        .cloned();
+        .peek_next();
     if let Some(next_song) = next {
         if !next_song.file_path.is_empty() && std::path::Path::new(&next_song.file_path).exists() {
             let _ = eng.preload_next(next_song);

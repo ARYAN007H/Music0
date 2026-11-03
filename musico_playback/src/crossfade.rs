@@ -132,7 +132,7 @@ impl CrossfadeMixer {
 
     /// Mix crossfade into the current buffer (in-place).
     /// Returns how many samples of the next-song buffer were consumed.
-    pub fn mix_into(&mut self, current_buf: &mut [f32], channels: usize) -> usize {
+    pub fn mix_into(&mut self, current_buf: &mut [f32], _channels: usize) -> usize {
         if !self.active || self.next_buf.is_empty() {
             return 0;
         }

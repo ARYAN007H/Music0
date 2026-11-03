@@ -152,7 +152,11 @@ pub const ALL_PRESETS: &[EQPreset] = &[
 ];
 
 pub fn preset_by_id(id: &str) -> EQPreset {
-    ALL_PRESETS.iter().find(|p| p.id == id).cloned().unwrap_or(PRESET_FLAT)
+    ALL_PRESETS
+        .iter()
+        .find(|p| p.id == id || p.name.eq_ignore_ascii_case(id))
+        .cloned()
+        .unwrap_or(PRESET_FLAT)
 }
 
 /// Real-time stem separation mode (Mid/Side + vocal formant filtering).

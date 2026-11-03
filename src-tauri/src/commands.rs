@@ -313,7 +313,7 @@ pub fn apply_settings_to_engine(
         } else {
             musico_playback::CrossfadeCurve::Linear
         },
-        beat_sync: settings.autodj_beat_sync,
+        beat_aligned: settings.autodj_beat_sync,
     });
     let _ = eng.set_tube_warmth(settings.tube_warmth);
     let stem = match settings.stem_mode.as_str() {
@@ -324,19 +324,15 @@ pub fn apply_settings_to_engine(
     let _ = eng.set_stem_mode(stem);
     let _ = eng.set_instant_buffer_kb(settings.instant_play_buffer_kb);
 
-    if !settings.autoeq_profile.is_empty() && settings.autoeq_profile != "none" {
+    if !settings.autoeq_profile.is_empty()
+        && settings.autoeq_profile != "none"
+        && settings.autoeq_profile != "flat_studio"
+    {
         let preset = musico_playback::eq::preset_by_id(&settings.autoeq_profile);
         let _ = eng.set_eq(true, preset.gains);
     } else {
-        let mut gains = [0.0_f32; 10];
-        if settings.eq_gains.iter().any(|&g| g.abs() > 0.001) {
-            for (i, &g) in settings.eq_gains.iter().take(10).enumerate() {
-                gains[i] = g.clamp(-12.0, 12.0);
-            }
-        } else {
-            gains = musico_playback::eq::preset_by_id(&settings.eq_preset).gains;
-        }
-        let _ = eng.set_eq(settings.eq_enabled, gains);
+        let preset = musico_playback::eq::preset_by_id(&settings.eq_preset);
+        let _ = eng.set_eq(settings.eq_enabled, preset.gains);
     }
 
     let norm_on = settings.normalization == "Track" || settings.loudness_norm_enabled;
@@ -512,7 +508,7 @@ pub fn set_normalization(state: State<AppState>, mode: String) -> Result<(), Str
     } else if let Some(song) = eng.state().current_song {
         let rec = state.recommender.clone();
         if let Some(rec) = rec {
-            if let Ok(mut r) = rec.lock() {
+            if let Ok(r) = rec.lock() {
                 if let Ok(Some(record)) = r.get_song_by_id(&song.id) {
                     let factor = 10f32.powf((-18.0 - record.replay_gain_db) / 20.0);
                     let _ = eng.set_norm_gain(factor.clamp(0.1, 4.0));
@@ -1600,9 +1596,9 @@ pub async fn get_enhanced_lyrics(
             if let Some(lrc) =
                 crate::online::fetch_synced_lyrics(&artist_for_lrc, &title_for_lrc, resolved_dur)
             {
-                if !lrc.lines.is_empty() {
+                if !lrc.synced.is_empty() {
                     let pairs: Vec<(f32, String)> = lrc
-                        .lines
+                        .synced
                         .into_iter()
                         .map(|l| (l.time_secs, l.text))
                         .collect();
@@ -1814,9 +1810,7 @@ pub fn apply_autoeq_profile(
     let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(pid) = profile_id {
         settings.autoeq_profile = pid.clone();
-        let preset = musico_playback::eq::preset_by_id(&pid);
         settings.eq_enabled = pid != "flat_studio" && pid != "none";
-        settings.eq_gains = preset.gains.to_vec();
     }
     if let Some(tw) = tube_warmth {
         settings.tube_warmth = tw;

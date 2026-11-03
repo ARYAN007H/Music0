@@ -69,7 +69,6 @@ pub use stats::ListeningStats;
 pub use playlists::SmartPlaylist;
 
 use chrono::Local;
-use models::{SongCache, Store};
 
 /// The primary entry-point for the Musico recommendation engine.
 ///
