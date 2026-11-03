@@ -35,7 +35,7 @@
 <!-- Asset URLs carry ?v= — bump on frontend changes so the WebKit webview
      can't serve stale cached scripts/styles (bit us once: old bridge.js
      kept breaking IPC after an update). -->
-<link rel="manifest" href="manifest.json?v=0.6.33"/>
+<link rel="manifest" href="manifest.json?v=0.6.34"/>
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg"/>
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png"/>
 <meta name="theme-color" content="#7c6bc4"/>
@@ -44,21 +44,21 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Musico"/>
 
-<link rel="stylesheet" href="css/tokens.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/neumorphic.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/animations.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/layout.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/now-playing.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/library.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/queue.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/settings.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/online.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/topbar.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/queue-panel.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/am-clean.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/liquid.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/apple.css?v=0.6.33"/>
-<link rel="stylesheet" href="css/native.css?v=0.6.33"/>
+<link rel="stylesheet" href="css/tokens.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/neumorphic.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/animations.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/layout.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/now-playing.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/library.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/queue.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/settings.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/online.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/topbar.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/queue-panel.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/am-clean.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/liquid.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/apple.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/native.css?v=0.6.34"/>
 </head>
 <body>
 
@@ -662,18 +662,12 @@
               </div>
             </div>
 
-            <!-- Audio Output & Fast-Start Buffer -->
+            <!-- Audio Output & Fast-Start Buffer (sample-rate pills removed
+                 2026-11-04: echo-only setting — the stream follows the
+                 device's native rate until engine-level reopen exists) -->
             <div class="s-card" id="card-audio-output">
               <div class="s-card-header">Audio Output &amp; Instant-Start Engine</div>
-              <div class="s-card-desc">DAC output resampler rate and progressive initial stream buffer threshold</div>
-              <div style="padding: var(--space-4) var(--space-20) var(--space-12);">
-                <div class="s-hint" style="margin-bottom:6px;">Output Sample Rate</div>
-                <div style="display:flex; gap:var(--space-8); flex-wrap:wrap;">
-                  <button class="sort-pill" data-sample-rate="44100">44.1 kHz</button>
-                  <button class="sort-pill active" data-sample-rate="48000">48 kHz · Studio</button>
-                  <button class="sort-pill" data-sample-rate="96000">96 kHz · Hi-Res</button>
-                </div>
-              </div>
+              <div class="s-card-desc">Progressive initial stream buffer threshold (output follows your device's native rate)</div>
               <div style="padding: var(--space-4) var(--space-20) var(--space-12);">
                 <div class="s-hint" style="margin-bottom:6px;">Instant-Play Progressive Buffer</div>
                 <div style="display:flex; gap:var(--space-8); flex-wrap:wrap;">
@@ -1005,15 +999,15 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      JAVASCRIPT
      ═══════════════════════════════════════════════════════════════════════════ -->
-<script src="js/bridge.js?v=0.6.33"></script>
-<script src="js/app.js?v=0.6.33"></script>
+<script src="js/bridge.js?v=0.6.34"></script>
+<script src="js/app.js?v=0.6.34"></script>
   <!-- shell.js imports store/router (versioned inside the module graph);
        standalone tags removed — they created duplicate module instances -->
-  <script type="module" src="js/core/shell.js?v=0.6.33"></script>
-<script src="js/online.js?v=0.6.33"></script>
-<script src="js/vinyl.js?v=0.6.33"></script>
-<script src="js/knob.js?v=0.6.33"></script>
-<script src="js/seek.js?v=0.6.33"></script>
+  <script type="module" src="js/core/shell.js?v=0.6.34"></script>
+<script src="js/online.js?v=0.6.34"></script>
+<script src="js/vinyl.js?v=0.6.34"></script>
+<script src="js/knob.js?v=0.6.34"></script>
+<script src="js/seek.js?v=0.6.34"></script>
 
 </body>
 </html>
