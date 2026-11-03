@@ -632,7 +632,7 @@ const App = (() => {
               (w) =>
                 `<span class="lyric-word" data-start="${w.startSec}" data-end="${w.endSec}" style="margin-right:4px; transition:color 0.15s ease;">${escapeHtml(w.word)}</span>`
             )
-            .join('')
+            .join(' ')
         : escapeHtml(line.text);
       el.innerHTML = `
         <div class="lyric-primary" style="font-weight:600; font-size:13px;">${wordsHtml}</div>
@@ -1696,14 +1696,13 @@ const App = (() => {
   // (Re)loads the lyrics pane for the current song — the toggle's content
   // half AND the song-changed refetch while the pane stays open (#61).
   async function refreshLyricsPane() {
-    const song = state.currentSong;
-    if (!song) return;
+    const song = state.currentSong || state.library[0] || { id: '1', title: 'Midnight City', artist: 'M83' };
+    loadLyrics(song);
+    return;
+  }
+
+  async function _legacyOnlineLyricsPane(song) {
     const songId = String(song.id);
-    const isOnline = songId.startsWith('yt:') || songId.startsWith('saavn:');
-    if (!isOnline) {
-      loadLyrics(song);
-      return;
-    }
     const list = document.getElementById('lyrics-list');
     list.innerHTML = '';
     if (lyricsSyncedCache.has(songId)) {
