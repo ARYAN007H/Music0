@@ -37,6 +37,12 @@ pub enum PlaybackCommand {
     SetNormGain(f32),
     /// Update crossfade configuration.
     SetCrossfade(crate::crossfade::CrossfadeConfig),
+    /// Switch real-time stem isolation mode (Off, VocalsOnly, Instrumental).
+    SetStemMode(crate::eq::StemMode),
+    /// Enable or disable analog tube warmth saturation.
+    SetTubeWarmth(bool),
+    /// Configure the instant-play prefill buffer size in KB (32..=1024).
+    SetInstantBufferKb(u32),
 }
 
 /// Events sent from the playback engine back to the GUI/app layer.

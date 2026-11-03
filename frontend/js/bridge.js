@@ -494,6 +494,19 @@ const Bridge = (() => {
         }
         return Promise.resolve(fallbackPrefetchPlan());
       }
+      case 'get_enhanced_lyrics': {
+        if (window.__offline || !args?.trackId) return Promise.resolve(null);
+        if (typeof fetch === 'function') {
+          return fetch('/api/invoke/get_enhanced_lyrics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(args || {}),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+        }
+        return Promise.resolve(null);
+      }
       case 'get_autodj_plan':
       case 'get_taste_dna':
       case 'apply_taste_dna':
@@ -506,7 +519,6 @@ const Bridge = (() => {
       case 'join_jam_session':
       case 'vote_jam_track':
       case 'get_jam_session':
-      case 'get_enhanced_lyrics':
       case 'get_daypart_capsule':
       case 'execute_sonic_command': {
         if (typeof fetch === 'function') {

@@ -308,9 +308,25 @@ fn main() {
             commands::get_playlists,
             // Lyrics
             commands::get_lyrics,
-            // EQ & normalization
+            commands::get_enhanced_lyrics,
+            // EQ, DSP, AutoDJ, Prefetch & Sonic Lab
             commands::set_eq,
             commands::set_normalization,
+            commands::set_stem_mode,
+            commands::set_loudness_norm,
+            commands::get_autoeq_profiles,
+            commands::apply_autoeq_profile,
+            commands::get_prefetch_plan,
+            commands::get_autodj_plan,
+            commands::get_taste_dna,
+            commands::apply_taste_dna,
+            commands::build_sonic_bridge,
+            commands::create_jam_session,
+            commands::join_jam_session,
+            commands::vote_jam_track,
+            commands::get_jam_session,
+            commands::get_daypart_capsule,
+            commands::execute_sonic_command,
         ])
         .run(tauri::generate_context!())
         .expect("error running Musico");

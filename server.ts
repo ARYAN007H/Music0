@@ -951,8 +951,14 @@ app.post('/api/invoke/:cmd', (req, res) => {
 
     // ─── Standout Capability 8: Word-Synced Romanized & Translated Lyrics ────
     case 'get_enhanced_lyrics': {
-      const trackId = String(args.trackId || currentTrackId);
-      const track = recommender.getTrack(trackId) ?? recommender.getAllTracks()[0];
+      const trackId = String(args.trackId || '').trim();
+      if (!trackId || serverSettings.offline_mode) {
+        return res.json(null);
+      }
+      const track = recommender.getTrack(trackId);
+      if (!track) {
+        return res.json(null);
+      }
       const lines = buildEnhancedLyrics({
         id: track.id,
         title: track.title,
@@ -963,6 +969,7 @@ app.post('/api/invoke/:cmd', (req, res) => {
         trackId: track.id,
         title: track.title,
         artist: track.artist,
+        synced: true,
         romanizeEnabled: serverSettings.lyrics_romanize,
         translateEnabled: serverSettings.lyrics_translate,
         lines,

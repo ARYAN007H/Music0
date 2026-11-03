@@ -424,14 +424,29 @@ fn resolve_with(
     Err(last_err)
 }
 
+fn yt_dlp_format_selector() -> &'static str {
+    let settings = crate::config::AppSettings::load();
+    match settings.download_quality.as_str() {
+        "low" => "139/140/bestaudio[abr<=96]/bestaudio",
+        "normal" => "140/bestaudio[abr<=160]/bestaudio",
+        "lossless" | "high" => "141/140/bestaudio[ext=m4a]/bestaudio",
+        _ => match settings.streaming_quality.as_str() {
+            "low" => "139/140/bestaudio[abr<=96]/bestaudio",
+            "normal" => "140/bestaudio[abr<=160]/bestaudio",
+            _ => "140/bestaudio[ext=m4a]/bestaudio",
+        },
+    }
+}
+
 fn run_yt_dlp(url: &str, template: &Path, timeout: Duration) -> Result<(), String> {
+    let fmt = yt_dlp_format_selector();
     let mut child = Command::new("yt-dlp")
         .args([
             "--no-playlist",
             "--no-progress",
             "--quiet",
             "-f",
-            "140/bestaudio[ext=m4a]/bestaudio",
+            fmt,
             "-o",
         ])
         .arg(template)

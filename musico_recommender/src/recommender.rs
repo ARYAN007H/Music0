@@ -59,6 +59,7 @@ pub(crate) fn recommend(
     let anchor_vec = cache.vec_of(&req.current_song_id).cloned();
     let anchor_artist = req.anchor_artist.clone();
     let profile_vec = profile::effective(store)?;
+    let subprofiles = profile::load_subprofiles(store).unwrap_or_default();
     let profile_strength = profile::confidence(store)?;
     let bucket = context::bucket_for(Local::now());
 
@@ -100,10 +101,16 @@ pub(crate) fn recommend(
             .as_ref()
             .map(|a| vector_store::cosine_similarity(a, vec).clamp(0.0, 1.0))
             .unwrap_or(0.5);
-        let profile_match = profile_vec
+        let base_profile_match = profile_vec
             .as_ref()
-            .map(|p| vector_store::cosine_similarity(p, vec).clamp(0.0, 1.0))
-            .unwrap_or(0.5);
+            .map(|p| vector_store::cosine_similarity(p, vec).clamp(0.0, 1.0));
+        let sub_match = profile::best_subprofile_match(&subprofiles, vec);
+        let profile_match = match (base_profile_match, sub_match) {
+            (Some(base), Some(sub)) => 0.65 * base + 0.35 * sub,
+            (Some(base), None) => base,
+            (None, Some(sub)) => sub,
+            (None, None) => 0.5,
+        };
         let session_match = session::get_session_similarity(&req.session_state, record);
         let artist_match = crate::artists::affinity_match(store, &record.artist)?;
         let cluster_match =

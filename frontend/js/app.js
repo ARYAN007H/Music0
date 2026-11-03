@@ -259,6 +259,17 @@ const App = (() => {
     document.querySelectorAll('[data-autoeq]').forEach((pill) => {
       pill.classList.toggle('active', pill.dataset.autoeq === autoEq);
     });
+    // Lyrics Romanization & Translation toggles (persisted in settings)
+    showRomanized = s.lyrics_romanize !== false;
+    showTranslated = s.lyrics_translate !== false;
+    document.getElementById('btn-lyrics-romanize')?.classList.toggle('active', showRomanized);
+    document.getElementById('btn-lyrics-translate')?.classList.toggle('active', showTranslated);
+    document.querySelectorAll('.lyric-romanized').forEach((el) => {
+      el.style.display = showRomanized ? 'block' : 'none';
+    });
+    document.querySelectorAll('.lyric-translation').forEach((el) => {
+      el.style.display = showTranslated ? 'block' : 'none';
+    });
     refreshPrefetchPanel();
   }
 
@@ -615,23 +626,35 @@ const App = (() => {
 
   // ─── Lyrics (Enhanced Word-By-Word Synced + Romanization & Translation) ───
   let lyricLines = []; // { time_secs, words, el }
+  let lastActiveLyricIdx = -1;
   let showRomanized = true;
   let showTranslated = true;
 
+  // SECURITY CONTRACT: `.lyric-primary` mounts `wordsHtml` via `innerHTML`.
+  // Every branch producing `wordsHtml` (as well as `line.romanized` and
+  // `line.translation`) MUST pass untrusted lyric strings through `escapeHtml(...)`
+  // before interpolation. Never interpolate raw `w.word` or `line.text`.
   function renderEnhancedLyricsDto(dto) {
     const list = document.getElementById('lyrics-list');
     if (!list || !dto || !Array.isArray(dto.lines)) return;
+    if (dto.synced === false) {
+      const plain = dto.lines.map((l) => l.text || '').join('\n');
+      renderPlainLyrics(plain);
+      return;
+    }
     list.innerHTML = '';
+    lastActiveLyricIdx = -1;
     lyricLines = dto.lines.map((line) => {
       const el = document.createElement('div');
       el.className = 'lyric-line';
       el.style.cssText = 'padding:6px 10px; border-radius:8px; transition:background 0.2s ease;';
       const wordsHtml = Array.isArray(line.words) && line.words.length
         ? line.words
-            .map(
-              (w) =>
-                `<span class="lyric-word" data-start="${w.startSec}" data-end="${w.endSec}" style="margin-right:4px; transition:color 0.15s ease;">${escapeHtml(w.word)}</span>`
-            )
+            .map((w) => {
+              const st = w.startSec ?? (w.start_ms != null ? w.start_ms / 1000 : 0);
+              const en = w.endSec ?? (w.end_ms != null ? w.end_ms / 1000 : 0);
+              return `<span class="lyric-word" data-start="${st}" data-end="${en}" style="margin-right:4px; transition:color 0.15s ease;">${escapeHtml(w.word)}</span>`;
+            })
             .join(' ')
         : escapeHtml(line.text);
       el.innerHTML = `
@@ -645,15 +668,106 @@ const App = (() => {
     updateLyricsHighlight(state.position);
   }
 
-  function loadLyrics(song) {
+  async function loadLyrics(song) {
     lyricLines = [];
+    lastActiveLyricIdx = -1;
     const list = document.getElementById('lyrics-list');
-    if (!list || !song) return;
-    Bridge.invoke('get_enhanced_lyrics', { trackId: song.id }).then((dto) => {
-      if (dto && Array.isArray(dto.lines) && dto.lines.length) {
-        renderEnhancedLyricsDto(dto);
+    if (!list) return;
+    if (!song || !song.id) {
+      renderPlainLyrics('Nothing playing — pick a song to see lyrics.');
+      return;
+    }
+    const songId = String(song.id);
+    if (lyricsSyncedCache.has(songId)) {
+      const cached = lyricsSyncedCache.get(songId);
+      if (cached && Array.isArray(cached.lines)) {
+        renderEnhancedLyricsDto(cached);
+      } else if (cached && Array.isArray(cached.synced)) {
+        renderTimedLyrics(cached.synced);
       }
-    });
+      return;
+    }
+    if (lyricsTextCache.has(songId)) {
+      renderPlainLyrics(lyricsTextCache.get(songId));
+      return;
+    }
+
+    list.innerHTML = '';
+    const loading = document.createElement('div');
+    loading.className = 'lyric-line lyric-plain';
+    loading.textContent = 'Fetching lyrics…';
+    list.appendChild(loading);
+
+    const stillCurrent = () => !state.currentSong || String(state.currentSong.id) === songId;
+
+    try {
+      // 1. Primary unified path: get_enhanced_lyrics (sidecar .lrc + LRCLIB + YTM in Rust & server.ts)
+      const enhanced = await Bridge.invoke('get_enhanced_lyrics', {
+        trackId: songId,
+        title: song.title || '',
+        artist: song.artist || '',
+        durationSecs: song.duration_secs ? Math.round(song.duration_secs) : null,
+      });
+      if (enhanced && Array.isArray(enhanced.lines) && enhanced.lines.length) {
+        if (enhanced.synced === false) {
+          const plainText = enhanced.lines.map((l) => l.text || '').join('\n');
+          lyricsTextCache.set(songId, plainText);
+          if (stillCurrent()) renderPlainLyrics(plainText);
+        } else {
+          lyricsSyncedCache.set(songId, enhanced);
+          if (stillCurrent()) renderEnhancedLyricsDto(enhanced);
+        }
+        return;
+      }
+
+      // 2. Fallback ladder for local sidecar or direct LRCLIB/YTM commands
+      const isOnline = songId.startsWith('yt:') || songId.startsWith('saavn:');
+      if (!isOnline) {
+        const sidecar = await Bridge.invoke('get_lyrics', { songId });
+        if (sidecar && Array.isArray(sidecar.lines) && sidecar.lines.length) {
+          if (sidecar.synced) {
+            lyricsSyncedCache.set(songId, { synced: sidecar.lines });
+            if (stillCurrent()) renderTimedLyrics(sidecar.lines);
+          } else {
+            const plain = sidecar.lines.map((l) => l.text || '').join('\n');
+            lyricsTextCache.set(songId, plain);
+            if (stillCurrent()) renderPlainLyrics(plain);
+          }
+          return;
+        }
+      }
+
+      const lrcDto = await Bridge.invoke('online_synced_lyrics', {
+        artist: song.artist || '',
+        title: song.title || '',
+        durationSecs: song.duration_secs ? Math.round(song.duration_secs) : null,
+      });
+      const syncedArr = lrcDto?.synced || lrcDto?.lines;
+      if (Array.isArray(syncedArr) && syncedArr.length) {
+        lyricsSyncedCache.set(songId, { synced: syncedArr });
+        if (stillCurrent()) renderTimedLyrics(syncedArr);
+        return;
+      }
+      if (lrcDto && typeof lrcDto.plain === 'string' && lrcDto.plain.trim()) {
+        lyricsTextCache.set(songId, lrcDto.plain);
+        if (stillCurrent()) renderPlainLyrics(lrcDto.plain);
+        return;
+      }
+
+      if (!stillCurrent()) return;
+      if (songId.startsWith('yt:')) {
+        const videoId = songId.slice(3);
+        const text = await Bridge.invoke('online_lyrics', { videoId });
+        if (!stillCurrent()) return;
+        if (text != null) lyricsTextCache.set(songId, text);
+        renderPlainLyrics(text ?? '');
+      } else {
+        renderPlainLyrics('');
+      }
+    } catch (err) {
+      console.error('[musico] lyrics fetch failed:', err);
+      if (stillCurrent()) renderPlainLyrics('');
+    }
   }
 
   function updateLyricsHighlight(position) {
@@ -663,12 +777,27 @@ const App = (() => {
       if (lyricLines[i].time_secs <= position) active = i;
       else break;
     }
-    lyricLines.forEach((l, i) => {
-      const isAct = i === active;
-      l.el.classList.toggle('active', isAct);
-      l.el.classList.toggle('past', active !== -1 && i < active);
-      l.el.style.background = isAct ? 'rgba(124,107,196,0.12)' : 'transparent';
-      l.el.querySelectorAll('.lyric-word').forEach((wEl) => {
+    const activeChanged = active !== lastActiveLyricIdx;
+    if (activeChanged) {
+      lastActiveLyricIdx = active;
+      lyricLines.forEach((l, i) => {
+        const isAct = i === active;
+        l.el.classList.toggle('active', isAct);
+        l.el.classList.toggle('past', active !== -1 && i < active);
+        l.el.style.background = isAct ? 'rgba(124,107,196,0.12)' : 'transparent';
+        if (!isAct) {
+          l.el.querySelectorAll('.lyric-word').forEach((wEl) => {
+            wEl.style.color = '';
+            wEl.style.textDecoration = 'none';
+          });
+        }
+      });
+      if (active >= 0 && lyricLines[active]?.el) {
+        lyricLines[active].el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+    if (active >= 0 && lyricLines[active]?.el) {
+      lyricLines[active].el.querySelectorAll('.lyric-word').forEach((wEl) => {
         const st = Number(wEl.dataset.start || 0);
         const en = Number(wEl.dataset.end || 0);
         if (position >= st && position <= en) {
@@ -679,9 +808,6 @@ const App = (() => {
           wEl.style.textDecoration = 'none';
         }
       });
-    });
-    if (active >= 0) {
-      lyricLines[active].el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
   }
 
@@ -1695,72 +1821,15 @@ const App = (() => {
 
   // (Re)loads the lyrics pane for the current song — the toggle's content
   // half AND the song-changed refetch while the pane stays open (#61).
+  // Never invents a fallback song when nothing is playing.
   async function refreshLyricsPane() {
-    const song = state.currentSong || state.library[0] || { id: '1', title: 'Midnight City', artist: 'M83' };
-    loadLyrics(song);
-    return;
-  }
-
-  async function _legacyOnlineLyricsPane(song) {
-    const songId = String(song.id);
-    const list = document.getElementById('lyrics-list');
-    list.innerHTML = '';
-    if (lyricsSyncedCache.has(songId)) {
-      renderTimedLyrics(lyricsSyncedCache.get(songId));
+    if (!state.currentSong) {
+      lyricLines = [];
+      lastActiveLyricIdx = -1;
+      renderPlainLyrics('Nothing playing — pick a song to see lyrics.');
       return;
     }
-    if (lyricsTextCache.has(songId)) {
-      renderPlainLyrics(lyricsTextCache.get(songId));
-      return;
-    }
-    const loading = document.createElement('div');
-    loading.className = 'lyric-line lyric-plain';
-    loading.textContent = 'Fetching lyrics…';
-    list.appendChild(loading);
-    const stillCurrent = () => state.currentSong && String(state.currentSong.id) === songId;
-    try {
-      // Synced first (#61): LRCLIB matches the song's own metadata, so
-      // saavn tracks get karaoke too.  No match → unsynced YTM text for
-      // yt: songs; saavn has no other source beyond LRCLIB's plain variant.
-      const dto = await Bridge.invoke('online_synced_lyrics', {
-        artist: song.artist || '',
-        title: song.title || '',
-        // camelCase over IPC — Tauri 2 maps command args to camelCase JS
-        // keys, so the Rust `duration_secs` arrives as `durationSecs`; the
-        // snake_case spelling silently deserialized to None, which disabled
-        // the entire duration gate (#79 review P0).
-        durationSecs: song.duration_secs || null,
-      });
-      // Cache BEFORE the currency check (#79 review P2): a fetch that loses
-      // a song-switch race is still good data for the next open of that
-      // song — don't throw it away.
-      if (dto && Array.isArray(dto.synced) && dto.synced.length) {
-        lyricsSyncedCache.set(songId, dto);
-        if (stillCurrent()) renderTimedLyrics(dto.synced);
-        return;
-      }
-      if (dto && typeof dto.plain === 'string' && dto.plain.trim()) {
-        lyricsTextCache.set(songId, dto.plain);
-        if (stillCurrent()) renderPlainLyrics(dto.plain);
-        return;
-      }
-      if (!stillCurrent()) return;
-      if (songId.startsWith('yt:')) {
-        const videoId = songId.slice(3);
-        const text = await Bridge.invoke('online_lyrics', { videoId });
-        if (!stillCurrent()) return;
-        // Bridge.invoke resolves null on IPC failure (it never rejects) —
-        // DON'T cache the null, so the next open retries (#49).
-        if (text != null) lyricsTextCache.set(songId, text);
-        renderPlainLyrics(text ?? '');
-      } else {
-        renderPlainLyrics('');
-      }
-    } catch (err) {
-      // Defensive: same empty state if invoke ever propagates rejections.
-      console.error('[musico] lyrics fetch failed:', err);
-      if (stillCurrent()) renderPlainLyrics('');
-    }
+    await loadLyrics(state.currentSong);
   }
 
   // Timed lines into the karaoke machinery (same shape loadLyrics feeds —
@@ -1768,12 +1837,13 @@ const App = (() => {
   function renderTimedLyrics(lines) {
     const list = document.getElementById('lyrics-list');
     list.innerHTML = '';
+    lastActiveLyricIdx = -1;
     lyricLines = lines.map((line) => {
       const el = document.createElement('div');
       el.className = 'lyric-line';
       el.textContent = line.text;
       list.appendChild(el);
-      return { time_secs: line.time_secs, el };
+      return { time_secs: line.time_secs ?? line.timeSec ?? 0, el };
     });
     updateLyricsHighlight(state.position);
   }

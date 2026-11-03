@@ -341,14 +341,59 @@ pub(crate) fn play_and_track(
         }
     }
     apply_normalization(eng, state, &song.id);
+    preload_gapless_if_enabled(eng, state);
     preresolve_next_online(state);
     predictive_prefetch_upcoming(state);
     warm_radio_next(state, &song.id);
     true
 }
 
-/// Predictive Prefetching: pre-resolves up to `prefetch_count` upcoming tracks in the queue
-/// so transitions and skips are instant cache hits.
+/// Gapless playback preload: when `gapless_playback` is enabled and the next
+/// queued track already has a local file on disk, send `PreloadNext` to the
+/// decoder thread so the transition has zero gap.
+fn preload_gapless_if_enabled(eng: &Arc<PlaybackEngine>, state: &tauri::State<AppState>) {
+    let gapless = state
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .gapless_playback;
+    if !gapless {
+        return;
+    }
+    let next = state
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .peek_next()
+        .cloned();
+    if let Some(next_song) = next {
+        if !next_song.file_path.is_empty() && std::path::Path::new(&next_song.file_path).exists() {
+            let _ = eng.preload_next(next_song);
+        }
+    }
+}
+
+/// Selects up to `count` online video IDs (`yt:...`) from the upcoming queue,
+/// skipping index 0 because `preresolve_next_online` already handles the
+/// immediate queue head (`peek_next()`).
+fn select_prefetch_upcoming(
+    queue: &std::collections::VecDeque<SongInfo>,
+    count: usize,
+) -> Vec<String> {
+    queue
+        .iter()
+        .skip(1)
+        .filter_map(|s| {
+            s.id.strip_prefix("yt:")
+                .filter(|vid| !vid.is_empty())
+                .map(str::to_string)
+        })
+        .take(count)
+        .collect()
+}
+
+/// Predictive Prefetching: pre-resolves up to `prefetch_count` upcoming tracks
+/// after the queue head so multi-track skips and transitions are cache hits.
 fn predictive_prefetch_upcoming(state: &tauri::State<AppState>) {
     if state.offline.load(std::sync::atomic::Ordering::Relaxed) {
         return;
@@ -360,15 +405,10 @@ fn predictive_prefetch_upcoming(state: &tauri::State<AppState>) {
     if !enabled {
         return;
     }
-    let upcoming_ids: Vec<String> = state
-        .queue
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .current_queue()
-        .iter()
-        .take(count)
-        .filter_map(|s| s.id.strip_prefix("yt:").map(str::to_string))
-        .collect();
+    let upcoming_ids = {
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
+        select_prefetch_upcoming(q.current_queue(), count)
+    };
     if upcoming_ids.is_empty() {
         return;
     }
@@ -510,7 +550,21 @@ fn preresolve_next_online(state: &tauri::State<AppState>) {
 
 #[cfg(test)]
 mod preresolve_tests {
-    use super::preresolve_pick;
+    use super::{preresolve_pick, select_prefetch_upcoming};
+    use musico_playback::SongInfo;
+    use std::collections::VecDeque;
+
+    fn dummy_song(id: &str) -> SongInfo {
+        SongInfo {
+            id: id.to_string(),
+            file_path: String::new(),
+            title: id.to_string(),
+            artist: String::new(),
+            album: String::new(),
+            duration_secs: 180.0,
+            cover_art: None,
+        }
+    }
 
     #[test]
     fn picks_online_upcoming_track() {
@@ -535,22 +589,43 @@ mod preresolve_tests {
             Some("abc")
         );
     }
+
+    #[test]
+    fn prefetch_skips_queue_head_and_takes_subsequent_yt_tracks() {
+        let queue: VecDeque<SongInfo> = vec![
+            dummy_song("yt:head0"),
+            dummy_song("local-1"),
+            dummy_song("yt:next1"),
+            dummy_song("yt:next2"),
+            dummy_song("yt:next3"),
+        ]
+        .into();
+        let picked = select_prefetch_upcoming(&queue, 2);
+        assert_eq!(picked, vec!["next1".to_string(), "next2".to_string()]);
+    }
 }
 
-/// Track-mode normalization: gain = 10^((target_db − track_db) / 20),
-/// target −18 dBFS. SongRecord.replay_gain_db holds the track's measured RMS.
+/// Track-mode / LUFS normalization: gain = 10^((target_db − track_db) / 20).
+/// `SongRecord.replay_gain_db` holds the track's measured RMS in dBFS.
 fn apply_normalization(eng: &Arc<PlaybackEngine>, state: &tauri::State<AppState>, song_id: &str) {
-    let mode = {
+    let (enabled, target_db) = {
         let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
-        s.normalization.clone()
+        let on = s.normalization == "Track" || s.loudness_norm_enabled;
+        let target = if s.loudness_norm_enabled {
+            s.target_lufs.clamp(-24.0, -9.0)
+        } else {
+            -18.0
+        };
+        (on, target)
     };
-    if mode != "Track" {
+    if !enabled {
+        let _ = eng.set_norm_gain(1.0);
         return;
     }
     let Some(rec) = &state.recommender else { return };
-    if let Ok(mut r) = rec.lock() {
+    if let Ok(r) = rec.lock() {
         if let Ok(Some(record)) = r.get_song_by_id(song_id) {
-            let factor = 10f32.powf((-18.0 - record.replay_gain_db) / 20.0);
+            let factor = 10f32.powf((target_db - record.replay_gain_db) / 20.0);
             let _ = eng.set_norm_gain(factor.clamp(0.1, 4.0));
         }
     }

@@ -145,6 +145,26 @@ fn update_subprofile(
     Ok(())
 }
 
+/// Reads all persisted taste sub-profiles (personas) from the store.
+/// Each vector is a weighted feature vector representing one distinct taste
+/// island learned from completed listens.
+pub fn load_subprofiles(store: &Store) -> Result<Vec<Vec<f32>>, crate::errors::RecommenderError> {
+    match store.db.get(KEY_SUBPROFILES)? {
+        Some(bytes) => Ok(bincode::deserialize(&bytes).unwrap_or_default()),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Computes the maximum cosine similarity (`[0, 1]`) between `song_vec` and
+/// any learned taste sub-profile, or `None` if no sub-profiles exist yet.
+pub fn best_subprofile_match(subprofiles: &[Vec<f32>], song_vec: &[f32]) -> Option<f32> {
+    subprofiles
+        .iter()
+        .filter(|p| p.len() == song_vec.len())
+        .map(|p| vector_store::cosine_similarity(p, song_vec).clamp(0.0, 1.0))
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+}
+
 /// Look up the weighted feature vector of a song id (for like-profile means).
 pub(crate) type VecLookup<'a> = &'a dyn Fn(&str) -> Option<Vec<f32>>;
 
@@ -409,5 +429,30 @@ mod tests {
     #[test]
     fn like_state_one_is_liked() {
         assert_eq!(LikeState::Liked as u8, 1);
+    }
+
+    #[test]
+    fn subprofiles_roundtrip_and_best_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Store::open(tmp.path().to_str().unwrap()).unwrap();
+
+        assert!(load_subprofiles(&store).unwrap().is_empty());
+
+        // Listen to two orthogonal sonic axes — should spawn 2 distinct subprofiles.
+        let rec_a = record_with(fv_first(1.0));
+        let mut fv_b = fv_first(0.0);
+        fv_b.mfcc[4] = 1.0;
+        let rec_b = record_with(fv_b);
+
+        on_listen(&store, &rec_a, 1.0).unwrap();
+        on_listen(&store, &rec_b, 1.0).unwrap();
+
+        let subs = load_subprofiles(&store).unwrap();
+        assert_eq!(subs.len(), 2, "two orthogonal listens must spawn 2 subprofiles");
+
+        let vec_a = rec_a.feature_vector.to_weighted_vec();
+        let vec_b = rec_b.feature_vector.to_weighted_vec();
+        assert!(best_subprofile_match(&subs, &vec_a).unwrap() > 0.95);
+        assert!(best_subprofile_match(&subs, &vec_b).unwrap() > 0.95);
     }
 }

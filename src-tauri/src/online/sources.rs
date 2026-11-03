@@ -160,8 +160,9 @@ static HEALTH_BOARD: LazyLock< std::sync::Mutex<std::collections::HashMap<String
     LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 pub(crate) fn record_instance_outcome(host: &str, ok: bool, elapsed: Duration) {
+    let key = host.split_once(':').map(|(_, h)| h).unwrap_or(host);
     let Ok(mut map) = HEALTH_BOARD.lock() else { return };
-    let entry = map.entry(host.to_string()).or_insert(InstanceHealth {
+    let entry = map.entry(key.to_string()).or_insert(InstanceHealth {
         ewma_ms: 400.0,
         success_rate: 1.0,
         failures: 0,
@@ -445,9 +446,11 @@ pub(crate) fn try_sources(
                 format!("{last_err}; fast-path deadline exhausted before all sources were tried");
             break;
         }
+        let attempt_start = Instant::now();
         match source.open(video_id, deadline) {
             Ok(body) => match stream_to_file(body, &part, &final_path, deadline) {
                 Ok(bytes) => {
+                    record_instance_outcome(source.name(), true, attempt_start.elapsed());
                     log::info!(
                         "fast path: {} served {video_id} ({} KB)",
                         source.name(),
@@ -458,11 +461,13 @@ pub(crate) fn try_sources(
                     return Ok(final_path);
                 }
                 Err(e) => {
+                    record_instance_outcome(source.name(), false, attempt_start.elapsed());
                     log::debug!("fast path: {} download failed: {e}", source.name());
                     last_err = e;
                 }
             },
             Err(e) => {
+                record_instance_outcome(source.name(), false, attempt_start.elapsed());
                 log::debug!("fast path: {} unavailable: {e}", source.name());
                 last_err = e;
             }
@@ -734,6 +739,26 @@ mod tests {
                 == 0,
             "cache dir untouched by invalid ids"
         );
+    }
+
+    #[test]
+    fn health_board_demotes_failing_instance_and_promotes_fast_one() {
+        let _tc = crate::online::stream::test_support::TestCache::acquire();
+        // Run two attempts where `piped:bad.example` fails twice and `piped:good.example` succeeds.
+        for vid in ["mockvid00010", "mockvid00011"] {
+            let sources: Vec<Box<dyn AudioSource>> = vec![
+                MockSource::failing("piped:bad.example", "502 Bad Gateway"),
+                MockSource::ok("piped:good.example", GOOD_AUDIO_A),
+            ];
+            try_sources(&sources, vid, Duration::from_secs(5)).expect("good source succeeds");
+        }
+        let mut specs = vec![
+            SourceSpec { host: "bad.example".into(), kind: SourceKind::Piped },
+            SourceSpec { host: "good.example".into(), kind: SourceKind::Piped },
+        ];
+        sort_specs_by_health(&mut specs);
+        assert_eq!(specs[0].host, "good.example", "healthy host must sort ahead of demoted failing host");
+        assert_eq!(specs[1].host, "bad.example");
     }
 
     // -- live (opt-in) --------------------------------------------------------

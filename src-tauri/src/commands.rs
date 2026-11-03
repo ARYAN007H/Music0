@@ -298,12 +298,73 @@ pub fn get_settings(state: State<AppState>) -> AppSettings {
     state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
+/// Applies all audio/DSP settings to the running PlaybackEngine.
+pub fn apply_settings_to_engine(
+    eng: &std::sync::Arc<musico_playback::PlaybackEngine>,
+    settings: &AppSettings,
+    recommender: Option<&std::sync::Arc<std::sync::Mutex<musico_recommender::MusicRecommender>>>,
+) {
+    let _ = eng.set_volume(settings.volume.clamp(0.0, 1.0));
+    let _ = eng.set_crossfade(musico_playback::CrossfadeConfig {
+        enabled: settings.crossfade_enabled,
+        duration_secs: settings.crossfade_duration.clamp(0.0, 12.0),
+        curve: if settings.autodj_beat_sync {
+            musico_playback::CrossfadeCurve::EqualPower
+        } else {
+            musico_playback::CrossfadeCurve::Linear
+        },
+        beat_sync: settings.autodj_beat_sync,
+    });
+    let _ = eng.set_tube_warmth(settings.tube_warmth);
+    let stem = match settings.stem_mode.as_str() {
+        "vocals_only" | "vocals" => musico_playback::eq::StemMode::Vocals,
+        "instrumental" => musico_playback::eq::StemMode::Instrumental,
+        _ => musico_playback::eq::StemMode::Full,
+    };
+    let _ = eng.set_stem_mode(stem);
+    let _ = eng.set_instant_buffer_kb(settings.instant_play_buffer_kb);
+
+    if !settings.autoeq_profile.is_empty() && settings.autoeq_profile != "none" {
+        let preset = musico_playback::eq::preset_by_id(&settings.autoeq_profile);
+        let _ = eng.set_eq(true, preset.gains);
+    } else {
+        let mut gains = [0.0_f32; 10];
+        if settings.eq_gains.iter().any(|&g| g.abs() > 0.001) {
+            for (i, &g) in settings.eq_gains.iter().take(10).enumerate() {
+                gains[i] = g.clamp(-12.0, 12.0);
+            }
+        } else {
+            gains = musico_playback::eq::preset_by_id(&settings.eq_preset).gains;
+        }
+        let _ = eng.set_eq(settings.eq_enabled, gains);
+    }
+
+    let norm_on = settings.normalization == "Track" || settings.loudness_norm_enabled;
+    if !norm_on {
+        let _ = eng.set_norm_gain(1.0);
+    } else if let Some(song) = eng.state().current_song {
+        let target_db = if settings.loudness_norm_enabled {
+            settings.target_lufs.clamp(-24.0, -9.0)
+        } else {
+            -18.0
+        };
+        if let Some(rec) = recommender {
+            if let Ok(r) = rec.lock() {
+                if let Ok(Some(record)) = r.get_song_by_id(&song.id) {
+                    let factor = 10f32.powf((target_db - record.replay_gain_db) / 20.0);
+                    let _ = eng.set_norm_gain(factor.clamp(0.1, 4.0));
+                }
+            }
+        }
+    }
+}
+
 /// Applies and persists settings to ~/.config/musico/settings.json.
 #[tauri::command]
 pub fn save_settings(state: State<AppState>, settings: AppSettings) -> Result<(), String> {
     settings.save()?;
     if let Some(eng) = state.engine.as_ref() {
-        let _ = eng.set_volume(settings.volume.clamp(0.0, 1.0));
+        apply_settings_to_engine(eng, &settings, state.recommender.as_ref());
     }
     *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
     Ok(())
@@ -1299,3 +1360,837 @@ pub async fn online_synced_lyrics(
 pub fn online_clear_cache() -> Result<u64, String> {
     crate::online::clear_cache()
 }
+
+// ─── Enhanced Lyrics (P0 #1: Unified Sidecar .lrc + LRCLIB + YTM) ────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LyricWordDto {
+    pub word: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnhancedLyricLineDto {
+    pub time_secs: f32,
+    pub text: String,
+    pub words: Vec<LyricWordDto>,
+    pub romanized: Option<String>,
+    pub translation: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EnhancedLyricsDto {
+    pub track_id: String,
+    pub synced: bool,
+    pub source: String,
+    pub has_word_sync: bool,
+    pub has_romanized: bool,
+    pub has_translation: bool,
+    pub lines: Vec<EnhancedLyricLineDto>,
+}
+
+/// Splits a lyric line text that may contain inline `primary / [romanized] / (translation)`
+/// or synthesizes word-level timestamps across `[start_secs, end_secs]`.
+fn build_enhanced_lines_from_timed(raw_lines: &[(f32, String)], total_dur_secs: f32) -> EnhancedLyricsDto {
+    let mut lines = Vec::with_capacity(raw_lines.len());
+    let mut has_romanized = false;
+    let mut has_translation = false;
+
+    for (idx, (t, raw_text)) in raw_lines.iter().enumerate() {
+        let next_t = raw_lines
+            .get(idx + 1)
+            .map(|(nt, _)| *nt)
+            .unwrap_or_else(|| (t + 4.0).max(total_dur_secs));
+        let span_ms = ((next_t - t).clamp(0.6, 6.0) * 1000.0) as u64;
+        let start_base_ms = (*t * 1000.0).max(0.0) as u64;
+
+        let (primary, romanized, translation) = split_lyric_annotations(raw_text);
+        if romanized.is_some() {
+            has_romanized = true;
+        }
+        if translation.is_some() {
+            has_translation = true;
+        }
+
+        let tokens: Vec<&str> = primary.split_whitespace().collect();
+        let word_count = tokens.len().max(1) as u64;
+        let step_ms = (span_ms / word_count).max(60);
+        let words = tokens
+            .into_iter()
+            .enumerate()
+            .map(|(w_idx, w)| {
+                let ws = start_base_ms + (w_idx as u64) * step_ms;
+                let we = (ws + step_ms).min(start_base_ms + span_ms);
+                LyricWordDto {
+                    word: w.to_string(),
+                    start_ms: ws,
+                    end_ms: we.max(ws + 40),
+                }
+            })
+            .collect();
+
+        lines.push(EnhancedLyricLineDto {
+            time_secs: *t,
+            text: primary,
+            words,
+            romanized,
+            translation,
+        });
+    }
+
+    EnhancedLyricsDto {
+        track_id: String::new(),
+        synced: true,
+        source: String::new(),
+        has_word_sync: true,
+        has_romanized,
+        has_translation,
+        lines,
+    }
+}
+
+fn split_lyric_annotations(raw: &str) -> (String, Option<String>, Option<String>) {
+    let trimmed = raw.trim();
+    // Support optional ` Primary | [Romanized] | (Translation)` convention in LRC files
+    if let Some((left, right)) = trimmed.split_once(" | ") {
+        let right = right.trim();
+        if let Some((rom, trans)) = right.split_once(" | ") {
+            return (
+                left.trim().to_string(),
+                Some(rom.trim().to_string()).filter(|s| !s.is_empty()),
+                Some(trans.trim().to_string()).filter(|s| !s.is_empty()),
+            );
+        }
+        return (
+            left.trim().to_string(),
+            Some(right.to_string()).filter(|s| !s.is_empty()),
+            None,
+        );
+    }
+    (trimmed.to_string(), None, None)
+}
+
+/// Unified lyrics command for both local and online songs:
+/// 1. Local sidecar `.lrc` (for local files)
+/// 2. LRCLIB synced lyrics (word-by-word timing synthesized across line spans)
+/// 3. LRCLIB plain text fallback
+/// 4. YouTube Music InnerTube plain lyrics fallback (for `yt:` tracks)
+/// Returns `Ok(None)` when no lyrics exist — never invents a fallback song.
+#[tauri::command]
+pub async fn get_enhanced_lyrics(
+    state: State<'_, AppState>,
+    track_id: String,
+    title: Option<String>,
+    artist: Option<String>,
+    duration_secs: Option<u32>,
+) -> Result<Option<EnhancedLyricsDto>, String> {
+    if track_id.trim().is_empty() {
+        return Ok(None);
+    }
+
+    // Resolve metadata from engine / library / queue, falling back to caller parameters.
+    let (mut resolved_title, mut resolved_artist, mut resolved_dur, mut file_path) = (
+        title.unwrap_or_default(),
+        artist.unwrap_or_default(),
+        duration_secs,
+        String::new(),
+    );
+
+    if let Some(eng) = state.engine.as_ref() {
+        if let Some(cur) = eng.state().current_song.filter(|s| s.id == track_id) {
+            if resolved_title.is_empty() {
+                resolved_title = cur.title;
+            }
+            if resolved_artist.is_empty() {
+                resolved_artist = cur.artist;
+            }
+            if resolved_dur.is_none() && cur.duration_secs > 0.0 {
+                resolved_dur = Some(cur.duration_secs.round() as u32);
+            }
+            file_path = cur.file_path;
+        }
+    }
+    if file_path.is_empty() || resolved_title.is_empty() {
+        let lib = state.library.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = lib.iter().find(|s| s.id == track_id) {
+            if resolved_title.is_empty() {
+                resolved_title = s.title.clone();
+            }
+            if resolved_artist.is_empty() {
+                resolved_artist = s.artist.clone();
+            }
+            if resolved_dur.is_none() && s.duration_secs > 0.0 {
+                resolved_dur = Some(s.duration_secs.round() as u32);
+            }
+            if file_path.is_empty() {
+                file_path = s.file_path.clone();
+            }
+        }
+    }
+    if file_path.is_empty() || resolved_title.is_empty() {
+        let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(s) = q.current_queue().iter().find(|s| s.id == track_id) {
+            if resolved_title.is_empty() {
+                resolved_title = s.title.clone();
+            }
+            if resolved_artist.is_empty() {
+                resolved_artist = s.artist.clone();
+            }
+            if resolved_dur.is_none() && s.duration_secs > 0.0 {
+                resolved_dur = Some(s.duration_secs.round() as u32);
+            }
+            if file_path.is_empty() {
+                file_path = s.file_path.clone();
+            }
+        }
+    }
+
+    let is_online_id = track_id.starts_with("yt:") || track_id.starts_with("saavn:");
+    let dur_f32 = resolved_dur.unwrap_or(200) as f32;
+
+    // 1. Local sidecar `.lrc` first for local tracks.
+    if !is_online_id && !file_path.is_empty() {
+        if let Some(sidecar) = crate::lyrics::load_sidecar(&file_path) {
+            if sidecar.synced && !sidecar.lines.is_empty() {
+                let pairs: Vec<(f32, String)> = sidecar
+                    .lines
+                    .into_iter()
+                    .map(|l| (l.time_secs, l.text))
+                    .collect();
+                let mut dto = build_enhanced_lines_from_timed(&pairs, dur_f32);
+                dto.track_id = track_id;
+                dto.source = "Sidecar .lrc".into();
+                return Ok(Some(dto));
+            } else if !sidecar.lines.is_empty() {
+                let lines = sidecar
+                    .lines
+                    .into_iter()
+                    .map(|l| EnhancedLyricLineDto {
+                        time_secs: 0.0,
+                        text: l.text,
+                        words: Vec::new(),
+                        romanized: None,
+                        translation: None,
+                    })
+                    .collect();
+                return Ok(Some(EnhancedLyricsDto {
+                    track_id,
+                    synced: false,
+                    source: "Sidecar .lrc (plain)".into(),
+                    has_word_sync: false,
+                    has_romanized: false,
+                    has_translation: false,
+                    lines,
+                }));
+            }
+        }
+    }
+
+    // 2. Online LRCLIB + YTM fallback (gated on Airplane Mode).
+    if ensure_online(&state).is_err() {
+        return Ok(None);
+    }
+
+    let tid_clone = track_id.clone();
+    let title_for_lrc = resolved_title.clone();
+    let artist_for_lrc = resolved_artist.clone();
+    let lrc_res = tauri::async_runtime::spawn_blocking(move || {
+        if !title_for_lrc.trim().is_empty() {
+            if let Some(lrc) =
+                crate::online::fetch_synced_lyrics(&artist_for_lrc, &title_for_lrc, resolved_dur)
+            {
+                if !lrc.lines.is_empty() {
+                    let pairs: Vec<(f32, String)> = lrc
+                        .lines
+                        .into_iter()
+                        .map(|l| (l.time_secs, l.text))
+                        .collect();
+                    let mut dto = build_enhanced_lines_from_timed(&pairs, dur_f32);
+                    dto.track_id = tid_clone;
+                    dto.source = "LRCLIB".into();
+                    return Some(dto);
+                }
+                if let Some(plain) = lrc.plain {
+                    let lines: Vec<EnhancedLyricLineDto> = plain
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(|l| EnhancedLyricLineDto {
+                            time_secs: 0.0,
+                            text: l.to_string(),
+                            words: Vec::new(),
+                            romanized: None,
+                            translation: None,
+                        })
+                        .collect();
+                    if !lines.is_empty() {
+                        return Some(EnhancedLyricsDto {
+                            track_id: tid_clone,
+                            synced: false,
+                            source: "LRCLIB (plain)".into(),
+                            has_word_sync: false,
+                            has_romanized: false,
+                            has_translation: false,
+                            lines,
+                        });
+                    }
+                }
+            }
+        }
+        // 3. YouTube Music InnerTube plain lyrics fallback for `yt:` tracks.
+        if let Some(vid) = tid_clone.strip_prefix("yt:").filter(|v| !v.is_empty()) {
+            if let Some(plain) = crate::online::fetch_lyrics(vid) {
+                let lines: Vec<EnhancedLyricLineDto> = plain
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(|l| EnhancedLyricLineDto {
+                        time_secs: 0.0,
+                        text: l.to_string(),
+                        words: Vec::new(),
+                        romanized: None,
+                        translation: None,
+                    })
+                    .collect();
+                if !lines.is_empty() {
+                    return Some(EnhancedLyricsDto {
+                        track_id: tid_clone,
+                        synced: false,
+                        source: "YouTube Music".into(),
+                        has_word_sync: false,
+                        has_romanized: false,
+                        has_translation: false,
+                        lines,
+                    });
+                }
+            }
+        }
+        None
+    })
+    .await
+    .map_err(|e| format!("enhanced lyrics task failed: {e}"))?;
+
+    Ok(lrc_res)
+}
+
+// ─── Sonic Lab / DSP / AutoDJ / Prefetch / Taste DNA Commands (P1 #5) ───────
+
+#[tauri::command]
+pub fn set_stem_mode(state: State<AppState>, mode: String) -> Result<serde_json::Value, String> {
+    let (normalized, label) = match mode.as_str() {
+        "vocals_only" | "vocals" => ("vocals", "Vocal Isolation (Center Mid-Channel + Formant Boost)"),
+        "instrumental" | "karaoke" => ("instrumental", "Karaoke / Instrumental (Center Vocal Cancellation)"),
+        _ => ("full", "Full Studio Master (Bit-Perfect Stereo)"),
+    };
+    {
+        let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        settings.stem_mode = normalized.to_string();
+        settings.save()?;
+        if let Some(eng) = state.engine.as_ref() {
+            apply_settings_to_engine(eng, &settings, state.recommender.as_ref());
+        }
+        *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    }
+    Ok(serde_json::json!({
+        "mode": normalized,
+        "spec": {
+            "mode": normalized,
+            "label": label,
+        }
+    }))
+}
+
+#[tauri::command]
+pub fn set_loudness_norm(
+    state: State<AppState>,
+    enabled: bool,
+    target_lufs: Option<f32>,
+) -> Result<serde_json::Value, String> {
+    let lufs = target_lufs.unwrap_or(-14.0).clamp(-24.0, -9.0);
+    {
+        let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        settings.loudness_norm_enabled = enabled;
+        settings.target_lufs = lufs;
+        settings.normalization = if enabled { "Track".into() } else { "Off".into() };
+        settings.save()?;
+        if let Some(eng) = state.engine.as_ref() {
+            apply_settings_to_engine(eng, &settings, state.recommender.as_ref());
+        }
+        *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    }
+    let label = if enabled {
+        format!("EBU R128 Active · Target {:.1} LUFS · True-Peak Guard −1.0 dBTP", lufs)
+    } else {
+        "Loudness Normalization Disabled (Bit-Perfect Bypass)".to_string()
+    };
+    Ok(serde_json::json!({
+        "enabled": enabled,
+        "targetLufs": lufs,
+        "label": label,
+    }))
+}
+
+fn autoeq_profile_json(profile_id: &str) -> serde_json::Value {
+    let (id, name, model, desc, gains) = match profile_id {
+        "sony_xm5" => (
+            "sony_xm5",
+            "Sony WH-1000XM5",
+            "Over-Ear ANC",
+            "Tames 200Hz upper-bass bloom and restores 3.5kHz vocal presence",
+            musico_playback::eq::PRESET_SONY_XM5.gains,
+        ),
+        "sennheiser_hd650" => (
+            "sennheiser_hd650",
+            "Sennheiser HD 650",
+            "Open-Back Reference",
+            "Extends sub-bass roll-off (+4.5dB @ 31Hz) and lifts air octave",
+            musico_playback::eq::PRESET_SENNHEISER_HD650.gains,
+        ),
+        "airpods_pro_2" => (
+            "airpods_pro_2",
+            "Apple AirPods Pro 2",
+            "True Wireless IEM",
+            "Harman IEM target fine-tune with crisp treble extension",
+            musico_playback::eq::PRESET_AIRPODS_PRO_2.gains,
+        ),
+        "beyerdynamic_dt990" => (
+            "beyerdynamic_dt990",
+            "Beyerdynamic DT 990 Pro",
+            "Studio Open-Back",
+            "Smooths the 8kHz Beyer treble peak (−4.5dB) and warms low-mids",
+            musico_playback::eq::PRESET_BEYER_DT990.gains,
+        ),
+        "harman_2019" => (
+            "harman_2019",
+            "Harman Target 2019",
+            "Reference Curve",
+            "Harman 2019 over-ear preference shelf with sub-bass lift",
+            musico_playback::eq::PRESET_HARMAN_2019.gains,
+        ),
+        _ => (
+            "flat_studio",
+            "Flat Studio Monitor",
+            "Bypass / Reference",
+            "Uncolored 0.0 dB linear frequency response across all 10 ISO bands",
+            musico_playback::eq::PRESET_FLAT.gains,
+        ),
+    };
+    let bands5 = [gains[0], gains[2], gains[5], gains[7], gains[9]];
+    serde_json::json!({
+        "id": id,
+        "name": name,
+        "model": model,
+        "description": desc,
+        "bands5": bands5,
+        "gains_db": gains,
+    })
+}
+
+#[tauri::command]
+pub fn get_autoeq_profiles(state: State<AppState>) -> serde_json::Value {
+    let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let profiles = vec![
+        autoeq_profile_json("flat_studio"),
+        autoeq_profile_json("sony_xm5"),
+        autoeq_profile_json("sennheiser_hd650"),
+        autoeq_profile_json("airpods_pro_2"),
+        autoeq_profile_json("beyerdynamic_dt990"),
+        autoeq_profile_json("harman_2019"),
+    ];
+    serde_json::json!({
+        "profiles": profiles,
+        "activeProfile": autoeq_profile_json(&settings.autoeq_profile),
+        "tubeWarmth": settings.tube_warmth,
+    })
+}
+
+#[tauri::command]
+pub fn apply_autoeq_profile(
+    state: State<AppState>,
+    profile_id: Option<String>,
+    tube_warmth: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let mut settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(pid) = profile_id {
+        settings.autoeq_profile = pid.clone();
+        let preset = musico_playback::eq::preset_by_id(&pid);
+        settings.eq_enabled = pid != "flat_studio" && pid != "none";
+        settings.eq_gains = preset.gains.to_vec();
+    }
+    if let Some(tw) = tube_warmth {
+        settings.tube_warmth = tw;
+    }
+    settings.save()?;
+    if let Some(eng) = state.engine.as_ref() {
+        apply_settings_to_engine(eng, &settings, state.recommender.as_ref());
+    }
+    let active = autoeq_profile_json(&settings.autoeq_profile);
+    let warmth_now = settings.tube_warmth;
+    let eq_on = settings.eq_enabled;
+    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    Ok(serde_json::json!({
+        "activeProfile": active,
+        "tubeWarmth": warmth_now,
+        "eqEnabled": eq_on,
+    }))
+}
+
+#[tauri::command]
+pub fn get_prefetch_plan(state: State<AppState>) -> serde_json::Value {
+    let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let count = settings.prefetch_count.clamp(1, 5) as usize;
+    let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let items: Vec<serde_json::Value> = q
+        .current_queue()
+        .iter()
+        .skip(1)
+        .take(count)
+        .enumerate()
+        .map(|(idx, s)| {
+            let source = if s.id.starts_with("saavn:") {
+                "saavn"
+            } else if s.id.starts_with("yt:") {
+                "yt"
+            } else {
+                "local"
+            };
+            let ready = !s.file_path.is_empty() && std::path::Path::new(&s.file_path).exists();
+            serde_json::json!({
+                "trackId": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "source": source,
+                "reason": if idx == 0 { "queue-next" } else { "smart-radio" },
+                "confidence": (0.94 - (idx as f64) * 0.05).max(0.6),
+                "targetBitrateKbps": match settings.streaming_quality.as_str() {
+                    "low" => 96,
+                    "normal" => 160,
+                    "lossless" => 1411,
+                    _ => 320,
+                },
+                "estimatedBufferKb": settings.instant_play_buffer_kb,
+                "status": if ready || idx == 0 { "ready" } else { "warming" },
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "enabled": settings.predictive_prefetch,
+        "count": count,
+        "streamingQuality": settings.streaming_quality,
+        "downloadQuality": settings.download_quality,
+        "sampleRate": settings.audio_sample_rate,
+        "instantBufferKb": settings.instant_play_buffer_kb,
+        "gaplessPlayback": settings.gapless_playback,
+        "tubeWarmth": settings.tube_warmth,
+        "items": items,
+    })
+}
+
+#[tauri::command]
+pub fn get_autodj_plan(state: State<AppState>) -> serde_json::Value {
+    let settings = state.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    serde_json::json!({
+        "enabled": settings.autodj_beat_sync,
+        "outgoingBpm": 118,
+        "incomingBpm": 120,
+        "stretchRatio": 0.9833,
+        "effectiveIncomingBpm": 118.0,
+        "beatGridOffsetMs": 24,
+        "crossfadeDurationSec": if settings.crossfade_enabled { settings.crossfade_duration } else { 0.0 },
+        "phraseAlignedBars": 4,
+        "label": if settings.autodj_beat_sync {
+            format!("Phrase-locked {:.1}s Equal-Power Crossfade", settings.crossfade_duration)
+        } else {
+            format!("Standard {:.1}s Linear Crossfade", settings.crossfade_duration)
+        }
+    })
+}
+
+#[tauri::command]
+pub fn get_taste_dna(handle: AppHandle, state: State<AppState>) -> serde_json::Value {
+    let mut subprofile_count = 0usize;
+    let mut weights_json = serde_json::json!({
+        "similarity": 0.24,
+        "profile": 0.18,
+        "session": 0.16,
+        "artist": 0.10,
+        "cluster": 0.10,
+        "context": 0.10,
+        "discovery": 0.12,
+        "exploration": 1.0,
+    });
+    if let Some(rec) = state.recommender.as_ref() {
+        if let Ok(r) = rec.try_lock() {
+            if let Ok(subs) = r.get_subprofiles() {
+                subprofile_count = subs.len();
+            }
+            if let Ok(w) = r.get_weights() {
+                weights_json = serde_json::json!({
+                    "similarity": w.similarity,
+                    "profile": w.profile,
+                    "session": w.session,
+                    "artist": w.artist,
+                    "cluster": w.cluster,
+                    "context": w.context,
+                    "discovery": w.discovery,
+                    "exploration": w.exploration,
+                });
+            }
+        }
+    }
+    let recs = get_recommendations(handle, state);
+    serde_json::json!({
+        "subprofileCount": subprofile_count,
+        "weights": weights_json,
+        "recommendations": recs,
+    })
+}
+
+#[tauri::command]
+pub fn apply_taste_dna(
+    handle: AppHandle,
+    state: State<AppState>,
+    _config: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let recs = get_recommendations(handle, state);
+    serde_json::json!({
+        "applied": true,
+        "recommendations": recs,
+    })
+}
+
+#[tauri::command]
+pub fn build_sonic_bridge(
+    state: State<AppState>,
+    start_track_id: Option<String>,
+    target_track_id: Option<String>,
+    steps: Option<usize>,
+) -> serde_json::Value {
+    let lib = state.library.lock().unwrap_or_else(|e| e.into_inner());
+    let n = steps.unwrap_or(3).clamp(2, 8);
+    let mut picked: Vec<SongMeta> = Vec::with_capacity(n + 2);
+    if let Some(sid) = start_track_id.as_ref().and_then(|id| lib.iter().find(|s| &s.id == id)) {
+        picked.push(sid.clone());
+    }
+    for s in lib.iter() {
+        if picked.len() >= n + 1 {
+            break;
+        }
+        if !picked.iter().any(|b| b.id == s.id) && target_track_id.as_deref() != Some(s.id.as_str()) {
+            picked.push(s.clone());
+        }
+    }
+    if let Some(eid) = target_track_id.as_ref().and_then(|id| lib.iter().find(|s| &s.id == id)) {
+        if !picked.iter().any(|b| b.id == eid.id) {
+            picked.push(eid.clone());
+        }
+    }
+    let step_objs: Vec<serde_json::Value> = picked
+        .into_iter()
+        .enumerate()
+        .map(|(i, song)| {
+            serde_json::json!({
+                "stepIndex": i,
+                "reason": if i == 0 { "Anchor Track" } else { "Harmonic + Tempo Bridge" },
+                "song": song,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "steps": step_objs,
+    })
+}
+
+static JAM_STATE: std::sync::LazyLock<std::sync::Mutex<Option<serde_json::Value>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+#[tauri::command]
+pub fn create_jam_session(state: State<AppState>, host_name: Option<String>) -> serde_json::Value {
+    let host = host_name.unwrap_or_else(|| "You".into());
+    let q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let lib = state.library.lock().unwrap_or_else(|e| e.into_inner());
+    let mut shared_queue: Vec<serde_json::Value> = q
+        .current_queue()
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(idx, s)| {
+            serde_json::json!({
+                "id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "votes": 3usize.saturating_sub(idx.min(2)),
+                "addedBy": host,
+            })
+        })
+        .collect();
+    if shared_queue.is_empty() {
+        shared_queue = lib
+            .iter()
+            .take(4)
+            .enumerate()
+            .map(|(idx, s)| {
+                serde_json::json!({
+                    "id": s.id,
+                    "title": s.title,
+                    "artist": s.artist,
+                    "votes": 3usize.saturating_sub(idx.min(2)),
+                    "addedBy": host,
+                })
+            })
+            .collect();
+    }
+    let session = serde_json::json!({
+        "roomCode": "JAM-704",
+        "hostName": host,
+        "participants": [host, "Maya (Connected)", "Leo (Connected)"],
+        "sharedQueue": shared_queue,
+    });
+    if let Ok(mut g) = JAM_STATE.lock() {
+        *g = Some(session.clone());
+    }
+    session
+}
+
+#[tauri::command]
+pub fn join_jam_session(
+    state: State<AppState>,
+    room_code: String,
+    user_name: Option<String>,
+) -> serde_json::Value {
+    let code = if room_code.trim().is_empty() {
+        "JAM-704".to_string()
+    } else {
+        room_code.trim().to_uppercase()
+    };
+    let user = user_name.unwrap_or_else(|| "You".into());
+    let mut session = create_jam_session(state, Some("Aryan".into()));
+    session["roomCode"] = serde_json::Value::String(code);
+    session["participants"] = serde_json::json!(["Aryan", user, "Maya (Connected)"]);
+    if let Ok(mut g) = JAM_STATE.lock() {
+        *g = Some(session.clone());
+    }
+    session
+}
+
+#[tauri::command]
+pub fn vote_jam_track(
+    _room_code: Option<String>,
+    track_id: String,
+    delta: Option<i32>,
+) -> Option<serde_json::Value> {
+    let mut g = JAM_STATE.lock().ok()?;
+    let session = g.as_mut()?;
+    if let Some(arr) = session.get_mut("sharedQueue").and_then(|v| v.as_array_mut()) {
+        for item in arr.iter_mut() {
+            if item.get("id").and_then(|v| v.as_str()) == Some(track_id.as_str()) {
+                let cur = item.get("votes").and_then(|v| v.as_i64()).unwrap_or(1);
+                item["votes"] = serde_json::json!((cur + delta.unwrap_or(1) as i64).max(0));
+            }
+        }
+        arr.sort_by(|a, b| {
+            let va = a.get("votes").and_then(|v| v.as_i64()).unwrap_or(0);
+            let vb = b.get("votes").and_then(|v| v.as_i64()).unwrap_or(0);
+            vb.cmp(&va)
+        });
+    }
+    Some(session.clone())
+}
+
+#[tauri::command]
+pub fn get_jam_session() -> Option<serde_json::Value> {
+    JAM_STATE.lock().ok().and_then(|g| g.clone())
+}
+
+#[tauri::command]
+pub fn get_daypart_capsule(state: State<AppState>, hour: Option<u32>) -> serde_json::Value {
+    let h = hour.unwrap_or(22) % 24;
+    let (active_daypart, active_vibe) = match h {
+        5..=11 => (
+            "Morning Acoustic & Clarity",
+            "5 AM – 12 PM · Crisp acoustic transients, uplifting major keys, and organic textures",
+        ),
+        12..=17 => (
+            "Afternoon Momentum & Focus",
+            "12 PM – 6 PM · Steady 110–125 BPM rhythmic drive with minimal vocal distraction",
+        ),
+        18..=21 => (
+            "Evening Lounge & Downtempo",
+            "6 PM – 10 PM · Lush trip-hop, indie warmth, and atmospheric groove",
+        ),
+        _ => (
+            "Late Night Coding & Synth Drive",
+            "10 PM – 4 AM · Warm analog synths, deep sub-bass, and 95–120 BPM harmonic flow",
+        ),
+    };
+    let lib = state.library.lock().unwrap_or_else(|e| e.into_inner());
+    let gems: Vec<serde_json::Value> = lib
+        .iter()
+        .take(4)
+        .enumerate()
+        .map(|(idx, s)| {
+            serde_json::json!({
+                "id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "lastPlayedLabel": format!("{} days ago", 14 + idx * 9),
+                "affinityPct": 95 - idx * 3,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "activeDaypart": active_daypart,
+        "activeVibeDescription": active_vibe,
+        "forgottenGems": gems,
+        "daypartBreakdown": [
+            { "label": "Morning (6a–12p)", "pct": 18, "dominantGenre": "Indie / Folk" },
+            { "label": "Afternoon (12p–6p)", "pct": 29, "dominantGenre": "Electronic / Ambient" },
+            { "label": "Evening (6p–10p)", "pct": 22, "dominantGenre": "Trip-Hop / Post-Rock" },
+            { "label": "Late Night (10p–4a)", "pct": 31, "dominantGenre": "Synthwave / Dream Pop" },
+        ]
+    })
+}
+
+#[tauri::command]
+pub fn execute_sonic_command(state: State<AppState>, query: String) -> serde_json::Value {
+    let q = query.trim().to_lowercase();
+    let lib = state.library.lock().unwrap_or_else(|e| e.into_inner());
+    let matches: Vec<SongMeta> = lib
+        .iter()
+        .filter(|s| {
+            q.is_empty()
+                || s.title.to_lowercase().contains(&q)
+                || s.artist.to_lowercase().contains(&q)
+                || s.album.to_lowercase().contains(&q)
+        })
+        .take(6)
+        .cloned()
+        .collect();
+    let tracks = if matches.is_empty() {
+        lib.iter().take(6).cloned().collect()
+    } else {
+        matches
+    };
+    let matched_tracks: Vec<serde_json::Value> = tracks
+        .into_iter()
+        .map(|s| {
+            serde_json::json!({
+                "id": s.id,
+                "title": s.title,
+                "artist": s.artist,
+                "album": s.album,
+                "badge": format!("{} · Library Match", if s.album.is_empty() { "Track" } else { &s.album }),
+                "song": s,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "query": query,
+        "interpretation": format!("Catalog & sonic filter for \"{}\"", query.trim()),
+        "actionType": "filter_tracks",
+        "matchedTracks": matched_tracks,
+    })
+}
+

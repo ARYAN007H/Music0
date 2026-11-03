@@ -200,6 +200,27 @@ impl PlaybackEngine {
             .send(PlaybackCommand::SetCrossfade(config))
             .map_err(|_| PlaybackError::ChannelDisconnected)
     }
+
+    /// Update real-time stem isolation mode (Full, Instrumental, Vocals).
+    pub fn set_stem_mode(&self, mode: eq::StemMode) -> Result<(), PlaybackError> {
+        self.cmd_tx
+            .send(PlaybackCommand::SetStemMode(mode))
+            .map_err(|_| PlaybackError::ChannelDisconnected)
+    }
+
+    /// Enable or disable analog tube warmth saturation.
+    pub fn set_tube_warmth(&self, enabled: bool) -> Result<(), PlaybackError> {
+        self.cmd_tx
+            .send(PlaybackCommand::SetTubeWarmth(enabled))
+            .map_err(|_| PlaybackError::ChannelDisconnected)
+    }
+
+    /// Configure the instant-play prefill buffer target in KB (32..=1024).
+    pub fn set_instant_buffer_kb(&self, kb: u32) -> Result<(), PlaybackError> {
+        self.cmd_tx
+            .send(PlaybackCommand::SetInstantBufferKb(kb.clamp(32, 1024)))
+            .map_err(|_| PlaybackError::ChannelDisconnected)
+    }
 }
 
 impl Drop for PlaybackEngine {
@@ -247,10 +268,16 @@ fn decoder_thread(
 
     let device_sr = audio_output.sample_rate();
     let device_ch = audio_output.channels();
+    let mut dsp = DspRuntime {
+        equalizer: eq::Equalizer::new(device_sr, device_ch),
+        norm_gain: 1.0,
+        crossfade_cfg: CrossfadeConfig::default(),
+        instant_buffer_kb: 128,
+    };
 
     loop {
         // Step 1: Wait for a Play command.
-        let song_info = match wait_for_play(&cmd_rx, &event_tx, &state, &audio_output) {
+        let song_info = match wait_for_play(&cmd_rx, &event_tx, &state, &audio_output, &mut dsp) {
             Some(s) => s,
             None => return, // channel closed
         };
@@ -264,16 +291,25 @@ fn decoder_thread(
             &mut audio_output,
             device_sr,
             device_ch,
+            &mut dsp,
         );
     }
 }
 
-/// Blocks until a `Play` command arrives, handling volume/mute/stop while idle.
+struct DspRuntime {
+    equalizer: eq::Equalizer,
+    norm_gain: f32,
+    crossfade_cfg: CrossfadeConfig,
+    instant_buffer_kb: u32,
+}
+
+/// Blocks until a `Play` command arrives, handling volume/mute/stop/DSP while idle.
 fn wait_for_play(
     cmd_rx: &Receiver<PlaybackCommand>,
     event_tx: &Sender<PlaybackEvent>,
     state: &Arc<Mutex<PlaybackState>>,
     audio_output: &AudioOutput,
+    dsp: &mut DspRuntime,
 ) -> Option<SongInfo> {
     loop {
         match cmd_rx.recv() {
@@ -300,7 +336,26 @@ fn wait_for_play(
             Ok(PlaybackCommand::PreloadNext(s)) => {
                 log::info!("Preload hint received for: {}", s.title);
             }
-            Ok(_) => {} // ignore other commands when idle
+            Ok(PlaybackCommand::SetEQ { enabled, gains_db }) => {
+                dsp.equalizer.set_enabled(enabled);
+                dsp.equalizer.set_gains(gains_db);
+            }
+            Ok(PlaybackCommand::SetNormGain(g)) => {
+                dsp.norm_gain = g.clamp(0.1, 4.0);
+            }
+            Ok(PlaybackCommand::SetCrossfade(cfg)) => {
+                dsp.crossfade_cfg = cfg;
+            }
+            Ok(PlaybackCommand::SetStemMode(mode)) => {
+                dsp.equalizer.set_stem_mode(mode);
+            }
+            Ok(PlaybackCommand::SetTubeWarmth(enabled)) => {
+                dsp.equalizer.set_tube_warmth(enabled);
+            }
+            Ok(PlaybackCommand::SetInstantBufferKb(kb)) => {
+                dsp.instant_buffer_kb = kb.clamp(32, 1024);
+            }
+            Ok(_) => {} // ignore Pause/Resume/Seek when idle
             Err(_) => return None, // channel disconnected
         }
     }
@@ -316,6 +371,7 @@ fn play_song(
     audio_output: &mut output::AudioOutput,
     device_sr: u32,
     device_ch: usize,
+    dsp: &mut DspRuntime,
 ) {
     // Open the decoder.
     let (mut dec, mut decoded_info) = match decoder::AudioDecoder::new(&song_info.file_path) {
@@ -371,12 +427,8 @@ fn play_song(
     let mut process_buf: Vec<f32> = Vec::with_capacity(8192);
     let mut channel_buf: Vec<f32> = Vec::with_capacity(8192);
 
-    // ── EQ and Normalization state ──
-    let mut equalizer = eq::Equalizer::new(device_sr, device_ch);
-    let mut norm_gain: f32 = 1.0; // 1.0 = no normalization
-
     // ── Crossfade state ──
-    let mut crossfade_mixer = crossfade::CrossfadeMixer::new(CrossfadeConfig::default());
+    let mut crossfade_mixer = crossfade::CrossfadeMixer::new(dsp.crossfade_cfg.clone());
     let mut preloaded_decoder: Option<(decoder::AudioDecoder, SongInfo)> = None;
 
     // Position base: playback position = seek_base + played_secs(), where
@@ -402,8 +454,9 @@ fn play_song(
     }
     let _ = event_tx.send(PlaybackEvent::BufferingStarted);
 
-    // Pre-fill ring buffer with ~0.5 seconds.
-    let prefill_samples = (device_sr as usize) * device_ch / 2;
+    // Pre-fill ring buffer scaled by instant_buffer_kb (128 KB ≈ 0.5 s at 48 kHz stereo).
+    let prefill_samples = ((device_sr as usize) * device_ch * (dsp.instant_buffer_kb.clamp(32, 1024) as usize) / 256)
+        .max((device_sr as usize) * device_ch / 8);
     let mut filled = 0usize;
     while filled < prefill_samples {
         match dec.decode_next_packet() {
@@ -413,9 +466,9 @@ fn play_song(
                     &mut process_buf, &mut channel_buf,
                 );
                 // Apply EQ + normalization to the buffer.
-                equalizer.process_interleaved(&mut process_buf);
-                if (norm_gain - 1.0).abs() > 0.001 {
-                    for s in process_buf.iter_mut() { *s *= norm_gain; }
+                dsp.equalizer.process_interleaved(&mut process_buf);
+                if (dsp.norm_gain - 1.0).abs() > 0.001 {
+                    for s in process_buf.iter_mut() { *s *= dsp.norm_gain; }
                 }
                 let pushed = push_samples(audio_output.producer(), &process_buf);
                 filled += pushed;
@@ -485,7 +538,7 @@ fn play_song(
                             }
                             Ok(PlaybackCommand::Play(new_song)) => {
                                 set_stopped(state);
-                                play_song(new_song, cmd_rx, event_tx, state, audio_output, device_sr, device_ch);
+                                play_song(new_song, cmd_rx, event_tx, state, audio_output, device_sr, device_ch, dsp);
                                 return;
                             }
                             Ok(PlaybackCommand::Seek(secs)) => {
@@ -511,11 +564,24 @@ fn play_song(
                                 state.lock().unwrap_or_else(|e| e.into_inner()).muted = false;
                             }
                             Ok(PlaybackCommand::SetEQ { enabled, gains_db }) => {
-                                equalizer.set_enabled(enabled);
-                                equalizer.set_gains(gains_db);
+                                dsp.equalizer.set_enabled(enabled);
+                                dsp.equalizer.set_gains(gains_db);
                             }
                             Ok(PlaybackCommand::SetNormGain(g)) => {
-                                norm_gain = g;
+                                dsp.norm_gain = g.clamp(0.1, 4.0);
+                            }
+                            Ok(PlaybackCommand::SetCrossfade(cfg)) => {
+                                dsp.crossfade_cfg = cfg.clone();
+                                crossfade_mixer.config = cfg;
+                            }
+                            Ok(PlaybackCommand::SetStemMode(mode)) => {
+                                dsp.equalizer.set_stem_mode(mode);
+                            }
+                            Ok(PlaybackCommand::SetTubeWarmth(enabled)) => {
+                                dsp.equalizer.set_tube_warmth(enabled);
+                            }
+                            Ok(PlaybackCommand::SetInstantBufferKb(kb)) => {
+                                dsp.instant_buffer_kb = kb.clamp(32, 1024);
                             }
                             Ok(_) => {} // ignore other commands while paused
                             Err(_) => return,
@@ -535,7 +601,7 @@ fn play_song(
                     audio_output.request_flush();
                     accumulate_listen(state);
                     set_stopped(state);
-                    play_song(new_song, cmd_rx, event_tx, state, audio_output, device_sr, device_ch);
+                    play_song(new_song, cmd_rx, event_tx, state, audio_output, device_sr, device_ch, dsp);
                     return;
                 }
                 PlaybackCommand::Seek(secs) => {
@@ -577,14 +643,24 @@ fn play_song(
                     }
                 }
                 PlaybackCommand::SetCrossfade(config) => {
+                    dsp.crossfade_cfg = config.clone();
                     crossfade_mixer.config = config;
                 }
                 PlaybackCommand::SetEQ { enabled, gains_db } => {
-                    equalizer.set_enabled(enabled);
-                    equalizer.set_gains(gains_db);
+                    dsp.equalizer.set_enabled(enabled);
+                    dsp.equalizer.set_gains(gains_db);
                 }
                 PlaybackCommand::SetNormGain(g) => {
-                    norm_gain = g;
+                    dsp.norm_gain = g.clamp(0.1, 4.0);
+                }
+                PlaybackCommand::SetStemMode(mode) => {
+                    dsp.equalizer.set_stem_mode(mode);
+                }
+                PlaybackCommand::SetTubeWarmth(enabled) => {
+                    dsp.equalizer.set_tube_warmth(enabled);
+                }
+                PlaybackCommand::SetInstantBufferKb(kb) => {
+                    dsp.instant_buffer_kb = kb.clamp(32, 1024);
                 }
                 PlaybackCommand::Resume => {} // already playing
             }
@@ -631,7 +707,7 @@ fn play_song(
                     set_stopped(state);
                     play_song(
                         next_song_info, cmd_rx, event_tx, state,
-                        audio_output, device_sr, device_ch,
+                        audio_output, device_sr, device_ch, dsp,
                     );
                     return;
                 }
@@ -666,11 +742,11 @@ fn play_song(
 
                 // ── Audio processing chain ──
                 // 1. EQ (in-place, zero-alloc)
-                equalizer.process_interleaved(&mut process_buf);
+                dsp.equalizer.process_interleaved(&mut process_buf);
                 // 2. Normalization gain (in-place)
-                if (norm_gain - 1.0).abs() > 0.001 {
+                if (dsp.norm_gain - 1.0).abs() > 0.001 {
                     for s in process_buf.iter_mut() {
-                        *s *= norm_gain;
+                        *s *= dsp.norm_gain;
                         // Soft clip to prevent clipping.
                         if *s > 1.0 { *s = 1.0 - (-(*s - 1.0)).exp() * 0.5; }
                         else if *s < -1.0 { *s = -1.0 + (-(-*s - 1.0)).exp() * 0.5; }

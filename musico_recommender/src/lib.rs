@@ -604,6 +604,16 @@ impl MusicRecommender {
     pub fn delete_playlist(&self, playlist_id: &str) -> Result<(), RecommenderError> {
         playlists::delete_playlist(&self.store, playlist_id)
     }
+
+    /// Returns all persisted taste sub-profiles (personas) learned from listening history.
+    pub fn get_subprofiles(&self) -> Result<Vec<Vec<f32>>, RecommenderError> {
+        profile::load_subprofiles(&self.store)
+    }
+
+    /// Loads the current adaptive signal weights.
+    pub fn get_weights(&self) -> Result<models::SignalWeights, RecommenderError> {
+        adapt::load(&self.store)
+    }
 }
 
 #[cfg(test)]

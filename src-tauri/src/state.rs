@@ -52,11 +52,10 @@ impl AppState {
             .unwrap_or_else(|| PathBuf::from("/tmp"));
 
         let engine = PlaybackEngine::new().ok().map(Arc::new);
-        if let (Some(eng), vol) = (&engine, settings.volume) {
-            let _ = eng.set_volume(vol.clamp(0.0, 1.0));
-        }
-
         let recommender = init_recommender();
+        if let Some(eng) = &engine {
+            crate::commands::apply_settings_to_engine(eng, &settings, recommender.as_ref());
+        }
 
         Self {
             engine,
