@@ -177,6 +177,15 @@ pub fn cache_dir() -> PathBuf {
 static CACHE_INDEX: LazyLock<RwLock<HashMap<String, PathBuf>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
+/// Encodes a song id (`yt:…`, `saavn:…`) into a cache FILE stem.  `:` is a
+/// legal filename byte on Linux/macOS but RESERVED on Windows (os error 87
+/// on rename) — namespaced ids substitute `_` while the in-memory index
+/// keeps the raw id as its key.  Single choke point: landing and lookups
+/// must both go through this or the two sides drift apart.
+pub(crate) fn cache_file_name(song_id: &str, ext: &str) -> String {
+    format!("{}.{}", song_id.replace(':', "_"), ext)
+}
+
 /// Stream-cache hit test.  Exact `{videoId}.` prefix — a short or empty id
 /// from a malformed response must never match another video's file.  Shared
 /// with the parser so search results can be badged as cached before any
@@ -185,7 +194,10 @@ pub(crate) fn cached_file(video_id: &str) -> Option<PathBuf> {
     if video_id.is_empty() {
         return None;
     }
-    let prefix = format!("{video_id}.");
+    // Windows-sanitized encoding first; the raw id as a fallback so cache
+    // files written by pre-0.7.0 Linux builds (raw `saavn:…` names) still hit.
+    let prefix = format!("{}.", video_id.replace(':', "_"));
+    let raw_prefix = format!("{video_id}.");
     if let Ok(index) = CACHE_INDEX.read() {
         if let Some(path) = index.get(video_id) {
             // Re-validate: a prune or external wipe may have removed it.
@@ -194,7 +206,7 @@ pub(crate) fn cached_file(video_id: &str) -> Option<PathBuf> {
             }
         }
     }
-    let found = scan_dir_for(&prefix);
+    let found = scan_dir_for(&prefix).or_else(|| scan_dir_for(&raw_prefix));
     if let Ok(mut index) = CACHE_INDEX.write() {
         match &found {
             Some(path) => {
@@ -764,6 +776,36 @@ mod tests {
         let _ = std::fs::remove_file(&b);
         // Post-cleanup, the index must not resurrect the deleted file.
         assert!(cached_file("exactmatch1").is_none());
+    }
+
+    #[test]
+    fn namespaced_ids_never_reach_windows_filenames() {
+        // `:` is reserved on Windows (os error 87 on rename — caught live by
+        // the v0.7.0 tag's native Windows test run).  Landing and lookup
+        // must encode identically, and legacy raw-named files still hit.
+        let tc = TestCache::acquire();
+        let dir = cache_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        assert_eq!(cache_file_name("saavn:a1", "mp4"), "saavn_a1.mp4");
+        assert_eq!(cache_file_name("yt:xyz", "part"), "yt_xyz.part");
+        assert_eq!(cache_file_name("plainid", "mp4"), "plainid.mp4");
+
+        // Sanitized landing → sanitized lookup hits via the index and scan.
+        let landed = dir.join(cache_file_name("saavn:win", "mp4"));
+        std::fs::write(&landed, vec![0u8; 2048]).unwrap();
+        let hit = cached_file("saavn:win").expect("sanitized file found");
+        assert!(hit.file_name().and_then(|n| n.to_str()).unwrap() == "saavn_win.mp4");
+
+        // Legacy raw-named file (pre-0.7.0 Linux caches) still resolves.
+        let legacy = dir.join("saavn:legacy.mp4");
+        std::fs::write(&legacy, vec![0u8; 2048]).unwrap();
+        assert!(cached_file("saavn:legacy").is_some(), "raw fallback failed");
+        // …but the sanitized encoding never matches a DIFFERENT id's file.
+        assert!(cached_file("saavn:win2").is_none());
+
+        let _ = std::fs::remove_file(&landed);
+        let _ = std::fs::remove_file(&legacy);
     }
 
     #[test]
