@@ -128,7 +128,10 @@ jobs:
         run: npm install --global "@tauri-apps/cli@^2"
 
       - name: Build Windows bundles
+        # bash, not the Windows-default PowerShell: PS eats the comma in
+        # `msi,nsis` and passes `msi nsis`, which the CLI rejects.
         run: tauri build --bundles msi,nsis
+        shell: bash
 
       - name: Collect packages
         shell: bash
