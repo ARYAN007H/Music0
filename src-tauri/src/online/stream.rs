@@ -798,14 +798,20 @@ mod tests {
         assert!(hit.file_name().and_then(|n| n.to_str()).unwrap() == "saavn_win.mp4");
 
         // Legacy raw-named file (pre-0.7.0 Linux caches) still resolves.
-        let legacy = dir.join("saavn:legacy.mp4");
-        std::fs::write(&legacy, vec![0u8; 2048]).unwrap();
-        assert!(cached_file("saavn:legacy").is_some(), "raw fallback failed");
+        // Unix-only: Windows FORBIDS creating a ':' filename — the very bug
+        // this fixes — so the raw fallback can only be exercised where such
+        // files can exist.
+        #[cfg(unix)]
+        {
+            let legacy = dir.join("saavn:legacy.mp4");
+            std::fs::write(&legacy, vec![0u8; 2048]).unwrap();
+            assert!(cached_file("saavn:legacy").is_some(), "raw fallback failed");
+            let _ = std::fs::remove_file(&legacy);
+        }
         // …but the sanitized encoding never matches a DIFFERENT id's file.
         assert!(cached_file("saavn:win2").is_none());
 
         let _ = std::fs::remove_file(&landed);
-        let _ = std::fs::remove_file(&legacy);
     }
 
     #[test]

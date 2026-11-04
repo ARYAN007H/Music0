@@ -724,7 +724,9 @@ mod tests {
             path.file_name().and_then(|n| n.to_str()) == Some("saavn_BeXBcbVK.mp4"),
             "wrong cache stem: {path:?}"
         );
-        assert!(!path.to_str().unwrap().contains(':'), "colon in filename");
+        // Windows note: only the FILE NAME may be checked — the full path
+        // legitimately contains the drive colon (`C:`).
+        assert!(!path.file_name().unwrap().to_str().unwrap().contains(':'), "colon in filename");
         assert_eq!(stream::cached_file(&track.song_id()), Some(path.clone()));
         // No .part residue after the atomic rename (sanitized too).
         assert!(!stream::cache_dir().join("saavn_BeXBcbVK.part").exists());
