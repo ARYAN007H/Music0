@@ -505,8 +505,10 @@ fn land_audio(track: &OnlineTrack, bytes: &[u8]) -> Result<PathBuf, String> {
     }
     let dir = stream::cache_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("cache dir: {e}"))?;
-    let final_path = dir.join(format!("{}.mp4", track.song_id()));
-    let part = dir.join(format!("{}.part", track.song_id()));
+    // Windows-safe encoding (`:` is reserved there — os error 87 on rename);
+    // the lookup side sanitizes identically via stream::cache_file_name.
+    let final_path = dir.join(stream::cache_file_name(&track.song_id(), "mp4"));
+    let part = dir.join(stream::cache_file_name(&track.song_id(), "part"));
     std::fs::write(&part, bytes).map_err(|e| format!("saavn cache write: {e}"))?;
     std::fs::rename(&part, &final_path).map_err(|e| format!("saavn cache rename: {e}"))?;
     stream::prune_cache_to_cap();
@@ -714,15 +716,18 @@ mod tests {
         };
         // Below MIN_FILE_BYTES → honest error, nothing on disk.
         assert!(land_audio(&track, &[0u8; 1024]).is_err());
-        // Fixture bytes, no network: lands under the saavn: namespace.
+        // Fixture bytes, no network: lands under the saavn: namespace with
+        // the Windows-safe encoding (`:` is a reserved filename byte there
+        // — os error 87; the raw id stays the namespace/index key).
         let path = land_audio(&track, &[0xA5u8; 64 * 1024]).expect("resolve lands");
         assert!(
-            path.file_name().and_then(|n| n.to_str()) == Some("saavn:BeXBcbVK.mp4"),
+            path.file_name().and_then(|n| n.to_str()) == Some("saavn_BeXBcbVK.mp4"),
             "wrong cache stem: {path:?}"
         );
+        assert!(!path.to_str().unwrap().contains(':'), "colon in filename");
         assert_eq!(stream::cached_file(&track.song_id()), Some(path.clone()));
-        // No .part residue after the atomic rename.
-        assert!(!stream::cache_dir().join("saavn:BeXBcbVK.part").exists());
+        // No .part residue after the atomic rename (sanitized too).
+        assert!(!stream::cache_dir().join("saavn_BeXBcbVK.part").exists());
     }
 
     /// Live end-to-end: search → resolve → playable file on disk.  Opt-in:
