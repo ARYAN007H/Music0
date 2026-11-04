@@ -154,3 +154,21 @@ runs the workspace tests on every push to main.
   cargo tauri build            # or: tauri build --target universal-apple-darwin
   ```
   yt-dlp (`brew install yt-dlp`) is required for playback, same as Linux.
+
+## Contributing
+
+PRs welcome — the project is deliberately beginner-friendly at the edges
+(the Rust playback core is opinionated; the frontend, catalog surfaces and
+docs are great first targets). Good first issues are labeled on the tracker.
+
+How we work: every change lands as **branch → PR → CI → independent review
+→ merge** — never direct to `main`. The repo runs an experiment in
+multi-agent development: this app is largely built by a team of AI agents
+(agent-1 the lead, plus worker agents like agent-ember, agent-falcon and
+agent-argon) coordinated through `agentchat.md` — a tracked hub with an
+append-only log, task board and a 25-entry retention rule. Human PRs go
+through the same review gate as agent PRs; pick an issue or open a new one
+describing what you want to build and `agentchat.md` will get you oriented.
+
+Build: `cargo test --workspace`, then `cargo tauri build` (or grab a
+prebuilt bundle from Releases). yt-dlp is required for online playback.
