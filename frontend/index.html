@@ -35,7 +35,7 @@
 <!-- Asset URLs carry ?v= — bump on frontend changes so the WebKit webview
      can't serve stale cached scripts/styles (bit us once: old bridge.js
      kept breaking IPC after an update). -->
-<link rel="manifest" href="manifest.json?v=0.6.34"/>
+<link rel="manifest" href="manifest.json?v=0.7.1"/>
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg"/>
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png"/>
 <meta name="theme-color" content="#7c6bc4"/>
@@ -44,21 +44,21 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Musico"/>
 
-<link rel="stylesheet" href="css/tokens.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/neumorphic.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/animations.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/layout.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/now-playing.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/library.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/queue.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/settings.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/online.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/topbar.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/queue-panel.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/am-clean.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/liquid.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/apple.css?v=0.6.34"/>
-<link rel="stylesheet" href="css/native.css?v=0.6.34"/>
+<link rel="stylesheet" href="css/tokens.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/neumorphic.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/animations.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/layout.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/now-playing.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/library.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/queue.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/settings.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/online.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/topbar.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/queue-panel.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/am-clean.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/liquid.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/apple.css?v=0.7.1"/>
+<link rel="stylesheet" href="css/native.css?v=0.7.1"/>
 </head>
 <body>
 
@@ -252,6 +252,7 @@
           </button>
           <button class="transport-btn" id="btn-repeat" title="Repeat: Off" aria-label="Repeat: Off" aria-pressed="false">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+            <span class="mode-badge" id="repeat-one-badge" hidden>1</span>
           </button>
         </div>
 
@@ -999,15 +1000,15 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      JAVASCRIPT
      ═══════════════════════════════════════════════════════════════════════════ -->
-<script src="js/bridge.js?v=0.6.34"></script>
-<script src="js/app.js?v=0.6.34"></script>
+<script src="js/bridge.js?v=0.7.1"></script>
+<script src="js/app.js?v=0.7.1"></script>
   <!-- shell.js imports store/router (versioned inside the module graph);
        standalone tags removed — they created duplicate module instances -->
-  <script type="module" src="js/core/shell.js?v=0.6.34"></script>
-<script src="js/online.js?v=0.6.34"></script>
-<script src="js/vinyl.js?v=0.6.34"></script>
-<script src="js/knob.js?v=0.6.34"></script>
-<script src="js/seek.js?v=0.6.34"></script>
+  <script type="module" src="js/core/shell.js?v=0.7.1"></script>
+<script src="js/online.js?v=0.7.1"></script>
+<script src="js/vinyl.js?v=0.7.1"></script>
+<script src="js/knob.js?v=0.7.1"></script>
+<script src="js/seek.js?v=0.7.1"></script>
 
 </body>
 </html>

@@ -8,8 +8,8 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 import { html, render, useState, useEffect, useRef, useMemo } from '../../vendor/htm-preact.js';
-import Store from './store.js?v=0.6.1';
-import Router from './router.js?v=0.6.1';
+import Store from './store.js?v=0.7.1';
+import Router from './router.js?v=0.7.1';
 
 // ─── Shared hooks ─────────────────────────────────────────────────────────────
 
@@ -295,7 +295,7 @@ function TransportBar() {
 
     <div class="transport-center">
       <div class="transport-btns">
-        <button class="lcd-btn ${shuffleMode ? 'lcd-on' : ''}" title="Shuffle" aria-label="Shuffle" onClick=${cycleShuffle}>
+        <button class="lcd-btn ${shuffleMode ? 'lcd-on' : ''}" title=${['Shuffle: Off', 'Shuffle: On', 'Shuffle: Smart Radio'][shuffleMode]} aria-label=${['Shuffle: Off', 'Shuffle: On', 'Shuffle: Smart Radio'][shuffleMode]} onClick=${cycleShuffle}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
         </button>
         <button class="lcd-btn" title="Previous" aria-label="Previous track" onClick=${() => transport().prev?.()}>
@@ -311,8 +311,9 @@ function TransportBar() {
         <button class="lcd-btn" title="Next" aria-label="Next track" onClick=${() => transport().next?.()}>
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
         </button>
-        <button class="lcd-btn ${repeatMode ? 'lcd-on' : ''}" title="Repeat" aria-label="Repeat" onClick=${cycleRepeat}>
+        <button class="lcd-btn ${repeatMode ? 'lcd-on' : ''}" title=${['Repeat: Off', 'Repeat: One', 'Repeat: All'][repeatMode]} aria-label=${['Repeat: Off', 'Repeat: One', 'Repeat: All'][repeatMode]} onClick=${cycleRepeat}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+          ${repeatMode === 1 ? html`<span class="mode-badge">1</span>` : null}
         </button>
       </div>
       <div class="lcd-seek-row">
