@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Musico Online
+GenericName=Music Player
+Comment=Local-first music player with an online catalog
+Exec=musico-online %U
+Icon=io.github.aryan007h.MusicoOnline
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;player;audio;stream;library;playlist;
+StartupNotify=true
+StartupWMClass=musico-online

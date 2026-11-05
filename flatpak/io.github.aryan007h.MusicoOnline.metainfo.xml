@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.aryan007h.MusicoOnline</id>
+
+  <name>Musico Online</name>
+  <summary>Local-first music player with an online catalog</summary>
+
+  <developer id="io.github.aryan007h">
+    <name>Musico Online contributors</name>
+  </developer>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Musico Online is a desktop music player that keeps your library, playlists,
+      listening history and recommendations on your own machine. It combines a
+      local folder scanner and a real audio engine with an online catalog layer,
+      so music you own and music you find live in one library.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Search and play from public online catalogs, with album, artist and playlist pages.</li>
+      <li>Scan local folders and manage saved albums, artists, tracks and playlists.</li>
+      <li>Batch downloads with a configurable disk cache, retry and resume.</li>
+      <li>Synced lyrics with karaoke highlighting, romanization and translation.</li>
+      <li>Gapless playback, crossfade, equalizer, loudness normalization and AutoEQ profiles.</li>
+      <li>An on-device recommender that learns from listens, skips, likes and audio features.</li>
+      <li>Native media integration: MPRIS on Linux, SMTC on Windows, Now Playing on macOS.</li>
+    </ul>
+    <p>
+      No account is required and no listening data is uploaded. The online
+      catalog depends on third-party services, so availability of individual
+      tracks can vary over time.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.aryan007h.MusicoOnline.desktop</launchable>
+
+  <url type="homepage">https://github.com/ARYAN007H/Musico-online</url>
+  <url type="bugtracker">https://github.com/ARYAN007H/Musico-online/issues</url>
+  <url type="vcs-browser">https://github.com/ARYAN007H/Musico-online</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>The library in the light theme</caption>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/library-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The library in the dark theme</caption>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/library-dark.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Compact window layout</caption>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/library-compact.png</image>
+    </screenshot>
+  </screenshots>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>player</keyword>
+    <keyword>audio</keyword>
+    <keyword>playlist</keyword>
+    <keyword>lyrics</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.8.0" date="2026-11-05">
+      <description>
+        <p>Packaging release: Flathub distribution and a GitHub-namespace app id.</p>
+      </description>
+    </release>
+  </releases>
+</component>
