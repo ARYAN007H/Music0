@@ -137,6 +137,7 @@ const App = (() => {
         setNowPlayingUi(ps.current_song);
         // No Playing event fires for a restored song — fill the extras now.
         resetNpExtras(ps.current_song);
+        loadCover(ps.current_song);
         updateProgress();
       }
       state.isPlaying = ps.status === 'Playing';
@@ -193,10 +194,15 @@ const App = (() => {
     if (typeof s.shuffle_mode === 'number') {
       state.shuffleMode = s.shuffle_mode;
       document.getElementById('btn-shuffle')?.classList.toggle('active', s.shuffle_mode > 0);
+      // The transport pill reads the store, not this controller — publish so
+      // a persisted Repeat One / Smart Radio is visible on startup (#86-class
+      // "next just restarts" confusion: repeat-one replayed silently).
+      window.MusicoStore?.set('shuffleMode', s.shuffle_mode);
     }
     if (typeof s.repeat_mode === 'number') {
       state.repeatMode = s.repeat_mode;
       document.getElementById('btn-repeat')?.classList.toggle('active', s.repeat_mode > 0);
+      window.MusicoStore?.set('repeatMode', s.repeat_mode);
     }
     updateModeIndicator();
     // Normalization pills
@@ -566,6 +572,12 @@ const App = (() => {
     if (s.currentSong && String(s.currentSong.id).startsWith('yt:')) {
       thumb = window.Online?.trackMap?.get(String(s.currentSong.id).slice(3))?.thumbnail || null;
     }
+    // Disk-cached cover (local files and resolved online tracks) — the pill's
+    // art square otherwise shows the deterministic gradient forever, even for
+    // songs with real embedded art.
+    if (s.currentSong) {
+      thumb = thumb || coverCache.get(String(s.currentSong.id)) || null;
+    }
     window.MusicoStore?.set('playback', {
       hasSong: !!s.currentSong,
       id: s.currentSong?.id || null,
@@ -625,15 +637,45 @@ const App = (() => {
   // ─── Cover Art (disk-cached thumbnails, fetched per song) ─────────────────
   const coverCache = new Map();
 
+  // Art source precedence for the big-player art square: disk-cached cover
+  // (local files AND online tracks — resolve caches the art too) → live
+  // online thumbnail → null (deterministic gradient + placeholder icon).
+  function npArtSource(song, coverUrl) {
+    if (coverUrl) return coverUrl;
+    const id = String(song?.id || '');
+    if (id.startsWith('yt:')) {
+      return window.Online?.trackMap?.get(id.slice(3))?.thumbnail || null;
+    }
+    return null;
+  }
+
+  // Paints the big-player art square.  The vinyl view has its own controller
+  // (Vinyl.setAlbumArt) — this is the square's missing half: without it the
+  // fetched cover only ever reached the vinyl, and the expanded player sat
+  // on the placeholder gradient forever.
+  function setNpArt(song, coverUrl) {
+    const el = document.getElementById('np-art');
+    if (!el) return;
+    const grad = artFor(song);
+    const url = npArtSource(song, coverUrl);
+    el.style.background = url ? `url("${url}") center/cover no-repeat, ${grad}` : grad;
+    const icon = el.querySelector('.np-art-icon');
+    if (icon) icon.style.display = url ? 'none' : '';
+  }
+
   function loadCover(song) {
     if (coverCache.has(song.id)) {
       Vinyl.setAlbumArt(coverCache.get(song.id));
+      setNpArt(song, coverCache.get(song.id));
       return;
     }
     Bridge.invoke('get_cover', { songId: song.id }).then((url) => {
       coverCache.set(song.id, url ?? null);
       if (state.currentSong && state.currentSong.id === song.id) {
         Vinyl.setAlbumArt(url ?? null);
+        // null just means "not cached yet" — setNpArt falls back to the
+        // live online thumbnail, then the gradient.
+        setNpArt(song, url ?? null);
       }
     });
   }
@@ -860,13 +902,10 @@ const App = (() => {
     // One art identity across vinyl label + art square (real covers override later)
     const grad = artFor(song);
     document.getElementById('vinyl-label')?.style.setProperty('--art-grad', grad);
-    // Art square (normal-mode now playing) + reset any online thumbnail
-    const npArt = document.getElementById('np-art');
-    if (npArt) {
-      npArt.style.background = grad;
-      const icon = npArt.querySelector('.np-art-icon');
-      if (icon) icon.style.display = '';
-    }
+    // Art square (normal-mode now playing): cached cover / live online thumb
+    // when known, deterministic gradient + placeholder icon otherwise.  The
+    // disk cover lands async via loadCover() below.
+    setNpArt(song, null);
 
     // Reflect persisted like state for this song
     state.isLiked = likedSongs.has(song.id);
@@ -1396,6 +1435,7 @@ const App = (() => {
   function cycleShuffle() {
     state.shuffleMode = (state.shuffleMode + 1) % 3;
     document.getElementById('btn-shuffle').classList.toggle('active', state.shuffleMode > 0);
+    window.MusicoStore?.set('shuffleMode', state.shuffleMode);
     updateModeIndicator();
     Bridge.invoke('set_playback_modes', { shuffle: state.shuffleMode, repeat: state.repeatMode });
   }
@@ -1403,6 +1443,7 @@ const App = (() => {
   function cycleRepeat() {
     state.repeatMode = (state.repeatMode + 1) % 3;
     document.getElementById('btn-repeat').classList.toggle('active', state.repeatMode > 0);
+    window.MusicoStore?.set('repeatMode', state.repeatMode);
     updateModeIndicator();
     Bridge.invoke('set_playback_modes', { shuffle: state.shuffleMode, repeat: state.repeatMode });
   }
@@ -1432,6 +1473,11 @@ const App = (() => {
       repeatBtn.title = repeatNames[state.repeatMode];
       repeatBtn.setAttribute('aria-label', repeatNames[state.repeatMode]);
       repeatBtn.setAttribute('aria-pressed', String(state.repeatMode > 0));
+      // AM parity: Repeat One is a distinct state — badge it, don't just
+      // share Repeat All's "active" tint (a silently lit Repeat One is what
+      // made Next "mysteriously" replay the same track).
+      const badge = repeatBtn.querySelector('.mode-badge');
+      if (badge) badge.hidden = state.repeatMode !== 1;
     }
   }
 

@@ -439,6 +439,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   width: 48px;
   height: 48px;
   border-radius: var(--radius-circle);
@@ -449,6 +450,28 @@
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
 }
+
+/* Repeat-One marker (AM parity): a small "1" pinned to the button — the
+   state is otherwise invisible on the pill, which read as "Repeat off"
+   while Next kept replaying the same track. */
+.transport-btn .mode-badge,
+.lcd-btn .mode-badge {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent, #9d8cff);
+  color: var(--text-on-accent, #fff);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+.lcd-btn { position: relative; }
 
 .transport-btn svg {
   width: 20px;

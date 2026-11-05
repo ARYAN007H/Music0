@@ -74,7 +74,11 @@ pub fn play_song(handle: AppHandle, state: State<AppState>, song: SongMeta) -> R
     let eng = engine(&state)?;
     {
         let mut q = state.queue.lock().unwrap_or_else(|e| e.into_inner());
-        q.push_back(song.into());
+        // Front, not back: the popped song must be the one the user clicked.
+        // push_back + next() played the queue HEAD whenever anything was
+        // already queued (the clicked track silently appended instead) —
+        // same concurrency fix online_play got.
+        q.push_front(song.into());
         let next_song = q.next().ok_or("Failed to enqueue song")?;
         drop(q);
         crate::event_bridge::play_and_track(&eng, &state, next_song)
