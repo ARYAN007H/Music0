@@ -22,7 +22,7 @@
 | Stability | zero uncaught panics in an 8 h soak; every fallible path returns a user-visible error state | soak + error-injection tests |
 | Offline behavior | app is fully usable offline (downloads, local library, cached art); network features show non-blocking empty states | airplane-mode test |
 | Catalog scale | any search/browse page paginates indefinitely; no O(N) UI jank past 10k items | synthetic library test |
-| Data hygiene | stream cache ≤ cap (1 GB default), art cache ≤ 200 MB, DB compacts | unit tests + storage manager UI |
+| Data hygiene | stream cache ≤ cap (1 GB default), art cache ≤ 200 MB target (not yet enforced), DB compacts | unit tests + storage manager UI |
 
 Non-goals (deliberately out): accounts, cloud sync, social, lyrics licensing, video podcasts,
 DRM content. Everything else in Apple Music's desktop IA is in scope or explicitly deferred to
@@ -153,7 +153,7 @@ indexer so the whole v2 engine works on online music.
 
 ### 3.3 Cache tiers
 1. In-memory: parsed shelves/models, LRU 64 entries (search already does this).
-2. Disk art: `~/.cache/musico-online/covers` (200 MB cap, LRU).
+2. Disk art: `~/.cache/musico-online/covers` (200 MB target; no pruning shipped in v0.7.0).
 3. Disk streams: `~/.cache/musico-online/online` (1 GB cap default, LRU — shipped).
 4. DB: library/history/feeds (sled).
 **Decision (Phase 0): this app moves to its own data dirs** (`~/.local/share/musico-online`,
@@ -276,9 +276,11 @@ accounts.
   quiet skip-ahead for queue entries with missing files (stat pre-flight, ≤5).
 - **D. Concurrency**: identical in-flight InnerTube requests coalesce onto one
   round-trip (waiters hold no throttle slot; waiter timeout evicts a dead leader).
-- **Flagged, not changed**: online-radio advance ignores the Autoplay toggle
-  (`advance_from` step 3 has no `autoplay` check) though C1.3 says it should gate it —
-  one-line fix pending a decision with the queue-panel work.
+- **Follow-up (fixed in v0.7.0)**: online-radio advance originally ignored the
+  Autoplay toggle (`advance_from` step 3 had no `autoplay` check) though C1.3
+  says it should gate it. Both the advance branch and the radio warmup now
+  require `settings.autoplay`; with Autoplay off, a finished queue stops instead
+  of fetching related tracks.
 
 ### Phase 4 — Library & downloads at scale
 - **C4.1 Library DB + pages**: Recently Added / Albums / Artists / Songs (A–Z jump rail,

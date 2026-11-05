@@ -1,0 +1,167 @@
+name: Bug report
+description: Report a reproducible defect in Musico Online.
+title: "[bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before opening an issue, check
+        [docs/troubleshooting.md](https://github.com/ARYAN007H/Musico-online/blob/main/docs/troubleshooting.md)
+        — it covers startup, playback, online sources, cache, settings, and
+        release problems.
+
+        For a security vulnerability, follow
+        [SECURITY.md](https://github.com/ARYAN007H/Musico-online/blob/main/SECURITY.md)
+        instead of opening a public issue.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I can reproduce this on the latest `main` or the latest release.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version and commit
+      description: "Output of: grep '^version' src-tauri/Cargo.toml && git rev-parse --short HEAD"
+      placeholder: "0.7.0 / a1b2c3d"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options:
+        - Development build (`cargo tauri dev` / `cargo tauri build`)
+        - Linux deb / rpm / AppImage
+        - macOS DMG
+        - Windows MSI / NSIS / portable exe
+        - Android APK (local build)
+        - Web preview (`npm run dev`)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Android
+        - Other / browser
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Local library / scanning
+        - Playback / audio device
+        - Queue / autoplay / radio
+        - Online search or browse
+        - Stream resolution / downloads
+        - Lyrics
+        - Recommender / stats / playlists
+        - Settings / persistence
+        - UI / frontend
+        - Build / release / packaging
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: track
+    attributes:
+      label: Track or source involved
+      description: For playback or online issues, say whether the track was local, `yt:`, or `saavn:`, and include the ids if you have them.
+      placeholder: "yt:dQw4w9WgXcQ — resolved to the wrong version"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, in order. Include the music folder layout or a minimal fixture if scanning is involved.
+      placeholder: |
+        1. Open Settings and choose ...
+        2. Play ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error text shown in the UI, if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Reproduce with debug logging, then paste the relevant excerpt:
+
+        ```sh
+        RUST_LOG=debug cargo tauri dev
+        tail -n 200 ~/.local/share/musico-online/musico.log
+        ```
+
+        Remove personal file paths you do not want public. There is no telemetry.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste the results of these commands from the webview console.
+      value: |
+        await Bridge.invoke('get_platform_capabilities')
+        await Bridge.invoke('online_available')
+        await Bridge.invoke('online_cache_usage')
+        await Bridge.invoke('get_offline')
+      render: js
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: conditions
+    attributes:
+      label: Conditions
+      options:
+        - label: Airplane Mode was on when the issue occurred.
+        - label: The issue also happens with a fresh settings file.
+        - label: The issue also happens after clearing the stream cache.
+        - label: The issue is specific to a particular audio device.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Screenshots, recordings, OS/desktop-environment details, or anything else that narrows this down.
+    validations:
+      required: false

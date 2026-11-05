@@ -1,0 +1,85 @@
+name: Feature request
+description: Propose a capability or a change in behavior.
+title: "[feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Musico Online is deliberately local-first. Accounts, cloud sync,
+        social feeds, DRM content, and lyrics licensing are out of scope
+        (see `ROADMAP.md §0`). Proposals that fit the existing model are much
+        more likely to land.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I read `ROADMAP.md` and this is not already planned or rejected.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem does this solve? Describe the situation, not only the proposed UI.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the app do? Include IPC, storage, or resolver implications if you know them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, workarounds, or existing behavior that could already cover this.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Local library / scanning
+        - Playback / audio device
+        - Queue / autoplay / radio
+        - Online search or browse
+        - Stream resolution / downloads
+        - Lyrics
+        - Recommender / stats / playlists
+        - Settings / persistence
+        - UI / frontend
+        - Build / release / packaging
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: Confirm the proposal respects the product constraints.
+      options:
+        - label: This works offline or degrades gracefully when offline.
+        - label: This does not require an account, telemetry, or a project-hosted backend.
+        - label: This does not add DRM or licensed-lyrics content.
+        - label: I am willing to help test or implement this.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Sketches, screenshots from other players, prior art, or links to relevant code.
+    validations:
+      required: false

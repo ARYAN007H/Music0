@@ -355,7 +355,7 @@ pub fn apply_settings_to_engine(
     }
 }
 
-/// Applies and persists settings to ~/.config/musico/settings.json.
+/// Applies and persists settings to ~/.config/musico-online/settings.json.
 #[tauri::command]
 pub fn save_settings(state: State<AppState>, settings: AppSettings) -> Result<(), String> {
     settings.save()?;

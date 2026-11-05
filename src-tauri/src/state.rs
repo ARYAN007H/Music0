@@ -72,7 +72,7 @@ impl AppState {
     }
 }
 
-/// Opens the sled DB at ~/.local/share/musico/db. If the DB still holds
+/// Opens the sled DB at ~/.local/share/musico-online/db. If the DB still holds
 /// UUID-era song ids (from the Iced app), it is cleared once so all ids
 /// agree with the stable path-hash scheme; a marker file records this.
 fn init_recommender() -> Option<Arc<Mutex<MusicRecommender>>> {
@@ -141,7 +141,7 @@ impl From<SongInfo> for SongMeta {
 }
 
 /// Persisted app settings live in `crate::config::AppSettings` (loaded/saved
-/// to `~/.config/musico/settings.json`).
+/// to `~/.config/musico-online/settings.json`).
 
 #[cfg(test)]
 mod tests {

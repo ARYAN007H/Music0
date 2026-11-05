@@ -68,7 +68,7 @@ fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Logs go to ~/.local/share/musico/musico.log (and stderr when RUST_LOG
+    // Logs go to ~/.local/share/musico-online/musico.log (and stderr when RUST_LOG
     // is set explicitly, for development).
     let mut builder = env_logger::Builder::new();
     builder.filter_level(log::LevelFilter::Info);

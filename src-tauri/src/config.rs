@@ -1,6 +1,6 @@
 //! # Musico — Settings Persistence
 //!
-//! Loads/saves user preferences to `~/.config/musico/settings.json`.
+//! Loads/saves user preferences to `~/.config/musico-online/settings.json`.
 //! All fields have serde defaults so old/partial config files stay loadable.
 
 use std::path::PathBuf;

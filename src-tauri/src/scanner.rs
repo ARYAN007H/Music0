@@ -4,7 +4,7 @@
 //! for tags (title/artist/album), duration, and embedded cover art. No packet
 //! decoding — full feature analysis is the recommender's job (C5).
 //!
-//! Cover art is downscaled and cached on disk (`~/.cache/musico/covers/`) so
+//! Cover art is downscaled and cached on disk (`~/.cache/musico-online/covers/`) so
 //! the app's RAM stays flat no matter how big the library is.
 //!
 //! Scanning runs on its own thread and reports progress via Tauri events:
