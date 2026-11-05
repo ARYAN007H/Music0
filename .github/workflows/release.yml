@@ -147,9 +147,74 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  android:
+    name: Android aarch64 (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable (android target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Java 17 (Gradle + apksigner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Tauri CLI
+        run: npm install --global "@tauri-apps/cli@^2"
+
+      - name: Android SDK environment
+        run: |
+          # SDK + NDK ship preinstalled on ubuntu-latest runners.
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | sort -V | tail -1)
+          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+      - name: Build APK (aarch64)
+        # tauri.android.conf.json lowers the app id for the Android package
+        # (Java namespaces are lowercase; the desktop identifier keeps its
+        # case for Flatpak).  Pure-Rust resolvers stream on-device — no
+        # yt-dlp on Android.
+        run: |
+          tauri android init
+          tauri android build --apk --target aarch64
+
+      - name: Collect and sign APK
+        run: |
+          mkdir -p dist
+          UNSIGNED=$(ls src-tauri/gen/android/app/build/outputs/apk/aarch64/release/*-release-unsigned.apk)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/musico.keystore
+          "$BT/zipalign" -f 4 "$UNSIGNED" /tmp/musico-aligned.apk
+          "$BT/apksigner" sign \
+            --ks /tmp/musico.keystore \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass pass:"$ANDROID_KEYSTORE_PASSWORD" \
+            --key-pass pass:"$ANDROID_KEY_PASSWORD" \
+            --out dist/musico-online-android-aarch64.apk /tmp/musico-aligned.apk
+          "$BT/apksigner" verify dist/musico-online-android-aarch64.apk
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-android
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish release
-    needs: [linux, macos, windows]
+    needs: [linux, macos, windows, android]
     # Dispatch runs exist to VERIFY the platform jobs; only tags release
     # (a dispatch ref has no tag — action-gh-release errors harmlessly,
     # but skipping keeps the verification run green).
@@ -182,6 +247,6 @@ jobs:
             **Linux** — `.deb` / `.rpm` / `.AppImage`, or the bare binary in the `.tar.gz`.
             **macOS** — universal `.dmg` (Apple Silicon + Intel). Unsigned: on first open, right-click the app → **Open** (or `xattr -cr /Applications/Musico\ Online.app`).
             **Windows** — `.msi` / `.exe` installer (or standalone `musico-online-windows-x86_64.exe`).
-            **Android APK** — build locally or in CI with `tauri android init && tauri android build --apk` (uses the pure-Rust InnerTube/Piped/Saavn resolver + AAudio).
+            **Android** — signed `musico-online-android-aarch64.apk` (64-bit ARM; every modern phone). Streaming runs on the pure-Rust InnerTube/Piped/Saavn resolvers + AAudio — no yt-dlp on device.
             **iOS & Mobile Web** — open in Safari/Chrome and tap **Install App** / **Add to Home Screen** for full standalone PWA + Lock-Screen MediaSession controls.
 
