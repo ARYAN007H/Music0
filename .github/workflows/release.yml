@@ -190,6 +190,12 @@ jobs:
         # yt-dlp on Android.
         run: |
           npm run tauri -- android init
+          # The Rust lib links libc++_shared (cpal → oboe is C++; build.rs
+          # adds the DT_NEEDED) — AGP only packs it when it sits in jniLibs.
+          # The NDK ships the per-ABI copy.
+          mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
+          cp "$NDK_HOME/sources/cxx-stl/llvm-libc++/libs/arm64-v8a/libc++_shared.so" \
+            src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
           npm run tauri -- android build --apk --target aarch64
 
       - name: Collect and sign APK
