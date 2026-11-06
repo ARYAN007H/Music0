@@ -37,7 +37,7 @@ const API_TIMEOUT: Duration = Duration::from_secs(5);
 /// A search candidate's duration must be within this window of the song.
 const DURATION_WINDOW_SECS: f64 = 2.0;
 /// Requests identify the app per LRCLIB's etiquette (no key, community API).
-const USER_AGENT: &str = concat!("Musico/", env!("CARGO_PKG_VERSION"), " (github.com/ARYAN007H/Musico-online)");
+const USER_AGENT: &str = concat!("Musico/", env!("CARGO_PKG_VERSION"), " (github.com/ARYAN007H/Music0)");
 
 /// One timed lyric line for the karaoke highlighter.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,14 +5,14 @@ as the `.deb`/`.rpm`/`.AppImage` builds, packaged for the Flathub sandbox.
 
 | File | Purpose |
 |---|---|
-| `io.github.aryan007h.MusicoOnline.yml` | The manifest: runtime, permissions, modules, sources |
-| `io.github.aryan007h.MusicoOnline.metainfo.xml` | AppStream metadata shown in software centres |
-| `io.github.aryan007h.MusicoOnline.desktop` | Desktop entry and `StartupWMClass` |
+| `io.github.aryan007h.Music0.yml` | The manifest: runtime, permissions, modules, sources |
+| `io.github.aryan007h.Music0.metainfo.xml` | AppStream metadata shown in software centres |
+| `io.github.aryan007h.Music0.desktop` | Desktop entry and `StartupWMClass` |
 | `cargo-sources.json` | Vendored crates.io sources for the offline build |
 
 ## App identity
 
-The Flatpak app id is `io.github.aryan007h.MusicoOnline`. It follows Flathub's
+The Flatpak app id is `io.github.aryan007h.Music0`. It follows Flathub's
 GitHub-namespace convention instead of claiming a domain the project does not
 own, and it matches the Tauri identifier in `src-tauri/tauri.conf.json`.
 
@@ -24,27 +24,27 @@ Inside the sandbox those directories appear under the app's private prefix:
 
 | Path | Outside Flatpak | Inside Flatpak |
 |---|---|---|
-| Data | `~/.local/share/musico-online` | `~/.var/app/io.github.aryan007h.MusicoOnline/data/musico-online` |
-| Cache | `~/.cache/musico-online` | `~/.var/app/io.github.aryan007h.MusicoOnline/cache/musico-online` |
-| Config | `~/.config/musico-online` | `~/.var/app/io.github.aryan007h.MusicoOnline/config/musico-online` |
+| Data | `~/.local/share/musico-online` | `~/.var/app/io.github.aryan007h.Music0/data/musico-online` |
+| Cache | `~/.cache/musico-online` | `~/.var/app/io.github.aryan007h.Music0/cache/musico-online` |
+| Config | `~/.config/musico-online` | `~/.var/app/io.github.aryan007h.Music0/config/musico-online` |
 
 ## Build locally
 
 Prerequisites: `flatpak` and `flatpak-builder`, with the Flathub remote
-configured. The manifest pins `org.gnome.Platform//50` and the Rust SDK
+configured. The manifest pins `org.gnome.Platform//51` and the Rust SDK
 extension; `flatpak-builder` installs them on first use.
 
 ```sh
 # one-time: the runtimes the manifest asks for
-flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+flatpak install flathub org.gnome.Platform//51 org.gnome.Sdk//51 \
   org.freedesktop.Sdk.Extension.rust-stable
 
 # build and install the result for the current user
 flatpak-builder --user --install --force-clean \
   --state-dir=build/.flatpak \
-  build io.github.aryan007h.MusicoOnline.yml
+  build io.github.aryan007h.Music0.yml
 
-flatpak run io.github.aryan007h.MusicoOnline
+flatpak run io.github.aryan007h.Music0
 ```
 
 To test a working tree instead of the release tag, point a copy of the manifest
@@ -53,7 +53,7 @@ at the checkout:
 ```yaml
 sources:
   - type: dir
-    path: /absolute/path/to/Musico-online
+    path: /absolute/path/to/Music0
   - cargo-sources.json
 ```
 
@@ -106,5 +106,5 @@ version note here:
 The first submission is a pull request to
 [`flathub/flathub`](https://github.com/flathub/flathub) adding the manifest to
 the repository root. After it merges, Flathub creates
-`flathub/io.github.aryan007h.MusicoOnline`, and subsequent releases are updates
+`flathub/io.github.aryan007h.Music0`, and subsequent releases are updates
 to that repository.

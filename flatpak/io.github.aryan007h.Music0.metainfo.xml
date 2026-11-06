@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.aryan007h.MusicoOnline</id>
+  <id>io.github.aryan007h.Music0</id>
 
   <name>Musico Online</name>
   <summary>Local-first music player with an online catalog</summary>
@@ -36,24 +36,24 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">io.github.aryan007h.MusicoOnline.desktop</launchable>
+  <launchable type="desktop-id">io.github.aryan007h.Music0.desktop</launchable>
 
-  <url type="homepage">https://github.com/ARYAN007H/Musico-online</url>
-  <url type="bugtracker">https://github.com/ARYAN007H/Musico-online/issues</url>
-  <url type="vcs-browser">https://github.com/ARYAN007H/Musico-online</url>
+  <url type="homepage">https://github.com/ARYAN007H/Music0</url>
+  <url type="bugtracker">https://github.com/ARYAN007H/Music0/issues</url>
+  <url type="vcs-browser">https://github.com/ARYAN007H/Music0</url>
 
   <screenshots>
     <screenshot type="default">
       <caption>The home shelves in the light theme</caption>
-      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/home-light.png</image>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Music0/main/docs/screenshots/home-light.png</image>
     </screenshot>
     <screenshot>
       <caption>The home shelves in the dark theme</caption>
-      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/home-dark.png</image>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Music0/main/docs/screenshots/home-dark.png</image>
     </screenshot>
     <screenshot>
       <caption>The audio and DSP panel</caption>
-      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/audio-dsp.png</image>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Music0/main/docs/screenshots/audio-dsp.png</image>
     </screenshot>
   </screenshots>
 
@@ -74,6 +74,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.8.1" date="2026-11-06">
+      <description>
+        <p>Packaging release: the repository moved to Music0 and the app id is now io.github.aryan007h.Music0.</p>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-11-06">
       <description>
         <p>Packaging release: Flathub distribution and a GitHub-namespace app id.</p>

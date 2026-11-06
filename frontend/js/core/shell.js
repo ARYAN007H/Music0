@@ -8,8 +8,8 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 import { html, render, useState, useEffect, useRef, useMemo } from '../../vendor/htm-preact.js';
-import Store from './store.js?v=0.7.1';
-import Router from './router.js?v=0.7.1';
+import Store from './store.js?v=0.8.1';
+import Router from './router.js?v=0.8.1';
 
 // ─── Shared hooks ─────────────────────────────────────────────────────────────
 

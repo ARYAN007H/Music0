@@ -12,6 +12,31 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.8.1-online] - 2026-11-06
+
+Packaging release: the repository is now `ARYAN007H/Music0` and the bundle
+identity follows it.
+
+### Changed
+
+- GitHub repository renamed from `Musico-online` to `Music0`; all project,
+  release, clone and screenshot URLs use the new name.
+- Tauri identifier, Flatpak app id, desktop entry and AppStream metadata are
+  now `io.github.aryan007h.Music0`. Storage paths are unchanged
+  (`~/.local/share/musico-online`, `~/.cache/musico-online`,
+  `~/.config/musico-online`), so there is no data migration.
+- Flatpak runtime updated to `org.gnome.Platform//51`.
+- Flatpak builds `yt-dlp` from its shipped Python sources instead of
+  installing the prebuilt zipapp from the release tarball.
+- Removed the unnecessary `xdg-download` filesystem permission; downloads stay
+  in the app-private cache.
+- Removed the redundant `--own-name` for the app id (Flatpak grants the app's
+  own name automatically).
+
+### Fixed
+
+- Bundle homepage and packaging metadata point at the new repository URL.
+
 ## [0.8.0-online] - 2026-11-06
 
 Packaging release: the app is now distributed as a Flatpak, and the bundle
@@ -173,8 +198,10 @@ online companion app and its release pipeline.
 - **Release pipeline** — tag-driven Linux and macOS builds with checksums and
   GitHub Releases.
 
-[Unreleased]: https://github.com/ARYAN007H/Musico-online/compare/v0.7.0-online...HEAD
-[0.7.0-online]: https://github.com/ARYAN007H/Musico-online/compare/v0.6.1-online...v0.7.0-online
-[0.6.1-online]: https://github.com/ARYAN007H/Musico-online/compare/v0.6.0-online...v0.6.1-online
-[0.6.0-online]: https://github.com/ARYAN007H/Musico-online/compare/v0.5.0-online...v0.6.0-online
-[0.5.0-online]: https://github.com/ARYAN007H/Musico-online/releases/tag/v0.5.0-online
+[Unreleased]: https://github.com/ARYAN007H/Music0/compare/v0.8.1-online...HEAD
+[0.8.1-online]: https://github.com/ARYAN007H/Music0/compare/v0.8.0-online...v0.8.1-online
+[0.8.0-online]: https://github.com/ARYAN007H/Music0/compare/v0.7.0-online...v0.8.0-online
+[0.7.0-online]: https://github.com/ARYAN007H/Music0/compare/v0.6.1-online...v0.7.0-online
+[0.6.1-online]: https://github.com/ARYAN007H/Music0/compare/v0.6.0-online...v0.6.1-online
+[0.6.0-online]: https://github.com/ARYAN007H/Music0/compare/v0.5.0-online...v0.6.0-online
+[0.5.0-online]: https://github.com/ARYAN007H/Music0/releases/tag/v0.5.0-online

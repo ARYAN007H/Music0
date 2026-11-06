@@ -29,9 +29,8 @@
 //! mistaken for a cached track. Instances that bot-wall or return HTML fail
 //! these checks in milliseconds and failover continues.
 //!
-//! Like the rest of `online`, this is ToS-gray-area scraping code: it lives
-//! in this standalone repo, never in the public Musico (offline) release
-//! repo.
+//! Like the rest of `online`, this module is kept in this standalone
+//! repository so the offline player can be built and shipped without it.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;

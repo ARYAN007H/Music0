@@ -9,7 +9,7 @@ The streaming layer uses the same public technique as Metrolist / InnerTune /
 RiMusic (InnerTube + direct-URL resolvers + yt-dlp). It lives here, **not** in
 the offline Musico release, and is intended for personal use.
 
-**Status:** v0.7.1 (`v0.7.1-online`) · Linux · macOS · Windows · Android
+**Status:** v0.8.1 (`v0.8.1-online`) · Linux · macOS · Windows · Android
 (signed APK from CI) · installable mobile PWA.
 
 <p align="center">
@@ -56,7 +56,7 @@ the offline Musico release, and is intended for personal use.
 ## Install
 
 Download the latest bundles from
-[GitHub Releases](https://github.com/ARYAN007H/Musico-online/releases/latest).
+[GitHub Releases](https://github.com/ARYAN007H/Music0/releases/latest).
 
 | Platform | Artifacts |
 |---|---|
@@ -95,8 +95,8 @@ tests, the Tauri 2 CLI, and your platform's Tauri system dependencies. The full
 list is in [docs/development.md](docs/development.md).
 
 ```sh
-git clone https://github.com/ARYAN007H/Musico-online.git
-cd Musico-online
+git clone https://github.com/ARYAN007H/Music0.git
+cd Music0
 
 # Rust app
 cargo build -p musico-online
@@ -146,7 +146,7 @@ sandbox and is the packaging used for Flathub:
 ```sh
 flatpak-builder --user --install --force-clean \
   --state-dir=build/.flatpak \
-  build flatpak/io.github.aryan007h.MusicoOnline.yml
+  build flatpak/io.github.aryan007h.Music0.yml
 ```
 
 See [docs/flatpak.md](docs/flatpak.md) for permissions, sandbox paths and the

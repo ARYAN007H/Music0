@@ -72,4 +72,4 @@ disk work, and anything intentionally left out of scope.
 - [ ] Security-sensitive input (URLs, ids, filenames, downloaded bytes) is validated at the boundary.
 - [ ] Docs are updated when behavior, setup, IPC, or architecture changes.
 - [ ] `CHANGELOG.md` has an entry for user-visible changes.
-- [ ] I have read [CONTRIBUTING.md](https://github.com/ARYAN007H/Musico-online/blob/main/CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](https://github.com/ARYAN007H/Musico-online/blob/main/CODE_OF_CONDUCT.md).
+- [ ] I have read [CONTRIBUTING.md](https://github.com/ARYAN007H/Music0/blob/main/CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](https://github.com/ARYAN007H/Music0/blob/main/CODE_OF_CONDUCT.md).

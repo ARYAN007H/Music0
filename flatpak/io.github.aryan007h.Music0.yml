@@ -1,6 +1,6 @@
-app-id: io.github.aryan007h.MusicoOnline
+app-id: io.github.aryan007h.Music0
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
@@ -16,11 +16,9 @@ finish-args:
   # The library scanner reads the user's music; downloads stay in the
   # app-private cache, so no write access to the home directory is needed.
   - --filesystem=xdg-music:ro
-  - --filesystem=xdg-download
-  # MPRIS media controls (org.mpris.MediaPlayer2.musico-online, see identity.rs)
-  # and the single-instance name derived from the app id.
+  # MPRIS media controls (org.mpris.MediaPlayer2.musico-online, see identity.rs).
+  # The app's own D-Bus name is granted automatically from the app id.
   - --own-name=org.mpris.MediaPlayer2.musico-online
-  - --own-name=io.github.aryan007h.MusicoOnline
   - --talk-name=org.freedesktop.Notifications
 
 modules:
@@ -31,8 +29,10 @@ modules:
   - name: yt-dlp
     buildsystem: simple
     build-commands:
-      # The sdist ships a self-contained zipapp with a python3 shebang; the
-      # runtime provides python3, so no pip or extra wheels are needed.
+      # Build the zipapp from the shipped Python sources instead of installing
+      # the prebuilt one from the release tarball. The SDK provides make, zip
+      # and python3; the runtime provides python3 at run time.
+      - make yt-dlp
       - install -Dm755 yt-dlp /app/bin/yt-dlp
       - install -Dm644 yt-dlp.1 /app/share/man/man1/yt-dlp.1
       - install -Dm644 LICENSE /app/share/licenses/yt-dlp/LICENSE
@@ -50,18 +50,18 @@ modules:
     build-commands:
       - cargo build --release --offline --locked -p musico-online
       - install -Dm755 target/release/musico-online /app/bin/musico-online
-      - install -Dm644 flatpak/io.github.aryan007h.MusicoOnline.desktop
-        /app/share/applications/io.github.aryan007h.MusicoOnline.desktop
-      - install -Dm644 flatpak/io.github.aryan007h.MusicoOnline.metainfo.xml
-        /app/share/metainfo/io.github.aryan007h.MusicoOnline.metainfo.xml
+      - install -Dm644 flatpak/io.github.aryan007h.Music0.desktop
+        /app/share/applications/io.github.aryan007h.Music0.desktop
+      - install -Dm644 flatpak/io.github.aryan007h.Music0.metainfo.xml
+        /app/share/metainfo/io.github.aryan007h.Music0.metainfo.xml
       - install -Dm644 src-tauri/icons/128x128.png
-        /app/share/icons/hicolor/128x128/apps/io.github.aryan007h.MusicoOnline.png
+        /app/share/icons/hicolor/128x128/apps/io.github.aryan007h.Music0.png
       - install -Dm644 src-tauri/icons/128x128@2x.png
-        /app/share/icons/hicolor/256x256/apps/io.github.aryan007h.MusicoOnline.png
+        /app/share/icons/hicolor/256x256/apps/io.github.aryan007h.Music0.png
       - install -Dm644 frontend/icons/icon-512.png
-        /app/share/icons/hicolor/512x512/apps/io.github.aryan007h.MusicoOnline.png
+        /app/share/icons/hicolor/512x512/apps/io.github.aryan007h.Music0.png
     sources:
       - type: git
-        url: https://github.com/ARYAN007H/Musico-online.git
-        tag: v0.8.0-online
+        url: https://github.com/ARYAN007H/Music0.git
+        tag: v0.8.1-online
       - cargo-sources.json

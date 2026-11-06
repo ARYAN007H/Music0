@@ -26,8 +26,8 @@
 //! - cache pruning (LRU by mtime, default 1 GB, `MUSICO_ONLINE_CACHE_MB` env override)
 //! - radio picks avoid the last 12 played online tracks (static ring buffer)
 //!
-//! This is ToS-gray-area scraping code: it lives in this standalone repo,
-//! never in the public Musico (offline) release repo.
+//! The online layer lives in this standalone repository so the offline
+//! player stays independent of third-party catalog code.
 
 pub mod catalog;
 pub mod client;

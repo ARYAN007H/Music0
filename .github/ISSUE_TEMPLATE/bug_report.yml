@@ -8,12 +8,12 @@ body:
     attributes:
       value: |
         Thanks for the report. Before opening an issue, check
-        [docs/troubleshooting.md](https://github.com/ARYAN007H/Musico-online/blob/main/docs/troubleshooting.md)
+        [docs/troubleshooting.md](https://github.com/ARYAN007H/Music0/blob/main/docs/troubleshooting.md)
         — it covers startup, playback, online sources, cache, settings, and
         release problems.
 
         For a security vulnerability, follow
-        [SECURITY.md](https://github.com/ARYAN007H/Musico-online/blob/main/SECURITY.md)
+        [SECURITY.md](https://github.com/ARYAN007H/Music0/blob/main/SECURITY.md)
         instead of opening a public issue.
 
   - type: checkboxes
