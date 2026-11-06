@@ -192,17 +192,19 @@ jobs:
           npm run tauri -- android init
           # The Rust lib links libc++_shared (cpal → oboe is C++; build.rs
           # adds the DT_NEEDED) — AGP only packs it when it sits in jniLibs.
-          # NDK ≥ r30 dropped the sources/cxx-stl copies; the runtime lives
-          # in the sysroot per API level — take minSdk's (NDK guidance:
-          # ship the copy matching the app's minimum API).
-          MINSDK=$(grep -oP 'minSdk\s*=\s*\K[0-9]+' \
-            src-tauri/gen/android/app/build.gradle.kts | head -1)
-          MINSDK=${MINSDK:-24}
-          LIBCXX=$(find "$NDK_HOME/toolchains/llvm/prebuilt"/*/sysroot/usr/lib/aarch64-linux-android/$MINSDK \
-            -name libc++_shared.so 2>/dev/null | head -1)
+          # NDK r30 dropped the sources/cxx-stl prebuilts AND the sysroot
+          # copies probed earlier, so hunt for a REAL (non-stub, >100k)
+          # arm64 runtime across every installed NDK, newest first.
+          LIBCXX=""
+          for NDK_DIR in $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
+            LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
+              -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
+            [ -n "$LIBCXX" ] && break
+          done
           if [ -z "$LIBCXX" ]; then
-            echo "libc++_shared.so not found for API $MINSDK" >&2
-            find "$NDK_HOME/toolchains/llvm/prebuilt"/*/sysroot/usr/lib -name 'libc++_shared.so' >&2 || true
+            echo "No real arm64 libc++_shared.so in any installed NDK:" >&2
+            ls "$ANDROID_HOME"/ndk/ >&2
+            find "$ANDROID_HOME"/ndk -name 'libc++_shared.so' 2>/dev/null | head -20 >&2
             exit 1
           fi
           echo "Packing $LIBCXX"
