@@ -40,9 +40,14 @@ All storage paths derive from it:
 - cache: `<dirs::cache_dir>/musico-online/`
 - config: `<dirs::config_dir>/musico-online/`
 
-The Tauri identifier is `dev.musico.online`. The window title and desktop entry
-display name are "Musico Online". No code path resolves a bare `musico`
-directory.
+The Tauri identifier is `io.github.aryan007h.MusicoOnline` — a GitHub-namespaced
+id, required for the Flathub submission, that does not claim a domain the
+project does not own. The window title and desktop entry display name are
+"Musico Online". No code path resolves a bare `musico` directory.
+
+The storage namespace is deliberately independent of the Tauri identifier
+(`musico-online`, not the dotted id), so changing the identifier for packaging
+does not move any user data.
 
 The separate namespace also makes the one-time `db/.stable-ids` migration
 safe: it can clear and rebuild only this app's index without touching the older

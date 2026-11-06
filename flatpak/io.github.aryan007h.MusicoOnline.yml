@@ -3,7 +3,7 @@ runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable//25.08
+  - org.freedesktop.Sdk.Extension.rust-stable
 command: musico-online
 
 finish-args:
@@ -24,6 +24,23 @@ finish-args:
   - --talk-name=org.freedesktop.Notifications
 
 modules:
+  # yt-dlp is the honest last-resort resolver. It must live inside the sandbox
+  # because a Flatpak cannot see the host's PATH; shipping it keeps batch
+  # downloads and the yt-dlp fallback working. Update module and manifest
+  # together when bumping it.
+  - name: yt-dlp
+    buildsystem: simple
+    build-commands:
+      # The sdist ships a self-contained zipapp with a python3 shebang; the
+      # runtime provides python3, so no pip or extra wheels are needed.
+      - install -Dm755 yt-dlp /app/bin/yt-dlp
+      - install -Dm644 yt-dlp.1 /app/share/man/man1/yt-dlp.1
+      - install -Dm644 LICENSE /app/share/licenses/yt-dlp/LICENSE
+    sources:
+      - type: archive
+        url: https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.tar.gz
+        sha256: 21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95
+
   - name: musico-online
     buildsystem: simple
     build-options:
@@ -46,5 +63,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/ARYAN007H/Musico-online.git
-        tag: v0.8.0
+        tag: v0.8.0-online
       - cargo-sources.json

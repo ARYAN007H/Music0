@@ -44,16 +44,16 @@
 
   <screenshots>
     <screenshot type="default">
-      <caption>The library in the light theme</caption>
-      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/library-light.png</image>
+      <caption>The home shelves in the light theme</caption>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/home-light.png</image>
     </screenshot>
     <screenshot>
-      <caption>The library in the dark theme</caption>
-      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/library-dark.png</image>
+      <caption>The home shelves in the dark theme</caption>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/home-dark.png</image>
     </screenshot>
     <screenshot>
-      <caption>Compact window layout</caption>
-      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/library-compact.png</image>
+      <caption>The audio and DSP panel</caption>
+      <image type="source">https://raw.githubusercontent.com/ARYAN007H/Musico-online/main/docs/screenshots/audio-dsp.png</image>
     </screenshot>
   </screenshots>
 
@@ -74,7 +74,7 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
-    <release version="0.8.0" date="2026-11-05">
+    <release version="0.8.0" date="2026-11-06">
       <description>
         <p>Packaging release: Flathub distribution and a GitHub-namespace app id.</p>
       </description>

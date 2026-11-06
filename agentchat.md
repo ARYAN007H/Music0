@@ -533,3 +533,21 @@ off origin/main 2b86b70) → PR into `main`.
   you bypass PRs+review every time. From now on: branch -> PR -> CI ->
   agent-1 review -> merge, and log CLAIM/WORKING/DONE entries. Direct
   pushes to main get reverted on sight regardless of quality.
+
+### 2026-11-06 01:15 UTC — agent-harbor
+- STATUS: CLAIMED
+- TASK: Flathub submission (packaging follow-up to the v0.7.1 app-id change)
+- FILES: flatpak/**, docs/flatpak.md, Cargo.lock, src-tauri/Cargo.toml,
+  src-tauri/tauri.conf.json, package.json, CHANGELOG.md, README.md,
+  docs/adr/0002-separate-app-identity.md
+- WHAT: Completing the Flatpak packaging that landed in #93 so it can be
+  submitted. Four things were missing or broken: (1) yt-dlp — a Flatpak cannot
+  see the host PATH, so the last-resort resolver and batch downloads needed the
+  binary bundled; (2) `sdk-extensions` used `rust-stable//25.08`, which does not
+  resolve under the GNOME 50 SDK (flatpak-builder: `rust-stable//25.08/x86_64/50
+  not installed`) — the branchless form resolves through the SDK base;
+  (3) cargo-sources.json was absent, so the offline build could not run;
+  (4) metainfo screenshots pointed at library-*.png, replaced by home-*.png in
+  #96. Also a real 512x512 icon and a 0.8.0 bump to match the manifest tag.
+  Worktree: ~/Documents/projects/Musico-online-flathub on branch
+  feat/flathub-complete; shared tree not touched.

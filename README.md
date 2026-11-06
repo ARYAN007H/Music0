@@ -138,6 +138,20 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 cargo tauri build --target universal-apple-darwin
 ```
 
+### Flatpak
+
+A Flatpak build lives in [`flatpak/`](flatpak). It bundles `yt-dlp` inside the
+sandbox and is the packaging used for Flathub:
+
+```sh
+flatpak-builder --user --install --force-clean \
+  --state-dir=build/.flatpak \
+  build flatpak/io.github.aryan007h.MusicoOnline.yml
+```
+
+See [docs/flatpak.md](docs/flatpak.md) for permissions, sandbox paths and the
+release checklist.
+
 ### Web / PWA preview
 
 The Express + TypeScript runtime is a demo and UI development environment, not
@@ -216,6 +230,7 @@ Browser suites and the WCAG contrast gate are documented in
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design, threads, crate boundaries, flows, failure model, budgets |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, branch/PR workflow, commits, testing, standards, multi-agent rules |
 | [docs/](docs/README.md) | Deep dives: development, testing, frontend, online stack, storage, IPC, release, troubleshooting |
+| [docs/flatpak.md](docs/flatpak.md) | Flatpak packaging, sandbox permissions, bundled `yt-dlp`, release checklist |
 | [docs/adr/](docs/adr/README.md) | Architecture decision records and their rationale |
 | [SECURITY.md](SECURITY.md) | Supported versions, threat model, reporting, privacy |
 | [CHANGELOG.md](CHANGELOG.md) | Release history from v0.5.0 to v0.7.0 |

@@ -12,6 +12,25 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.8.0-online] - 2026-11-06
+
+Packaging release: the app is now distributed as a Flatpak, and the bundle
+identity moved to a GitHub namespace.
+
+### Added
+
+- Flatpak manifest, AppStream metadata and desktop entry under `flatpak/`, with
+  `yt-dlp` bundled inside the sandbox so downloads work out of the box.
+- `docs/flatpak.md` covering local builds, sandbox differences and permissions.
+
+### Changed
+
+- Tauri identifier is now `io.github.aryan007h.MusicoOnline`. Storage paths are
+  unchanged (`~/.local/share/musico-online`, `~/.cache/musico-online`,
+  `~/.config/musico-online`), so there is no data migration.
+- `frontend/icons/icon-512.png` is a real 512×512 render instead of a 256×256
+  file named as if it were 512.
+
 ### Fixed
 
 - Windows: namespaced stream-cache files replace `:` with `_` in the filename
