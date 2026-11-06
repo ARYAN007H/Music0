@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicehash/tauri/v2/crates/tauri-cli/schema.json",
   "productName": "Musico Online",
-  "version": "0.8.0",
-  "identifier": "io.github.aryan007h.MusicoOnline",
+  "version": "0.8.1",
+  "identifier": "io.github.aryan007h.Music0",
   "build": {
     "frontendDist": "../frontend",
     "devUrl": "http://localhost:1420",
@@ -37,7 +37,7 @@
     "publisher": "Musico Online",
     "category": "Music",
     "copyright": "Copyright (c) 2026 Aryan. MIT License.",
-    "homepage": "https://github.com/ARYAN007H/Musico-online",
+    "homepage": "https://github.com/ARYAN007H/Music0",
     "shortDescription": "Free online music, Apple-style: search and stream millions of tracks, no ads.",
     "icon": [
       "icons/32x32.png",

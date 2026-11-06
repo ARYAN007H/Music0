@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Troubleshooting and setup help
-    url: https://github.com/ARYAN007H/Musico-online/blob/main/docs/troubleshooting.md
+    url: https://github.com/ARYAN007H/Music0/blob/main/docs/troubleshooting.md
     about: Diagnose startup, library, playback, online, cache, and release problems before opening an issue.
   - name: Documentation index
-    url: https://github.com/ARYAN007H/Musico-online/blob/main/docs/README.md
+    url: https://github.com/ARYAN007H/Music0/blob/main/docs/README.md
     about: Architecture, development, testing, IPC, data storage, and release guides.
   - name: Report a security vulnerability
-    url: https://github.com/ARYAN007H/Musico-online/security/policy
+    url: https://github.com/ARYAN007H/Music0/security/policy
     about: Please report vulnerabilities privately, not in a public issue.

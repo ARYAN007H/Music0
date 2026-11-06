@@ -109,8 +109,8 @@ The pure-Rust resolver pool exists so Android can play without spawning
 ## Quick start
 
 ```sh
-git clone https://github.com/ARYAN007H/Musico-online.git
-cd Musico-online
+git clone https://github.com/ARYAN007H/Music0.git
+cd Music0
 
 # Rust workspace
 cargo build -p musico-online

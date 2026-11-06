@@ -1,4 +1,4 @@
-const CACHE_NAME = 'musico-shell-v0.7.1';
+const CACHE_NAME = 'musico-shell-v0.8.1';
 const SHELL_ASSETS = [
   '/',
   '/index.html',

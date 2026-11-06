@@ -22,7 +22,7 @@ and `main` are the most useful.
 
 Use GitHub's private vulnerability reporting:
 
-<https://github.com/ARYAN007H/Musico-online/security/advisories/new>
+<https://github.com/ARYAN007H/Music0/security/advisories/new>
 
 If that link is unavailable, contact the maintainer
 [@ARYAN007H](https://github.com/ARYAN007H) privately through GitHub and ask for
