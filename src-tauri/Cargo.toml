@@ -1,6 +1,6 @@
 [package]
 name = "musico-online"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2021"
 rust-version = "1.78"
 description = "Musico Online — clean-room Apple Music-class player on free sources"
