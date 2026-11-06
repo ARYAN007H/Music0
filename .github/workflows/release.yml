@@ -192,10 +192,22 @@ jobs:
           npm run tauri -- android init
           # The Rust lib links libc++_shared (cpal → oboe is C++; build.rs
           # adds the DT_NEEDED) — AGP only packs it when it sits in jniLibs.
-          # The NDK ships the per-ABI copy.
+          # NDK ≥ r30 dropped the sources/cxx-stl copies; the runtime lives
+          # in the sysroot per API level — take minSdk's (NDK guidance:
+          # ship the copy matching the app's minimum API).
+          MINSDK=$(grep -oP 'minSdk\s*=\s*\K[0-9]+' \
+            src-tauri/gen/android/app/build.gradle.kts | head -1)
+          MINSDK=${MINSDK:-24}
+          LIBCXX=$(find "$NDK_HOME/toolchains/llvm/prebuilt"/*/sysroot/usr/lib/aarch64-linux-android/$MINSDK \
+            -name libc++_shared.so 2>/dev/null | head -1)
+          if [ -z "$LIBCXX" ]; then
+            echo "libc++_shared.so not found for API $MINSDK" >&2
+            find "$NDK_HOME/toolchains/llvm/prebuilt"/*/sysroot/usr/lib -name 'libc++_shared.so' >&2 || true
+            exit 1
+          fi
+          echo "Packing $LIBCXX"
           mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
-          cp "$NDK_HOME/sources/cxx-stl/llvm-libc++/libs/arm64-v8a/libc++_shared.so" \
-            src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
+          cp "$LIBCXX" src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
           npm run tauri -- android build --apk --target aarch64
 
       - name: Collect and sign APK
