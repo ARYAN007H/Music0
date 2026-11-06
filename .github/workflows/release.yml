@@ -195,7 +195,7 @@ jobs:
       - name: Collect and sign APK
         run: |
           mkdir -p dist
-          UNSIGNED=$(ls src-tauri/gen/android/app/build/outputs/apk/aarch64/release/*-release-unsigned.apk)
+          UNSIGNED=$(ls src-tauri/gen/android/app/build/outputs/apk/*/release/*-release-unsigned.apk)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/musico.keystore
           "$BT/zipalign" -f 4 "$UNSIGNED" /tmp/musico-aligned.apk
