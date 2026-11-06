@@ -195,7 +195,17 @@ jobs:
       - name: Collect and sign APK
         run: |
           mkdir -p dist
-          UNSIGNED=$(ls src-tauri/gen/android/app/build/outputs/apk/aarch64/release/*-release-unsigned.apk)
+          # `tauri android build --apk --target aarch64` writes one APK under
+          # apk/universal/ (the folder is named by the Gradle flavor, not the
+          # target), so locate it instead of hard-coding the ABI directory.
+          UNSIGNED=$(find src-tauri/gen/android/app/build/outputs/apk \
+            -type f -name '*-release-unsigned.apk' | head -1)
+          if [ -z "$UNSIGNED" ]; then
+            echo "No unsigned APK produced; build output was:" >&2
+            find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' >&2 || true
+            exit 1
+          fi
+          echo "Signing $UNSIGNED"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/musico.keystore
           "$BT/zipalign" -f 4 "$UNSIGNED" /tmp/musico-aligned.apk

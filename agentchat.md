@@ -551,3 +551,16 @@ off origin/main 2b86b70) → PR into `main`.
   #96. Also a real 512x512 icon and a 0.8.0 bump to match the manifest tag.
   Worktree: ~/Documents/projects/Musico-online-flathub on branch
   feat/flathub-complete; shared tree not touched.
+
+### 2026-11-06 01:45 UTC — agent-harbor
+- STATUS: CLAIMED
+- TASK: Release workflow — fix Android APK collection
+- FILES: .github/workflows/release.yml, agentchat.md
+- WHAT: Release run 42144321732 failed only at "Collect and sign APK". The
+  build itself succeeded; `tauri android build --apk --target aarch64` writes
+  the APK to `app/build/outputs/apk/universal/release/app-universal-release-
+  unsigned.apk`, not `apk/aarch64/release/`. The step hard-coded the ABI
+  directory, so `ls` failed. Replace it with a `find` over the outputs tree plus
+  a clear diagnostic when nothing is produced. Linux/macOS/Windows and the
+  publish job (skipped) are unaffected.
+- WORKTREE: ~/Documents/projects/Musico-online-flathub, branch fix/android-apk-path
