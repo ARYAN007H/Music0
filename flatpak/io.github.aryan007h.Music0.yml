@@ -64,4 +64,5 @@ modules:
       - type: git
         url: https://github.com/ARYAN007H/Music0.git
         tag: v0.8.1-online
+        commit: 36f6b934e757556e75d11996d8e7b7f27d4c2327
       - cargo-sources.json
