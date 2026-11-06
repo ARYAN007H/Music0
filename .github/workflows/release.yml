@@ -170,6 +170,13 @@ jobs:
       - name: Install Tauri CLI
         run: npm install --global "@tauri-apps/cli@^2"
 
+      - name: Install project dependencies (CLI as devDependency)
+        # The Gradle→Rust bridge that `tauri android init` generates runs
+        # `npm run tauri …` with cwd=src-tauri; without the local
+        # @tauri-apps/cli in node_modules that dies with
+        # "Cannot find module …/src-tauri/tauri".
+        run: npm install
+
       - name: Android SDK environment
         run: |
           # SDK + NDK ship preinstalled on ubuntu-latest runners.
