@@ -9,13 +9,21 @@ The streaming layer uses the same public technique as Metrolist / InnerTune /
 RiMusic (InnerTube + direct-URL resolvers + yt-dlp). It lives here, **not** in
 the offline Musico release, and is intended for personal use.
 
-**Status:** v0.7.0 (`v0.7.0-online`, 2026-11-05) · Linux · macOS · Windows ·
-Android (local build) · installable mobile PWA.
+**Status:** v0.7.1 (`v0.7.1-online`) · Linux · macOS · Windows · Android
+(signed APK from CI) · installable mobile PWA.
 
 <p align="center">
-  <img src="docs/screenshots/library-light.png" width="42%" alt="Musico Online — light theme"/>
-  <img src="docs/screenshots/library-dark.png" width="42%" alt="Musico Online — dark theme"/>
-  <img src="docs/screenshots/library-compact.png" width="13.5%" alt="Musico Online — compact width"/>
+  <img src="docs/screenshots/home-dark.png" width="48%" alt="Musico Online — Home, dark theme: YouTube Music shelves with the transport pill"/>
+  <img src="docs/screenshots/sonic-lab.png" width="48%" alt="Musico Online — Sonic Lab: Taste DNA &amp; Persona Mixer"/>
+  <br/>
+  <img src="docs/screenshots/home-light.png" width="48%" alt="Musico Online — Home, light theme"/>
+  <img src="docs/screenshots/audio-dsp.png" width="48%" alt="Musico Online — Audio &amp; DSP settings: streaming quality, instant-start engine, gapless"/>
+  <br/>
+  <img src="docs/screenshots/home-light-wide.png" width="55%" alt="Musico Online — Home hero and shelves, light theme"/>
+  <img src="docs/screenshots/vinyl-fullscreen.png" width="43%" alt="Musico Online — fullscreen vinyl player with tonearm"/>
+  <br/>
+  <img src="docs/screenshots/mobile-light.png" width="32%" alt="Musico Online — narrow/mobile layout, light"/>
+  <img src="docs/screenshots/mobile-dark.png" width="32%" alt="Musico Online — narrow/mobile layout, dark"/>
 </p>
 
 ## What it does
