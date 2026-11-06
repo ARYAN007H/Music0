@@ -74,17 +74,18 @@ is not vendored in this repository; fetch it from `flatpak-builder-tools`.
 | Network | `--share=network`; the catalog and resolvers need it |
 | Audio | `--socket=pulseaudio`; `musico_playback` talks to ALSA, which the runtime routes to PipeWire/PulseAudio |
 | Library folder | `--filesystem=xdg-music:ro` by default. Add more with Flatseal, or keep music under `~/Music` |
-| Downloads | Written to the app-private cache, so `--filesystem=xdg-download` covers explicit exports only |
-| Media keys / MPRIS | Owns `org.mpris.MediaPlayer2.musico-online` and the app-id name used by the single-instance plugin |
+| Downloads | Written to the app-private cache; the sandbox has no writable host paths |
+| Media keys / MPRIS | Owns `org.mpris.MediaPlayer2.musico-online`; Flatpak grants the app-id name automatically |
 | `yt-dlp` | Bundled inside the sandbox at `/app/bin/yt-dlp` |
 
 ### Why `yt-dlp` is bundled
 
 `resolve_stream()` shells out to `yt-dlp`. A Flatpak cannot see the host's
 `PATH`, so an app that expects a system `yt-dlp` silently loses its last-resort
-resolver, batch downloads and retry/resume. The manifest installs the pinned
-upstream release into `/app`, which puts it on the sandbox `PATH`. The trade-off
-is that the bundled copy only updates when a new build is released.
+resolver, batch downloads and retry/resume. The manifest builds the zipapp
+from the pinned upstream source and installs it into `/app`, which puts it on
+the sandbox `PATH`. The trade-off is that the bundled copy only updates when a
+new build is released.
 
 Bump both the URL and the `sha256` in the `yt-dlp` module, then update the
 version note here:
@@ -98,7 +99,8 @@ version note here:
 2. `cargo update -p musico-online` so `Cargo.lock` records the new version.
 3. Regenerate `flatpak/cargo-sources.json`.
 4. Add a `<release>` entry to the metainfo file.
-5. Point the manifest's `tag:` at the new release tag.
+5. Point the manifest's `tag:` at the new release tag and update `commit:`
+   to that tag's commit.
 6. Build locally before opening the Flathub update PR.
 
 ## Submitting to Flathub
