@@ -167,14 +167,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Tauri CLI
-        run: npm install --global "@tauri-apps/cli@^2"
-
       - name: Install project dependencies (CLI as devDependency)
-        # The Gradle→Rust bridge that `tauri android init` generates runs
-        # `npm run tauri …` with cwd=src-tauri; without the local
-        # @tauri-apps/cli in node_modules that dies with
-        # "Cannot find module …/src-tauri/tauri".
+        # Everything Tauri-CLI on this job goes through `npm run tauri`:
+        # the Gradle→Rust bridge that `tauri android init` generates is
+        # templated from the invoking process — a bare `tauri` in a shell
+        # step renders `node tauri …` (→ "Cannot find module …/src-tauri/
+        # tauri"), while an npm-script invocation (npm_execpath set) renders
+        # `npm run -- tauri …`, which resolves the local CLI in node_modules.
         run: npm install
 
       - name: Android SDK environment
@@ -190,8 +189,8 @@ jobs:
         # case for Flatpak).  Pure-Rust resolvers stream on-device — no
         # yt-dlp on Android.
         run: |
-          tauri android init
-          tauri android build --apk --target aarch64
+          npm run tauri -- android init
+          npm run tauri -- android build --apk --target aarch64
 
       - name: Collect and sign APK
         run: |
