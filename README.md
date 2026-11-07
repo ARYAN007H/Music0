@@ -5,6 +5,9 @@ Online is the companion repo to [Musico](https://github.com/ARYAN007H/Musico):
 a clean-room Tauri 2 desktop app that combines a real audio engine, a local
 taste engine, and an online catalog layer for YouTube Music and JioSaavn.
 
+> **disclaimer**
+> this project is provided for educational and personal use only. i am not responsible for how anyone uses it. downloading copyrighted content without authorization may violate the law in your country. use at your own risk.
+
 The streaming layer uses the same public technique as Metrolist / InnerTune /
 RiMusic (InnerTube + direct-URL resolvers + yt-dlp). It lives here, **not** in
 the offline Musico release, and is intended for personal use.
