@@ -277,7 +277,9 @@ jobs:
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
 
       - name: Install cargo-ndk
-        uses: taiki-e/install-action@cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
 
       - name: Build Rust core (libmusico_online_lib.so)
         # Same cdylib the Tauri shell loads — the native app reaches it via
