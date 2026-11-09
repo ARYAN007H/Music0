@@ -365,7 +365,9 @@ fn resolve_with(
             return Ok(path);
         }
         Err(e) => {
-            log::debug!("fast path exhausted for {video_id}: {e} — falling back to yt-dlp");
+            // Info, not debug: on-device (Android) this is the one line that
+            // explains the toast — per-instance reasons stay at debug.
+            log::info!("fast path exhausted for {video_id}: {e} — falling back to yt-dlp");
         }
     }
 
