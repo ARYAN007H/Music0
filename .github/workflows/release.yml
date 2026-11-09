@@ -248,6 +248,102 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  android-native:
+    name: Android native aarch64 (Compose APK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable (android target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Java 17 (Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK environment
+        run: |
+          # SDK + NDK ship preinstalled on ubuntu-latest runners.
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | sort -V | tail -1)
+          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@cargo-ndk
+
+      - name: Build Rust core (libmusico_online_lib.so)
+        # Same cdylib the Tauri shell loads — the native app reaches it via
+        # the mobile JNI bridge (#111). --lib: the desktop bin is not part
+        # of the phone artifact.
+        run: cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release --lib
+        working-directory: src-tauri
+
+      - name: Ensure libc++_shared.so is packed
+        # Same hunt as the Tauri android job: NDK r30 dropped the well-known
+        # copies, so find a REAL (non-stub, >100k) arm64 runtime, newest NDK
+        # first. cargo-ndk usually packs it; this is the belt to its braces.
+        run: |
+          if [ -f android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so ] && \
+             [ "$(stat -c%s android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so)" -gt 100000 ]; then
+            echo "cargo-ndk already packed a real libc++_shared.so"
+            exit 0
+          fi
+          LIBCXX=""
+          for NDK_DIR in $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
+            LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
+              -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
+            [ -n "$LIBCXX" ] && break
+          done
+          if [ -z "$LIBCXX" ]; then
+            echo "No real arm64 libc++_shared.so in any installed NDK" >&2
+            exit 1
+          fi
+          echo "Packing $LIBCXX"
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp "$LIBCXX" android/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Build native APK (gradle)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Decode keystore
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/musico.keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+
+      - name: Assemble release APK
+        run: gradle -p android :app:assembleRelease -PmusicoVersionCode="${MUSICO_VERSION_CODE:-80201}" -PmusicoVersionName="${MUSICO_VERSION_NAME:-0.8.2-native}"
+        env:
+          ANDROID_KEYSTORE_FILE: /tmp/musico.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Collect and verify APK
+        run: |
+          mkdir -p dist
+          UNSIGNED=$(find android/app/build/outputs/apk -type f -name '*-release*.apk' | head -1)
+          [ -n "$UNSIGNED" ] || { echo "no APK produced" >&2; exit 1; }
+          cp "$UNSIGNED" dist/musico-online-native-aarch64.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify dist/musico-online-native-aarch64.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-android-native
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish release
     needs: [linux, macos, windows, android]

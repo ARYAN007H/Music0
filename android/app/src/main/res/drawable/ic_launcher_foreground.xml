@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Note glyph on a circle, centered in the safe zone -->
+    <path android:fillColor="#E8DDFF"
+        android:pathData="M54,30a2,2 0 0,1 2,2v26.3a9,9 0 1,1 -4,-7.5V32a2,2 0 0,1 2,-2zM52,57.5a5,5 0 1,0 0,10a5,5 0 0,0 0,-10z"/>
+    <path android:fillColor="#C9B8FF"
+        android:pathData="M56,32h16a2,2 0 0,1 2,2v4a2,2 0 0,1 -2,2H56z"/>
+</vector>
