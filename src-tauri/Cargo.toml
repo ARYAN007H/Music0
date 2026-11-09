@@ -57,14 +57,15 @@ zbus = { version = "4", default-features = false, features = ["tokio"] }
 # android fallback returns None, so the JNI lib reads the app-private
 # files/cache dirs via ndk-context + jni and exports the XDG vars that the
 # unix `dirs` code path (compiled on android) resolves against.
-# tauri-plugin-log owns the log crate's single global logger slot on Android
-# and mirrors everything to logcat — the only always-available debugging
-# surface on a device (env_logger's stderr/file targets are not readable
-# there without root).
+# android_logger mirrors the log crate straight to logcat — the only
+# always-available debugging surface on a device (stderr/file are not
+# readable there without root). Chosen over tauri-plugin-log: its LogDir
+# target resolves a Tauri path during plugin init and that can silently
+# fail on Android, leaving NO logger installed (observed on device).
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 ndk-context = "0.1"
-tauri-plugin-log = "2"
+android_logger = "0.15"
 
 [dev-dependencies]
 tempfile = "3"
