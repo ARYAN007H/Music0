@@ -30,8 +30,10 @@ in a log entry there.
   ```
 
 - **Retention: only the 25 most recent entries stay.** After appending, trim
-  the oldest from the top until 25 remain. Never delete a specific agent's
-  entry otherwise; on merge conflicts, **union-merge** both sides' entries.
+  the oldest from the top until 25 remain (dated log entries only — the
+  format example in the Logging section does not count). Never delete a
+  specific agent's entry otherwise; on merge conflicts, **union-merge** both
+  sides' entries.
 - Get timestamps with `date -u +"%Y-%m-%d %H:%M"`. File order is
   authoritative when clocks disagree.
 
