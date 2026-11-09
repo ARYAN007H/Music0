@@ -78,25 +78,43 @@ pub fn run() {
     android_dirs::bootstrap();
 
     // Logs go to ~/.local/share/musico-online/musico.log (and stderr when RUST_LOG
-    // is set explicitly, for development).
-    let mut builder = env_logger::Builder::new();
-    builder.filter_level(log::LevelFilter::Info);
-    if let Some(dir) = crate::identity::data_dir() {
-        let _ = std::fs::create_dir_all(&dir);
-        if let Ok(file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join("musico.log"))
-        {
-            builder.target(env_logger::Target::Pipe(Box::new(file)));
+    // is set explicitly, for development). On Android the log crate's single
+    // global slot goes to tauri-plugin-log instead (logcat target, registered
+    // on the builder below) — env_logger's stderr/file outputs are not
+    // readable on a device without root.
+    #[cfg(not(target_os = "android"))]
+    {
+        let mut builder = env_logger::Builder::new();
+        builder.filter_level(log::LevelFilter::Info);
+        if let Some(dir) = crate::identity::data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("musico.log"))
+            {
+                builder.target(env_logger::Target::Pipe(Box::new(file)));
+            }
         }
+        if std::env::var("RUST_LOG").is_ok() {
+            builder.parse_default_env();
+        }
+        let _ = builder.try_init();
     }
-    if std::env::var("RUST_LOG").is_ok() {
-        builder.parse_default_env();
-    }
-    let _ = builder.try_init();
 
     let app_builder = tauri::Builder::default();
+
+    // Android: mirror every log line to logcat.
+    // Registered before anything logs a command path; see the note above.
+    #[cfg(target_os = "android")]
+    let app_builder = app_builder.plugin(
+        tauri_plugin_log::Builder::new()
+            .targets([tauri_plugin_log::Target::new(
+                tauri_plugin_log::TargetKind::Logcat,
+            )])
+            .level(log::LevelFilter::Info)
+            .build(),
+    );
 
     // Desktop-only single-instance plugin: blocks a second instance before it
     // can touch the sled DB or audio device; focuses the existing window.
