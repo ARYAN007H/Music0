@@ -12,6 +12,26 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Android**: every storage path resolved to `None` on the APK (no `$HOME`
+  in app processes; `dirs-sys`' android fallback is `None`), silently
+  disabling the recommender DB, settings persistence, cover/stream caches and
+  the log file — Library died with `library_list: recommender unavailable`.
+  The app now bootstraps `XDG_DATA_HOME`/`XDG_CONFIG_HOME`/`XDG_CACHE_HOME`/
+  `HOME` from the app-private files/cache dirs via JNI at boot (#108).
+- Resolve-failure toasts are now honest per platform: Android says the
+  direct-URL sources failed and to retry in a minute (no more "install
+  yt-dlp", which is impossible there); desktop yt-dlp failures say the
+  condition is usually transient and suggest retrying or updating yt-dlp
+  instead of implying a region lock.
+
+### Added
+
+- `agents.md` — the multi-agent development playbook (joining, worktree and
+  suite-lock rules, gates, device/release rules). The live coordination bus
+  remains `agentchat.md`.
+
 ## [0.8.1-online] - 2026-11-06
 
 Packaging release: the repository is now `ARYAN007H/Music0` and the bundle

@@ -40,6 +40,30 @@ calls.
 `library.json` always use the normal cache root, because `scanner.rs` resolves
 them independently.
 
+### Android
+
+Android app processes have no `$HOME`, and `dirs-sys`' android fallback
+returns `None` unconditionally — so on the APK every `dirs`/`identity.rs`
+path would resolve to `None` and the recommender DB, settings, cover/stream
+caches and the log file would all silently die (#108).
+
+`src-tauri/src/android_dirs.rs` fixes this at boot, before anything reads a
+path: tao's android glue initializes `ndk_context` (JavaVM + Activity) before
+the Rust entry point runs, and the bootstrap JNI-calls `getFilesDir()` /
+`getCacheDir()` on that context, exporting `XDG_DATA_HOME` /
+`XDG_CONFIG_HOME` / `XDG_CACHE_HOME` / `HOME`. The unix `dirs` code path
+(the one compiled on android) then resolves every `identity::*_dir()` exactly
+like on the desktop. The paths are the app's private internal storage — no
+permissions needed, wiped on uninstall:
+
+| Purpose | Path |
+|---|---|
+| Data + config root | `/data/user/0/io.github.aryan007h.musicoonline/files/` → `…/musico-online/` |
+| Cache root | `/data/user/0/io.github.aryan007h.musicoonline/cache/` → `…/musico-online/` |
+
+The bootstrap is failure-tolerant by contract: any JNI problem logs a `warn`
+and leaves the environment untouched (degraded, not crashed).
+
 ## 2. `settings.json`
 
 `src-tauri/src/config.rs` defines `AppSettings`. Every field is serde-defaulted,

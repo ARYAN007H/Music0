@@ -209,8 +209,10 @@ so an offline attempt leaves the queue untouched.
 
 ### "yt-dlp is not installed and the direct-URL sources failed"
 
-The fast path had no usable instance, and no yt-dlp binary was found. Install
-it:
+The fast path had no usable instance, and no yt-dlp binary was found. This
+toast is **desktop-only** — Android gets the direct-sources message below,
+because yt-dlp is a desktop Python binary that cannot exist on the phone.
+Install it:
 
 ```sh
 # Debian/Ubuntu
@@ -229,6 +231,23 @@ not take effect until the TTL expires or the app restarts.
 `online_available` returns `false` when `yt-dlp` is missing **even if the
 direct sources would work**. It is a hint for the UI, not a hard capability
 gate.
+
+### Android: "Direct-URL sources (Piped/Invidious) failed — try again in a minute"
+
+There is no yt-dlp on Android by design; the Piped/Invidious fast path is the
+only resolver there. The public instance ecosystem churns by the minute
+(bot-walls come and go), so first response is literally the toast's advice:
+retry a minute later. If it persists, check the phone's connectivity, then
+whether the compiled default instances are alive from a desktop browser.
+Users cannot set `MUSICO_PIPED_INSTANCES` on a stock install — an in-app
+instance override is tracked on the roadmap.
+
+### Android: "library_list: recommender unavailable" (builds < 0.8.2)
+
+Older builds resolved every storage path to `None` on Android (#108): no
+recommender, no settings persistence, no caches. Fixed by the XDG bootstrap
+in 0.8.2 — see `docs/data-storage.md` § Android. If you see this toast, the
+installed APK predates the fix; update.
 
 ### Every online play hangs for ~10 seconds, then fails
 

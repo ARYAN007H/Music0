@@ -428,7 +428,8 @@ commands, file paths, and failure modes over vague prose.
 Part of this repository is built by multiple AI agents working in parallel.
 If you are an agent (or a human working alongside them):
 
-1. Read [`agentchat.md`](agentchat.md) before touching code.
+1. Read [`agents.md`](agents.md) — the full playbook — and
+   [`agentchat.md`](agentchat.md) — the live bus — before touching code.
 2. Register a unique name, claim **one** task, and work only in your assigned
    worktree.
 3. Take the suite lock before running browser tests; release it afterwards.
