@@ -104,21 +104,20 @@ pub fn run() {
 
     let app_builder = tauri::Builder::default();
 
-    // Android: Stdout maps to logcat in tauri-plugin-log (android_logger);
-    // LogDir additionally keeps the rotating file under ConfigDir/logs.
-    // Registered before anything logs a command path; see the note above.
+    // Android: install the logcat logger directly (tag `musico`) before the
+    // builder runs, so every later line — including plugin init problems —
+    // is visible via adb logcat -s musico. See the Cargo.toml note for why
+    // this is not tauri-plugin-log.
     #[cfg(target_os = "android")]
-    let app_builder = app_builder.plugin(
-        tauri_plugin_log::Builder::new()
-            .targets([
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
-                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                    file_name: Some("musico".into()),
-                }),
-            ])
-            .level(log::LevelFilter::Info)
-            .build(),
-    );
+    {
+        // The native Kotlin app initializes its own logger in
+        // mobile::Java_…MusicoCore_init; this process is the Tauri app.
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Info)
+                .with_tag("musico"),
+        );
+    }
 
     // Desktop-only single-instance plugin: blocks a second instance before it
     // can touch the sled DB or audio device; focuses the existing window.
