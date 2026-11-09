@@ -3,6 +3,8 @@
 //! Exposes `run()` for both the desktop binary (`src/main.rs`) and the Android
 //! JNI library (`#[cfg_attr(mobile, tauri::mobile_entry_point)]`).
 
+#[cfg(target_os = "android")]
+mod android_dirs;
 mod commands;
 mod config;
 mod event_bridge;
@@ -68,6 +70,13 @@ fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Android: app processes have no $HOME and dirs-sys' android fallback is
+    // None — export the XDG vars from the app-private dirs FIRST so every
+    // identity::*/dirs path below (log file, settings, recommender DB,
+    // caches) resolves (issue #108). No-op on desktop.
+    #[cfg(target_os = "android")]
+    android_dirs::bootstrap();
+
     // Logs go to ~/.local/share/musico-online/musico.log (and stderr when RUST_LOG
     // is set explicitly, for development).
     let mut builder = env_logger::Builder::new();

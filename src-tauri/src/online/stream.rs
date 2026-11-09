@@ -370,6 +370,11 @@ fn resolve_with(
     }
 
     if !yt_dlp_available() {
+        // Android has no yt-dlp (desktop Python binary) — the honest message
+        // there is "the direct-URL sources failed", not an install hint.
+        #[cfg(target_os = "android")]
+        return Err("Direct-URL sources (Piped/Invidious) failed — instances churn by the minute; try again in a minute, or check your connection".into());
+        #[cfg(not(target_os = "android"))]
         return Err("yt-dlp is not installed and the direct-URL sources failed — install yt-dlp (e.g. pacman -S yt-dlp) to play online music".into());
     }
 
@@ -490,7 +495,11 @@ fn run_yt_dlp(url: &str, template: &Path, timeout: Duration) -> Result<(), Strin
     }?;
 
     if !status.success() {
-        return Err(format!("yt-dlp exited with {status} — stream unavailable or region-locked"));
+        // Extraction failures are usually transient (bot-walls come and go by
+        // the minute) — say so instead of implying a permanent region lock.
+        return Err(format!(
+            "yt-dlp exited with {status} — often transient; try again in a minute, or update yt-dlp if it keeps failing"
+        ));
     }
     Ok(())
 }
