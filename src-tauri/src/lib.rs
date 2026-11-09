@@ -104,14 +104,18 @@ pub fn run() {
 
     let app_builder = tauri::Builder::default();
 
-    // Android: mirror every log line to logcat.
+    // Android: Stdout maps to logcat in tauri-plugin-log (android_logger);
+    // LogDir additionally keeps the rotating file under ConfigDir/logs.
     // Registered before anything logs a command path; see the note above.
     #[cfg(target_os = "android")]
     let app_builder = app_builder.plugin(
         tauri_plugin_log::Builder::new()
-            .targets([tauri_plugin_log::Target::new(
-                tauri_plugin_log::TargetKind::Logcat,
-            )])
+            .targets([
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                    file_name: Some("musico".into()),
+                }),
+            ])
             .level(log::LevelFilter::Info)
             .build(),
     );
