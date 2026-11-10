@@ -12,6 +12,72 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-11
+
+The native Android app release: the phone experience moves from the Tauri
+webview to a full native Kotlin (Compose + Media3) app over the same Rust
+core. Desktop is unchanged in behavior and ships the 0.8.2-era core
+improvements (InnerTube-direct multi-client director, 48 kHz oboe output).
+
+### Added (Android native)
+
+- Full app shell: Home / Radio / Library / Search under a Material 3
+  expressive pill island, big-brand top bar with profile avatar menu,
+  mini player with live progress, animated tab transitions.
+- Home: Apple-Music-style layout — auto-advancing hero carousel, signature
+  "Made for you" / "Trending" grids with rank numerals, cover carousels,
+  skeleton loading. Truly endless browsing: continuation paging when the
+  feed offers it, then editorial charts and an endlessly-deep genre chain
+  (mood/genre style pages are browsed two at a time on every scroll-to-end).
+- Onboarding: pick preferred languages and at least three favorite
+  artists; the home feed gets "Because you like …" radio shelves and
+  language pick shelves prepended, persisted locally, rebuilt only when
+  missing.
+- Radio tab: the whole mood/genre station grid as tinted tiles; every
+  tile opens a detail page of station playlists.
+- Detail pages (album / playlist / artist / genre): hero header, Play /
+  Queue all / Save offline actions, numbered track list, remaining
+  shelves. Nested navigation (album → artist → …).
+- Full-screen player: artwork / lyrics / Up Next swipe pages, squishy M3
+  play FAB, seek, buffering + resolving states, frame-clock position
+  interpolation for word-accurate lyrics.
+- Word-by-word lyrics: one huge fill-animated word with small previous /
+  next neighbors, tap-to-seek, line-granularity fallback — the same
+  LRCLIB word-timing synthesis the desktop uses (single implementation
+  shared with the JNI bridge).
+- Backdrops: Midnight (black), hand-rolled Canvas Rain, Aurora veils,
+  blurred Artwork Glow (default; RenderEffect on API 31+).
+- Equalizer: real audiofx Equalizer + BassBoost bound to the ExoPlayer
+  session, band sliders, gain-curve presets, bass boost; Settings gains
+  Skip silence and playback speed.
+- Themes: five color-theory palettes (Nebula, Ocean, Ember, Forest, Mono)
+  with runtime switching and swatch previews.
+- Long-press track sheet: play next, add to queue, save offline, like.
+- Settings: streaming-quality chips, cache usage + cap slider + clear
+  (new `online.cache.usage/clear` bridge commands), airplane mode,
+  autoplay — core values round-trip through `settings.save`.
+
+### Fixed
+
+- Android silent audio root cause: cpal/oboe enumerated a real device as
+  a degenerate "5512 Hz, 1 ch" range — the engine now refuses capped
+  ranges and requests 48 kHz on Android (desktop logic unchanged).
+- Launch crash of the first native APK: JNI symbol naming must carry the
+  full Kotlin package path.
+- Mobile JNI bridge contract: `data` is object-shaped; array-shaped
+  replies (`online.related`) collapsed to `{}` silently — the Rust side
+  wraps arrays and the Kotlin bridge is strict (loud error, plus
+  `callElement` for raw shapes).
+- Lazy list key collisions: YTM mood cards share one browseId
+  (`FEmusic_moods_and_genres_category`), which crashed Radio and deep
+  Home scrolls; every Lazy key carries its index.
+- Genre shelf decoding: unknown `ItemKind` values degrade gracefully
+  instead of failing whole pages.
+
+### Changed
+
+- Android release APKs are built by the native gradle job (version 0.9.0,
+  code 90000); the Tauri android job retires at native parity (#111).
 ## [0.8.1-online] - 2026-11-06
 
 Packaging release: the repository is now `ARYAN007H/Music0` and the bundle

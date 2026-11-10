@@ -71,6 +71,24 @@ pub fn browse(browse_id: &str, params: Option<&str>) -> Result<BrowsePage, Strin
     Ok(page)
 }
 
+/// Fetches the next section of a browse feed with an InnerTube
+/// continuation token — real infinite scroll for the home feed. Not cached:
+/// a continuation page is an ephemeral slice of its parent browse, and the
+/// token space is too large to be worth keying.
+///
+/// `parse_browse_page` already handles the continuation response shape
+/// (`continuationContents.sectionListContinuation`) and extracts the NEXT
+/// token, so this is a straight fetch→parse with no special casing.
+pub fn browse_continuation(continuation: &str) -> Result<BrowsePage, String> {
+    if continuation.trim().is_empty() {
+        return Err("browse_continuation: empty continuation".into());
+    }
+    let mut body = serde_json::json!({ "context": innertube_context() });
+    body["continuation"] = serde_json::Value::String(continuation.trim().to_string());
+    let json = innertube_post(BROWSE_URL, body)?;
+    Ok(parse_browse_page(&json))
+}
+
 fn fetch_browse(browse_id: &str, params: Option<&str>) -> Result<BrowsePage, String> {
     let mut body = serde_json::json!({ "context": innertube_context() });
     body["browseId"] = serde_json::Value::String(browse_id.to_string());

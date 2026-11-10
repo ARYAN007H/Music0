@@ -42,7 +42,7 @@ pub mod search;
 pub mod sources;
 pub mod stream;
 
-pub use catalog::{browse, genres, home_feed};
+pub use catalog::{browse, browse_continuation, genres, home_feed};
 pub use lrclib::{fetch_synced_lyrics, SyncedLyricsDto};
 pub use lyrics::fetch_lyrics;
 pub use models::{BrowsePage, OnlineTrack, SearchResultPage, ShelfItem};
@@ -50,7 +50,8 @@ pub use radio::{radio_tracks, remember_radio_play};
 pub use saavn::{search_songs, SEARCH_MERGE_LIMIT};
 pub use search::{search, search_suggestions};
 pub use stream::{
-    clear_cache, prune_cache_to_cap, resolve_stream, resolve_track, to_song_info, yt_dlp_available,
+    cache_usage_bytes, clear_cache, prune_cache_to_cap, resolve_stream, resolve_track, to_song_info,
+    yt_dlp_available,
 };
 #[allow(unused_imports)]
 use stream::cached_file;
@@ -88,6 +89,56 @@ mod live_tests {
         assert!(radio.len() >= 3, "radio returned {} tracks", radio.len());
         assert!(radio.iter().all(|t| t.video_id != first.video_id), "seed excluded");
         println!("radio: {} related tracks", radio.len());
+    }
+
+    /// Live end-to-end personalization pipeline — exactly what the Kotlin
+    /// onboarding drives: artist search → radio seed → related tracks, and
+    /// language style-card match → genre browse. Verifies the app's
+    /// "Because you like …" and "… picks" shelves CAN build on the wire.
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_personalization_pipeline() {
+        for artist in ["Arijit Singh", "Travis Scott", "The Weeknd"] {
+            let page = search(artist, false, None).expect("artist search");
+            assert!(!page.tracks.is_empty(), "search '{artist}' empty");
+            let mut built = false;
+            for seed in page.tracks.iter().take(4) {
+                let radio = radio_tracks(&seed.video_id).expect("radio");
+                if radio.len() >= 4 {
+                    println!(
+                        "because you like {artist}: {} tracks (seed {})",
+                        radio.len(),
+                        seed.title
+                    );
+                    built = true;
+                    break;
+                }
+            }
+            assert!(built, "no radio shelf seeded for {artist} from top-4 search hits");
+        }
+
+        let styles = genres().expect("genres");
+        let hindi = styles
+            .iter()
+            .find(|s| s.title.contains("Hindi"))
+            .expect("Hindi style card exists");
+        let page = browse(hindi.browse_id.as_deref().expect("style browseId"), hindi.params.as_deref())
+            .expect("language browse");
+        let song_shelf = page
+            .shelves
+            .iter()
+            .find(|s| s.items.iter().any(|i| i.video_id.is_some()))
+            .expect("Hindi page has a playable shelf");
+        println!("hindi picks: '{}' {} items", song_shelf.title, song_shelf.items.len());
+
+        // Home continuation: report whether the section list paginates at
+        // all (drives the app's infinite-scroll strategy).
+        let home = home_feed().expect("home");
+        println!(
+            "home: {} shelves, next_continuation={:?}",
+            home.shelves.len(),
+            home.next_continuation
+        );
     }
 
     /// Live album detail page: header + playable tracklist (C2.2 path).

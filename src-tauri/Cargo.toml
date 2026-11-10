@@ -1,6 +1,6 @@
 [package]
 name = "musico-online"
-version = "0.8.2"
+version = "0.9.0"
 edition = "2021"
 rust-version = "1.78"
 description = "Musico Online — clean-room Apple Music-class player on free sources"
@@ -52,6 +52,20 @@ souvlaki = { version = "0.8", default-features = false }
 # MPRIS is a D-Bus (freedesktop.org) interface — Linux only.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "4", default-features = false, features = ["tokio"] }
+
+# Android storage bootstrap (#108): app processes have no $HOME and dirs-sys'
+# android fallback returns None, so the JNI lib reads the app-private
+# files/cache dirs via ndk-context + jni and exports the XDG vars that the
+# unix `dirs` code path (compiled on android) resolves against.
+# android_logger mirrors the log crate straight to logcat — the only
+# always-available debugging surface on a device (stderr/file are not
+# readable there without root). Chosen over tauri-plugin-log: its LogDir
+# target resolves a Tauri path during plugin init and that can silently
+# fail on Android, leaving NO logger installed (observed on device).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+android_logger = "0.15"
 
 [dev-dependencies]
 tempfile = "3"
