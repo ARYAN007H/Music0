@@ -84,11 +84,12 @@ import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 fun MusicoApp(vm: MusicViewModel) {
     val state by vm.state.collectAsState()
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
+    io.github.aryan007h.musicoonline.ui.theme.MusicoTheme(palette = state.palette) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
         Column(Modifier.fillMaxSize()) {
             TopBar(
                 displayName = state.displayName,
@@ -111,8 +112,11 @@ fun MusicoApp(vm: MusicViewModel) {
                         shelves = state.homeShelves,
                         loading = state.homeLoading,
                         error = state.homeError,
+                        styleItems = state.styleItems,
+                        moreLoading = state.moreLoading,
                         onOpenItem = vm::openShelfItem,
                         onRetry = vm::loadHome,
+                        onLoadMore = vm::loadMoreHome,
                         currentTrackId = state.nowPlaying?.videoId,
                     )
                     AppTab.LIBRARY -> LibraryScreen(
@@ -203,15 +207,66 @@ fun MusicoApp(vm: MusicViewModel) {
                 SettingsScreen(
                     coreVersion = state.coreVersion,
                     lyricBackdrop = state.lyricBackdrop,
+                    palette = state.palette,
                     offlineMode = state.coreSettingsOffline,
                     autoplay = state.coreSettingsAutoplay,
                     streamingQuality = state.coreSettingsStreamingQuality,
                     cacheMb = state.coreSettingsCacheMb,
+                    cacheBytes = state.cacheBytes,
                     settingsSaving = state.settingsSaving,
                     onBack = vm::closeOverlay,
                     onBackdropChange = vm::setLyricBackdrop,
+                    onPaletteChange = vm::setPalette,
                     onOfflineChange = { v -> vm.saveCoreSetting("offline_mode", toCoreBool(v)) },
                     onAutoplayChange = { v -> vm.saveCoreSetting("autoplay", toCoreBool(v)) },
+                    onQualityChange = vm::setStreamingQuality,
+                    onCacheCapChange = vm::setCacheCap,
+                    onClearCache = vm::clearStreamCache,
+                    onRefreshCache = vm::refreshCacheUsage,
+                    onOpenEq = { vm.openOverlay(AppOverlay.EQ) },
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = state.overlay == AppOverlay.DETAIL,
+            enter = slideInVertically(tween(260)) { it / 5 } + fadeIn(tween(200)),
+            exit = fadeOut(tween(160)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            val topDetail = state.details.lastOrNull()
+            if (topDetail != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    io.github.aryan007h.musicoonline.ui.detail.DetailScreen(
+                        entry = topDetail,
+                        currentTrackId = state.nowPlaying?.videoId,
+                        isPlaying = state.isPlaying,
+                        likedIds = state.likedIds,
+                        onBack = vm::popDetail,
+                        onPlay = { vm.playDetail(topDetail) },
+                        onQueueAll = { vm.queueDetail(topDetail) },
+                        onSaveOffline = { vm.saveDetailOffline(topDetail) },
+                        onPlayTrack = vm::playTrack,
+                        onLikeToggle = vm::toggleLike,
+                        onOpenItem = vm::openShelfItem,
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = state.overlay == AppOverlay.EQ,
+            enter = fadeIn(tween(220)),
+            exit = fadeOut(tween(180)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                io.github.aryan007h.musicoonline.ui.settings.EqScreen(
+                    onBack = { vm.openOverlay(AppOverlay.SETTINGS) },
                 )
             }
         }
@@ -235,6 +290,7 @@ fun MusicoApp(vm: MusicViewModel) {
                     onOpenSettings = { vm.openOverlay(AppOverlay.SETTINGS) },
                 )
             }
+        }
         }
     }
 }

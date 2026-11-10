@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.EnhancedLyrics
 import io.github.aryan007h.musicoonline.ui.theme.Musico
-import io.github.aryan007h.musicoonline.ui.theme.MusicoColors
+
 
 /**
  * Word-by-word karaoke pane. Strictly three words on screen: the one being

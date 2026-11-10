@@ -302,7 +302,7 @@ fun PulsingDot(modifier: Modifier = Modifier) {
             .size(10.dp)
             .scale(scale)
             .clip(CircleShape)
-            .background(io.github.aryan007h.musicoonline.ui.theme.MusicoColors.violetBright),
+            .background(Musico.extras.primary),
     )
 }
 

@@ -2,6 +2,7 @@ package io.github.aryan007h.musicoonline.player
 
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.Player
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -33,6 +34,14 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+        // Mobile EQ: attach the audiofx stack to the player's audio session
+        // as soon as it exists (and re-attach on device changes).
+        MobileEqualizer.attach(this)
+        player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                MobileEqualizer.onAudioSessionId(audioSessionId)
+            }
+        })
         mediaSession = MediaSession.Builder(this, player).build()
     }
 
@@ -47,6 +56,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        MobileEqualizer.detach()
         mediaSession?.run {
             player.release()
             release()

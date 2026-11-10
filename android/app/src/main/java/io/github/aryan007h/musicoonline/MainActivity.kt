@@ -10,7 +10,6 @@ import io.github.aryan007h.musicoonline.player.PlaybackController
 import io.github.aryan007h.musicoonline.ui.MusicoApp
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.MusicViewModelFactory
-import io.github.aryan007h.musicoonline.ui.theme.MusicoTheme
 
 /**
  * Native app shell (#111 phase 2): Home / Library / Search tabs, mini
@@ -29,10 +28,8 @@ class MainActivity : ComponentActivity() {
         MusicoCore.init(this)
         playback = PlaybackController(this)
         setContent {
-            MusicoTheme {
-                val vm: MusicViewModel = viewModel(factory = MusicViewModelFactory(playback))
-                MusicoApp(vm)
-            }
+            val vm: MusicViewModel = viewModel(factory = MusicViewModelFactory(playback))
+            MusicoApp(vm)
         }
     }
 

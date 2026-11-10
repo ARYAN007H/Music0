@@ -92,6 +92,11 @@ data class SuggestionsReply(
     val suggestions: List<String> = emptyList(),
 )
 
+@Serializable
+data class GenresReply(
+    val items: List<ShelfItem> = emptyList(),
+)
+
 // ── Word-synced lyrics (mirror commands.rs EnhancedLyricsDto) ───────────────
 
 @Serializable

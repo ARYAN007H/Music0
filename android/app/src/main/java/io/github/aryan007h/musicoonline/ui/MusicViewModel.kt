@@ -46,7 +46,7 @@ enum class LyricBackdrop(val id: String, val label: String) {
 
 enum class AppTab { HOME, LIBRARY, SEARCH }
 
-enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE }
+enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE, DETAIL, EQ }
 
 /**
  * App-wide state + every bridge call. One ViewModel for the shell: three
@@ -56,6 +56,18 @@ enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE }
 class MusicViewModel(
     private val playback: PlaybackController,
 ) : ViewModel() {
+
+    /** One pushed detail page (album/playlist/artist/genre from a card tap). */
+    data class DetailPageState(
+        val browseId: String,
+        val params: String?,
+        val title: String,
+        val page: BrowsePage? = null,
+        val loading: Boolean = false,
+        val error: String? = null,
+        val saving: Boolean = false,
+        val saved: Int = 0,
+    )
 
     data class UiState(
         val tab: AppTab = AppTab.HOME,
@@ -77,6 +89,7 @@ class MusicViewModel(
         val lyricsLoading: Boolean = false,
         // Local prefs
         val lyricBackdrop: LyricBackdrop = LyricBackdrop.Black,
+        val palette: io.github.aryan007h.musicoonline.ui.theme.Palette = io.github.aryan007h.musicoonline.ui.theme.Palette.NEBULA,
         val displayName: String = "Listener",
         // Likes / recents (on-device library)
         val likedIds: Set<String> = emptySet(),
@@ -93,6 +106,18 @@ class MusicViewModel(
         val homeLoading: Boolean = false,
         val homeError: String? = null,
         val homeShelves: List<io.github.aryan007h.musicoonline.core.Shelf> = emptyList(),
+        // Endless browsing: charts + genre styles appended as the user scrolls
+        val moreLoading: Boolean = false,
+        val moreExhausted: Boolean = false,
+        val styleItems: List<io.github.aryan007h.musicoonline.core.ShelfItem> = emptyList(),
+        // Detail pages (album / playlist / artist / genre) — a nav stack
+        val details: List<DetailPageState> = emptyList(),
+        // Save-offline progress
+        val savingTotal: Int = 0,
+        val savingDone: Int = 0,
+        // Stream cache (Settings)
+        val cacheBytes: Long? = null,
+        val cacheCleared: Long? = null,
         // Settings (core-backed)
         val coreSettingsOffline: Boolean = false,
         val coreSettingsAutoplay: Boolean = true,
@@ -150,6 +175,7 @@ class MusicViewModel(
                 recentlyPlayed = recents,
                 recentSearches = searches,
                 lyricBackdrop = LyricBackdrop.fromId(prefs.getString(PREF_BACKDROP, null)),
+                palette = io.github.aryan007h.musicoonline.ui.theme.Palette.fromId(prefs.getString(PREF_PALETTE, null)),
                 displayName = prefs.getString(PREF_NAME, null) ?: it.displayName,
             )
         }
@@ -158,6 +184,11 @@ class MusicViewModel(
     fun setLyricBackdrop(backdrop: LyricBackdrop) {
         prefs.edit().putString(PREF_BACKDROP, backdrop.id).apply()
         _state.update { it.copy(lyricBackdrop = backdrop) }
+    }
+
+    fun setPalette(palette: io.github.aryan007h.musicoonline.ui.theme.Palette) {
+        prefs.edit().putString(PREF_PALETTE, palette.id).apply()
+        _state.update { it.copy(palette = palette) }
     }
 
     fun setDisplayName(name: String) {
@@ -233,6 +264,36 @@ class MusicViewModel(
         }
     }
 
+    // ── Stream cache (Settings) ──────────────────────────────────────────
+
+    fun refreshCacheUsage() {
+        viewModelScope.launch {
+            runCatching {
+                val reply = MusicoCore.call("online.cache.usage")
+                reply["bytes"]?.toString()?.trim('"')?.toLongOrNull()
+            }.onSuccess { bytes -> _state.update { it.copy(cacheBytes = bytes) } }
+        }
+    }
+
+    fun clearStreamCache() {
+        viewModelScope.launch {
+            runCatching {
+                val reply = MusicoCore.call("online.cache.clear")
+                reply["freedBytes"]?.toString()?.trim('"')?.toLongOrNull()
+            }.onSuccess { freed ->
+                _state.update { it.copy(cacheCleared = freed, cacheBytes = 0L, error = "Cleared cache — ${(freed ?: 0) / (1024 * 1024)} MB freed") }
+            }
+        }
+    }
+
+    fun setCacheCap(mb: Int) {
+        saveCoreSetting("online_cache_mb", kotlinx.serialization.json.JsonPrimitive(mb))
+    }
+
+    fun setStreamingQuality(quality: String) {
+        saveCoreSetting("streaming_quality", kotlinx.serialization.json.JsonPrimitive(quality))
+    }
+
     // ── Navigation ───────────────────────────────────────────────────────
 
     fun selectTab(tab: AppTab) {
@@ -262,17 +323,164 @@ class MusicViewModel(
         }
     }
 
-    /** Opens a shelf item: playable → play in shelf context; browseable → surface via search (detail pages land in phase 3). */
+    /** Opens a shelf item: browseable → detail page; playable → play in shelf context. */
     fun openShelfItem(item: ShelfItem, context: List<ShelfItem>) {
-        val track = item.toTrackOrNull() ?: run {
-            selectTab(AppTab.SEARCH)
-            onQueryChange(item.title)
-            search(item.title)
+        val browseId = item.browseId
+        if (browseId != null) {
+            openDetail(browseId, item.params, item.title)
             return
         }
+        val track = item.toTrackOrNull() ?: return
         val queue = context.mapNotNull { it.toTrackOrNull() }
         val index = queue.indexOfFirst { it.videoId == track.videoId }.takeIf { it >= 0 } ?: 0
         playQueue(queue.ifEmpty { listOf(track) }, index)
+    }
+
+    // ── Detail pages (album / playlist / artist / genre) ────────────────
+
+    fun openDetail(browseId: String, params: String?, title: String) {
+        val entry = DetailPageState(browseId = browseId, params = params, title = title, loading = true)
+        _state.update { it.copy(details = it.details + entry, overlay = AppOverlay.DETAIL) }
+        viewModelScope.launch {
+            runCatching {
+                val reply = MusicoCore.call(
+                    "online.browse",
+                    buildJsonObject {
+                        put("browseId", browseId)
+                        params?.let { put("params", it) }
+                    },
+                )
+                json.decodeFromJsonElement(BrowsePage.serializer(), reply)
+            }.onFold(
+                onSuccess = { page ->
+                    _state.update {
+                        it.copy(details = it.details.map { d ->
+                            if (d.browseId == browseId && d.params == params) d.copy(page = page, loading = false)
+                            else d
+                        })
+                    }
+                },
+                onFailure = { e ->
+                    _state.update {
+                        it.copy(details = it.details.map { d ->
+                            if (d.browseId == browseId && d.params == params) d.copy(error = e.userMessage(), loading = false)
+                            else d
+                        })
+                    }
+                },
+            )
+        }
+    }
+
+    fun popDetail() {
+        _state.update {
+            val rest = it.details.dropLast(1)
+            it.copy(details = rest, overlay = if (rest.isEmpty()) AppOverlay.NONE else AppOverlay.DETAIL)
+        }
+    }
+
+    /** Every playable track on the current detail page, flattened in page order. */
+    fun detailTracks(entry: DetailPageState): List<OnlineTrack> =
+        entry.page?.shelves.orEmpty().flatMap { it.items }.mapNotNull { it.toTrackOrNull() }
+
+    fun playDetail(entry: DetailPageState) {
+        val tracks = detailTracks(entry)
+        if (tracks.isNotEmpty()) playQueue(tracks, 0)
+    }
+
+    fun queueDetail(entry: DetailPageState) {
+        val tracks = detailTracks(entry)
+        if (tracks.isEmpty()) return
+        if (queueTracks.isEmpty()) {
+            playQueue(tracks, 0)
+            return
+        }
+        queueTracks = queueTracks + tracks
+        _state.update { it.copy(queue = queueTracks, error = "Added ${tracks.size} songs to the queue") }
+    }
+
+    /** Saves a detail page's tracks offline: sequential resolve → stream cache. */
+    fun saveDetailOffline(entry: DetailPageState) {
+        val tracks = detailTracks(entry)
+        if (tracks.isEmpty()) return
+        val browseId = entry.browseId
+        viewModelScope.launch {
+            tracks.forEachIndexed { i, track ->
+                _state.update {
+                    it.copy(details = it.details.map { d ->
+                        if (d.browseId == browseId) d.copy(saving = true, saved = i)
+                        else d
+                    }, savingTotal = tracks.size, savingDone = i)
+                }
+                runCatching {
+                    MusicoCore.call("track.resolve", resolveArgs(track))
+                }
+            }
+            _state.update {
+                it.copy(
+                    savingTotal = 0,
+                    savingDone = 0,
+                    details = it.details.map { d ->
+                        if (d.browseId == browseId) d.copy(saving = false, saved = tracks.size)
+                        else d
+                    },
+                    error = "Saved ${tracks.size} songs offline",
+                )
+            }
+        }
+    }
+
+    private fun resolveArgs(track: OnlineTrack) = buildJsonObject {
+        put("videoId", track.videoId)
+        put("title", track.title)
+        put("artist", track.artist)
+        put("album", track.album)
+        track.durationSecs?.let { put("durationSecs", it) }
+        track.thumbnail?.let { put("thumbnail", it) }
+        put("source", track.source)
+        track.artistBrowseId?.let { put("artistBrowseId", it) }
+    }
+
+    // ── Endless browsing: charts + genre styles after the home feed ──────
+
+    fun loadMoreHome() {
+        if (_state.value.moreLoading || _state.value.moreExhausted) return
+        viewModelScope.launch {
+            _state.update { it.copy(moreLoading = true) }
+            // Stage 1: editorial charts (guaranteed shelves). Titles already
+            // present in home are dropped — same dedupe the core does.
+            val charts = runCatching {
+                json.decodeFromJsonElement(
+                    BrowsePage.serializer(),
+                    MusicoCore.call("online.browse", buildJsonObject { put("browseId", "FEmusic_charts") }),
+                )
+            }.getOrNull()
+            // Stage 2: the mood/genre style grid → a "Browse styles" shelf
+            // whose cards open detail pages (effectively endless browsing).
+            val styles = runCatching {
+                json.decodeFromJsonElement(
+                    io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
+                    MusicoCore.call("online.genres"),
+                )
+            }.getOrNull()
+                // Genre pages are the frontier: their detail pages carry
+                // their own shelves, so browsing never truly dead-ends.
+
+
+            _state.update {
+                val existing = it.homeShelves.map { s -> s.title }.toSet()
+                val chartShelves = (charts?.shelves ?: emptyList()).filter { s -> s.title !in existing && s.items.isNotEmpty() }
+                val styleItems = styles?.items ?: emptyList()
+                it.copy(
+                    homeShelves = it.homeShelves + chartShelves,
+                    styleItems = styleItems,
+                    moreLoading = false,
+                    // Nothing more to chain — the styles grid IS the frontier;
+                    // each style opens a detail page full of more shelves.
+                    moreExhausted = true,
+                )
+            }
+        }
     }
 
     // ── Search ───────────────────────────────────────────────────────────
@@ -405,19 +613,7 @@ class MusicViewModel(
             val ok = resolveMutex.withLock {
                 _state.update { it.copy(resolvingId = track.videoId, error = null) }
                 runCatching {
-                    val reply = MusicoCore.call(
-                        "track.resolve",
-                        buildJsonObject {
-                            put("videoId", track.videoId)
-                            put("title", track.title)
-                            put("artist", track.artist)
-                            put("album", track.album)
-                            track.durationSecs?.let { put("durationSecs", it) }
-                            track.thumbnail?.let { put("thumbnail", it) }
-                            put("source", track.source)
-                            track.artistBrowseId?.let { put("artistBrowseId", it) }
-                        },
-                    )
+                    val reply = MusicoCore.call("track.resolve", resolveArgs(track))
                     json.decodeFromJsonElement(ResolvedTrack.serializer(), reply)
                 }.fold(
                     onSuccess = { resolved ->
@@ -512,6 +708,7 @@ class MusicViewModel(
         private const val PREF_RECENTS = "recent_tracks"
         private const val PREF_SEARCHES = "recent_searches"
         private const val PREF_BACKDROP = "lyric_backdrop"
+        private const val PREF_PALETTE = "palette_id"
         private const val PREF_NAME = "display_name"
         private const val RECENTS_LIMIT = 40
         private const val SEARCHES_LIMIT = 8

@@ -158,7 +158,11 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
         "online.genres" => {
             ensure_online()?;
-            serde_json::to_value(crate::online::genres()?).map_err(|e| format!("genres serialize: {e}"))
+            // Wrapped in an object: the bridge contract is object-shaped
+            // data (MusicoCore.call unwraps `data` as a JsonObject).
+            Ok(serde_json::json!({
+                "items": crate::online::genres()?,
+            }))
         }
 
         "online.browse" => {
@@ -270,6 +274,22 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             settings.save()?;
             log::info!("mobile core: settings saved");
             serde_json::to_value(settings).map_err(|e| format!("settings serialize: {e}"))
+        }
+
+        // ── Stream cache management ───────────────────────────────────────
+
+        "online.cache.usage" => {
+            let settings = crate::config::AppSettings::load();
+            Ok(serde_json::json!({
+                "bytes": crate::online::cache_usage_bytes(),
+                "capMb": settings.online_cache_mb,
+            }))
+        }
+
+        "online.cache.clear" => {
+            let freed = crate::online::clear_cache()?;
+            log::info!("mobile core: stream cache cleared ({freed} bytes freed)");
+            Ok(serde_json::json!({ "freedBytes": freed }))
         }
 
         other => Err(format!("unknown command `{other}`")),

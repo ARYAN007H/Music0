@@ -4,7 +4,6 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -18,35 +17,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-// ── Palette: "Nebula" — deep space surfaces, one vivid violet accent, a
-//    mint counterweight. Dark-first: the app is designed dark and merely
-//    tolerates light. ──────────────────────────────────────────────────────
-
-object MusicoColors {
-    // Dark surfaces (three steps, so depth reads without elevation shadows)
-    val bg0 = Color(0xFF0A0A12) // deepest — screen background
-    val bg1 = Color(0xFF12121C) // cards, sheets
-    val bg2 = Color(0xFF1C1C2A) // raised chips, controls
-
-    // Accents
-    val violet = Color(0xFF7C5CFF)
-    val violetBright = Color(0xFFA78BFF)
-    val mint = Color(0xFF53F2C4)
-    val coral = Color(0xFFFF6E7A)
-    val amber = Color(0xFFFFC24B)
-
-    // Text
-    val ink = Color(0xFFF2F1F7)
-    val inkDim = Color(0xFFA8A6B8)
-    val inkFaint = Color(0xFF6E6C80)
-
-    // Light surfaces
-    val lightBg0 = Color(0xFFF7F6FB)
-    val lightBg1 = Color(0xFFFFFFFF)
-    val lightInk = Color(0xFF191826)
-    val lightInkDim = Color(0xFF5D5B70)
-}
 
 // ── Motion: one shared spring vocabulary — Material 3 Expressive reads as
 //    "playful but physical" when every animation uses the same family. ─────
@@ -85,32 +55,22 @@ object MusicoShapes {
     val hero = RoundedCornerShape(28.dp)
 }
 
-/** Extra expressive tokens not covered by the M3 color scheme. */
+/** Extra expressive tokens not covered by the M3 color scheme — palette-driven. */
 data class MusicoExtras(
     val bg0: Color,
     val bg1: Color,
     val bg2: Color,
     val inkDim: Color,
     val inkFaint: Color,
-    val mint: Color,
-    val coral: Color,
+    val primary: Color,
+    val mint: Color, // counterpoint accent (playing EQ, positive fills)
+    val onMint: Color,
+    val coral: Color, // warm pop (likes, errors)
     val amber: Color,
+    val support: Color,
     val cardRadius: Dp = 24.dp,
     val cardLargeRadius: Dp = 32.dp,
 )
-
-val LocalMusicoExtras = staticCompositionLocalOf {
-    MusicoExtras(
-        bg0 = MusicoColors.bg0,
-        bg1 = MusicoColors.bg1,
-        bg2 = MusicoColors.bg2,
-        inkDim = MusicoColors.inkDim,
-        inkFaint = MusicoColors.inkFaint,
-        mint = MusicoColors.mint,
-        coral = MusicoColors.coral,
-        amber = MusicoColors.amber,
-    )
-}
 
 // ── Typography: one family, strong weight contrast, tight display sizes ──
 
@@ -124,52 +84,50 @@ data class MusicoTypography(
     val lyricNeighbor: TextStyle,
 )
 
-val LocalMusicoTypography = staticCompositionLocalOf { DefaultTypography }
-
 private val DefaultTypography = MusicoTypography(
-        display = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 34.sp,
-            letterSpacing = (-0.5).sp,
-        ),
-        section = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-            letterSpacing = 2.5.sp,
-        ),
-        title = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 15.sp,
-            letterSpacing = 0.1.sp,
-        ),
-        body = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.Normal,
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-        ),
-        caption = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = 12.sp,
-            letterSpacing = 0.3.sp,
-        ),
-        lyricCurrent = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 56.sp,
-            lineHeight = 64.sp,
-            letterSpacing = (-1).sp,
-        ),
-        lyricNeighbor = TextStyle(
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 22.sp,
-            letterSpacing = (-0.2).sp,
-        ),
+    display = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 34.sp,
+        letterSpacing = (-0.5).sp,
+    ),
+    section = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 15.sp,
+        letterSpacing = 2.5.sp,
+    ),
+    title = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 15.sp,
+        letterSpacing = 0.1.sp,
+    ),
+    body = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+    ),
+    caption = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        letterSpacing = 0.3.sp,
+    ),
+    lyricCurrent = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 56.sp,
+        lineHeight = 64.sp,
+        letterSpacing = (-1).sp,
+    ),
+    lyricNeighbor = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 22.sp,
+        letterSpacing = (-0.2).sp,
+    ),
 )
 
 /** Accessor sugar: `Musico.type.section`, `Musico.extras.mint`, … */
@@ -178,107 +136,110 @@ data class MusicoTokens(
     val type: MusicoTypography,
 )
 
-// Plain defaults (NOT reading other CompositionLocals — their .value is
-// composable-restricted and a staticCompositionLocalOf factory is not one).
-private val DefaultExtras = MusicoExtras(
-    bg0 = MusicoColors.bg0,
-    bg1 = MusicoColors.bg1,
-    bg2 = MusicoColors.bg2,
-    inkDim = MusicoColors.inkDim,
-    inkFaint = MusicoColors.inkFaint,
-    mint = MusicoColors.mint,
-    coral = MusicoColors.coral,
-    amber = MusicoColors.amber,
-)
+private val DefaultExtras = Palette.NEBULA.toExtras()
 
-val LocalMusicoTokens = staticCompositionLocalOf {
-    MusicoTokens(extras = DefaultExtras, type = DefaultTypography)
-}
+private val DefaultTokens = MusicoTokens(extras = DefaultExtras, type = DefaultTypography)
+
+val LocalMusicoTokens = staticCompositionLocalOf { DefaultTokens }
 
 val Musico: MusicoTokens
     @Composable get() = LocalMusicoTokens.current
 
-private val DarkScheme = darkColorScheme(
-    primary = MusicoColors.violet,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF3B2A80),
-    onPrimaryContainer = Color(0xFFE6DEFF),
-    secondary = MusicoColors.mint,
-    onSecondary = Color(0xFF05291D),
-    secondaryContainer = Color(0xFF1E4C3E),
-    onSecondaryContainer = Color(0xFFC9F7E6),
-    tertiary = MusicoColors.coral,
-    onTertiary = Color(0xFF3A0A10),
-    background = MusicoColors.bg0,
-    onBackground = MusicoColors.ink,
-    surface = MusicoColors.bg0,
-    onSurface = MusicoColors.ink,
-    surfaceVariant = MusicoColors.bg2,
-    onSurfaceVariant = MusicoColors.inkDim,
-    surfaceContainer = MusicoColors.bg1,
-    surfaceContainerHigh = MusicoColors.bg2,
-    surfaceContainerHighest = Color(0xFF262638),
-    outline = Color(0xFF3A3850),
-    outlineVariant = Color(0xFF2A2840),
-    error = MusicoColors.coral,
-    onError = Color(0xFF3A0A10),
+private fun Palette.toExtras(): MusicoExtras = MusicoExtras(
+    bg0 = bg0,
+    bg1 = bg1,
+    bg2 = bg2,
+    inkDim = inkDim,
+    inkFaint = inkFaint,
+    primary = primary,
+    mint = accent,
+    onMint = onAccent,
+    coral = pop,
+    amber = accent,
+    support = support,
 )
 
-private val LightScheme = lightColorScheme(
-    primary = Color(0xFF5B3DF6),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE6DEFF),
-    onPrimaryContainer = Color(0xFF21005D),
-    secondary = Color(0xFF1E6E56),
-    onSecondary = Color.White,
-    tertiary = Color(0xFFB3261E),
-    background = MusicoColors.lightBg0,
-    onBackground = MusicoColors.lightInk,
-    surface = MusicoColors.lightBg0,
-    onSurface = MusicoColors.lightInk,
+private fun Palette.toDarkScheme() = darkColorScheme(
+    primary = primary,
+    onPrimary = onPrimary,
+    primaryContainer = primaryContainer,
+    onPrimaryContainer = onPrimaryContainer,
+    secondary = accent,
+    onSecondary = onAccent,
+    secondaryContainer = primaryContainer,
+    onSecondaryContainer = onPrimaryContainer,
+    tertiary = pop,
+    onTertiary = onPrimary,
+    background = bg0,
+    onBackground = ink,
+    surface = bg0,
+    onSurface = ink,
+    surfaceVariant = bg2,
+    onSurfaceVariant = inkDim,
+    surfaceContainer = bg1,
+    surfaceContainerHigh = bg2,
+    surfaceContainerHighest = bg2,
+    outline = inkFaint,
+    outlineVariant = bg2,
+    error = pop,
+    onError = onPrimary,
+)
+
+/**
+ * Light mode keeps its own fixed neutral treatment (the app is designed
+ * dark-first); the chosen palette only contributes the primary accent so
+ * switching themes still reads in light mode.
+ */
+private fun paletteLightScheme(p: Palette) = lightColorScheme(
+    primary = p.primary,
+    onPrimary = p.onPrimary,
+    primaryContainer = p.primaryContainer,
+    onPrimaryContainer = p.onPrimaryContainer,
+    secondary = p.accent,
+    onSecondary = p.onAccent,
+    tertiary = p.pop,
+    background = Color(0xFFF7F6FB),
+    onBackground = Color(0xFF191826),
+    surface = Color(0xFFF7F6FB),
+    onSurface = Color(0xFF191826),
     surfaceVariant = Color(0xFFE8E6F2),
-    onSurfaceVariant = MusicoColors.lightInkDim,
-    surfaceContainer = MusicoColors.lightBg1,
+    onSurfaceVariant = Color(0xFF5D5B70),
+    surfaceContainer = Color.White,
     surfaceContainerHigh = Color(0xFFF0EEF8),
     outline = Color(0xFFCAC8D8),
-    outlineVariant = Color(0xFFDEDCeA),
+    outlineVariant = Color(0xFFDEDCEA),
     error = Color(0xFFB3261E),
     onError = Color.White,
 )
 
 /**
- * The app theme. The music experience is designed dark-first (lyrics and
- * player genuinely only work on dark), so light mode keeps the same layout
- * with an inverted surface treatment.
+ * The app theme, parameterized by the user-selected [Palette]. Dark-first:
+ * the player/lyrics genuinely only work on dark, so the palette always
+ * drives the dark scheme and light mode is a neutral fallback.
  */
 @Composable
-fun MusicoTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val scheme = if (dark) DarkScheme else LightScheme
+fun MusicoTheme(palette: Palette = Palette.NEBULA, content: @Composable () -> Unit) {
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val scheme = if (dark) palette.toDarkScheme() else paletteLightScheme(palette)
     val extras = if (dark) {
-        MusicoExtras(
-            bg0 = MusicoColors.bg0,
-            bg1 = MusicoColors.bg1,
-            bg2 = MusicoColors.bg2,
-            inkDim = MusicoColors.inkDim,
-            inkFaint = MusicoColors.inkFaint,
-            mint = MusicoColors.mint,
-            coral = MusicoColors.coral,
-            amber = MusicoColors.amber,
-        )
+        palette.toExtras()
     } else {
+        // Light extras: surfaces flip, accents keep identity.
         MusicoExtras(
-            bg0 = MusicoColors.lightBg0,
-            bg1 = MusicoColors.lightBg1,
+            bg0 = Color(0xFFF7F6FB),
+            bg1 = Color.White,
             bg2 = Color(0xFFEDEBF6),
-            inkDim = MusicoColors.lightInkDim,
+            inkDim = Color(0xFF5D5B70),
             inkFaint = Color(0xFF8B899C),
-            mint = Color(0xFF1E6E56),
+            primary = palette.primary,
+            mint = palette.accent,
+            onMint = palette.onAccent,
             coral = Color(0xFFB3261E),
             amber = Color(0xFF9A6B00),
+            support = palette.support,
         )
     }
-    val tokens = MusicoTokens(extras = extras, type = LocalMusicoTypography.current)
+    val tokens = MusicoTokens(extras = extras, type = DefaultTypography)
     androidx.compose.runtime.CompositionLocalProvider(
         LocalMusicoTokens provides tokens,
     ) {

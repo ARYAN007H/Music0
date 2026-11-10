@@ -28,7 +28,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import io.github.aryan007h.musicoonline.core.OnlineTrack
-import io.github.aryan007h.musicoonline.ui.theme.MusicoColors
+import io.github.aryan007h.musicoonline.ui.theme.Musico
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -144,6 +144,11 @@ fun AuroraBackdrop(modifier: Modifier = Modifier) {
             label = "phase2",
         )
 
+        // Palette-driven veil colors, read in composition (the draw lambda
+        // below is not a composable scope).
+        val veilLead = Musico.extras.primary
+        val veilAccent = Musico.extras.mint
+        val veilSupport = Musico.extras.support
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
@@ -158,7 +163,7 @@ fun AuroraBackdrop(modifier: Modifier = Modifier) {
                 }
             }
             veil(
-                MusicoColors.violet,
+                veilLead,
                 cx = w * (0.3f + 0.12f * sin(phase * 2f * PI.toFloat())),
                 cy = h * 0.32f,
                 radiusX = w * 0.55f,
@@ -167,7 +172,7 @@ fun AuroraBackdrop(modifier: Modifier = Modifier) {
                 alpha = 0.30f,
             )
             veil(
-                MusicoColors.mint,
+                veilAccent,
                 cx = w * (0.7f + 0.1f * cos(phase2 * 2f * PI.toFloat())),
                 cy = h * 0.5f,
                 radiusX = w * 0.5f,
@@ -176,7 +181,7 @@ fun AuroraBackdrop(modifier: Modifier = Modifier) {
                 alpha = 0.24f,
             )
             veil(
-                Color(0xFF2E86FF),
+                veilSupport,
                 cx = w * (0.5f + 0.14f * sin(phase2 * 1.4f * PI.toFloat())),
                 cy = h * 0.72f,
                 radiusX = w * 0.6f,
@@ -221,7 +226,7 @@ fun ArtworkGlowBackdrop(track: OnlineTrack?, modifier: Modifier = Modifier) {
                 Modifier
                     .fillMaxSize()
                     .background(
-                        Brush.verticalGradient(listOf(MusicoColors.bg1, Color.Black)),
+                        Brush.verticalGradient(listOf(Musico.extras.bg1, Color.Black)),
                     ),
             )
         }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,21 +63,28 @@ fun HomeScreen(
     shelves: List<Shelf>,
     loading: Boolean,
     error: String?,
+    styleItems: List<ShelfItem>,
+    moreLoading: Boolean,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
     onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
     currentTrackId: String?,
 ) {
     when {
         error != null && shelves.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
         loading && shelves.isEmpty() -> HomeSkeleton()
-        else -> HomeFeed(shelves, onOpenItem, currentTrackId)
+        else -> HomeFeed(shelves, styleItems, moreLoading, onOpenItem, onRetry, onLoadMore, currentTrackId)
     }
 }
 
 @Composable
 private fun HomeFeed(
     shelves: List<Shelf>,
+    styleItems: List<ShelfItem>,
+    moreLoading: Boolean,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
+    onRetry: () -> Unit,
+    onLoadMore: () -> Unit,
     currentTrackId: String?,
 ) {
     // Section mapping (Apple Music-ish): the first substantive shelf becomes
@@ -135,7 +143,38 @@ private fun HomeFeed(
                 onItemClick = onOpenItem,
             )
         }
+        // Endless browsing: once the user nears the end, chain charts +
+        // the genre style grid (each style card opens a full detail page).
+        item(key = "styles") {
+            if (styleItems.isNotEmpty()) {
+                ShelfCarousel(
+                    shelfTitle = "Browse styles",
+                    items = styleItems,
+                    onItemClick = onOpenItem,
+                    cardWidth = 120.dp,
+                )
+            } else if (moreLoading) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 22.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+        item(key = "end-trigger") {
+            EndDetector(onNearEnd = onLoadMore)
+        }
     }
+}
+
+/** Fires [onNearEnd] when composed — it only renders near the list's end. */
+@Composable
+private fun EndDetector(onNearEnd: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) { onNearEnd() }
+    Spacer(Modifier.height(8.dp))
 }
 
 private data class HomeSections(
