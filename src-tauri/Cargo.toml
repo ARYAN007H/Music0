@@ -53,6 +53,20 @@ souvlaki = { version = "0.8", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 
+# Android storage bootstrap (#108): app processes have no $HOME and dirs-sys'
+# android fallback returns None, so the JNI lib reads the app-private
+# files/cache dirs via ndk-context + jni and exports the XDG vars that the
+# unix `dirs` code path (compiled on android) resolves against.
+# android_logger mirrors the log crate straight to logcat — the only
+# always-available debugging surface on a device (stderr/file are not
+# readable there without root). Chosen over tauri-plugin-log: its LogDir
+# target resolves a Tauri path during plugin init and that can silently
+# fail on Android, leaving NO logger installed (observed on device).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+android_logger = "0.15"
+
 [dev-dependencies]
 tempfile = "3"
 

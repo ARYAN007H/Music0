@@ -85,8 +85,9 @@ const DEFAULT_INVIDIOUS: &[&str] = &[
 
 const ENV_PIPED: &str = "MUSICO_PIPED_INSTANCES";
 const ENV_INVIDIOUS: &str = "MUSICO_INVIDIOUS_INSTANCES";
+/// Kill-switch for the InnerTube-direct source: unset or any non-blank value
+/// keeps it enabled (the default); a blank value disables it (hermetic tests).
 const ENV_INNERTUBE_DIRECT: &str = "MUSICO_INNERTUBE_DIRECT";
-const DEFAULT_INNERTUBE_DIRECT: &[&str] = &["www.youtube.com"];
 
 /// Dedicated HTTP client for source fetches. Separate from the InnerTube
 /// client (`client::http_client`) on purpose: these are untrusted third-party
@@ -136,33 +137,46 @@ fn instances_from_env(env_value: Option<&str>, defaults: &[&str]) -> Vec<String>
     }
 }
 
-/// Builds the failover pool: Piped instances first (richer metadata, direct
-/// proxied URLs), then Invidious, then pure-Rust InnerTube ANDROID_VR direct
-/// extraction (essential on Android APK & systems without yt-dlp), dynamically
-/// ordered by EWMA health score.
+/// Builds the failover pool: the InnerTube-direct multi-client director first
+/// (first-party endpoints, no third-party instance to bot-wall — the
+/// Metrolist-derived approach; see [`InnerTubeDirectSource`]), then the
+/// Piped/Invidious instance pools as failover for when YouTube's player API
+/// itself refuses us, dynamically ordered by EWMA health score. JioSaavn is
+/// dispatched per-id upstream of this pool and stays the catalog backup.
 pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
     let mut specs = Vec::new();
     let piped_env = std::env::var(ENV_PIPED).ok();
     let inv_env = std::env::var(ENV_INVIDIOUS).ok();
     let it_env = std::env::var(ENV_INNERTUBE_DIRECT).ok();
-    for host in instances_from_env(piped_env.as_deref(), DEFAULT_PIPED) {
-        specs.push(SourceSpec { host, kind: SourceKind::Piped });
-    }
-    for host in instances_from_env(inv_env.as_deref(), DEFAULT_INVIDIOUS) {
-        specs.push(SourceSpec { host, kind: SourceKind::Invidious });
-    }
-    // Include pure-Rust InnerTube direct resolver unless both Piped and Invidious
-    // were explicitly blanked out by a hermetic test without setting ENV_INNERTUBE_DIRECT.
+    // Director first, pinned: unlike the instance pools it has no third-party
+    // ecosystem to churn, so its place in the order is not a judgment call.
+    // A blank MUSICO_INNERTUBE_DIRECT disables it (hermetic tests).
+    let director_enabled = !it_env.as_deref().is_some_and(|s| s.trim().is_empty());
     let pools_explicitly_blanked = piped_env.as_deref().is_some_and(|s| s.trim().is_empty())
         && inv_env.as_deref().is_some_and(|s| s.trim().is_empty())
-        && it_env.is_none();
+        && !director_enabled;
     if !pools_explicitly_blanked {
-        for host in instances_from_env(it_env.as_deref(), DEFAULT_INNERTUBE_DIRECT) {
-            specs.push(SourceSpec { host, kind: SourceKind::InnerTubeDirect });
+        if director_enabled {
+            specs.push(SourceSpec { host: InnerTubeDirectSource::NAME.to_string(), kind: SourceKind::InnerTubeDirect });
+        }
+        for host in instances_from_env(piped_env.as_deref(), DEFAULT_PIPED) {
+            specs.push(SourceSpec { host, kind: SourceKind::Piped });
+        }
+        for host in instances_from_env(inv_env.as_deref(), DEFAULT_INVIDIOUS) {
+            specs.push(SourceSpec { host, kind: SourceKind::Invidious });
         }
     }
-    sort_specs_by_health(&mut specs);
-    specs.into_iter().map(|s| s.into_source()).collect()
+    // Pin the director ahead of whatever the instance pools' history says:
+    // a proven-healthy instance still depends on a third party staying alive.
+    let (direct, mut rest): (Vec<_>, Vec<_>) = specs
+        .into_iter()
+        .partition(|s| s.kind == SourceKind::InnerTubeDirect);
+    sort_specs_by_health(&mut rest);
+    direct
+        .into_iter()
+        .chain(rest)
+        .map(|s| s.into_source())
+        .collect()
 }
 
 #[derive(Clone, Debug)]
@@ -223,7 +237,7 @@ impl SourceSpec {
         match self.kind {
             SourceKind::Piped => Box::new(PipedSource { host: self.host }),
             SourceKind::Invidious => Box::new(InvidiousSource { host: self.host }),
-            SourceKind::InnerTubeDirect => Box::new(InnerTubeDirectSource { host: self.host }),
+            SourceKind::InnerTubeDirect => Box::new(InnerTubeDirectSource),
         }
     }
 }
@@ -416,13 +430,310 @@ impl AudioSource for InvidiousSource {
     }
 }
 
-/// Pure-Rust InnerTube `ANDROID_VR` direct stream resolver.
-/// Queries `POST https://{host}/youtubei/v1/player?prettyPrint=false` using the
-/// `ANDROID_VR` client context (which returns unthrottled direct `itag 140`
-/// `audio/mp4` URLs in `streamingData.adaptiveFormats`), avoiding any `yt-dlp`
-/// or Python subprocess requirement on Android APK and fresh desktop installs.
-struct InnerTubeDirectSource {
-    host: String,
+// ---------------------------------------------------------------------------
+// InnerTube-direct multi-client director (primary source)
+// ---------------------------------------------------------------------------
+
+/// Pure-Rust InnerTube stream director — the primary resolve source, tried
+/// before the instance pools. Implements the public InnerTube `/player`
+/// protocol directly against YouTube's first-party endpoints, rotating
+/// through a catalog of tokenless client profiles with playability-driven
+/// failover, a visitor-data bootstrap, and per-profile health demotion.
+///
+/// The approach (and the client-profile values/benchmarks) follow the public
+/// Metrolist playback matrix (MetrolistGroup/innertubex, GPL-3) — protocol
+/// observations only; this is an independent MIT implementation sharing no
+/// code with it, the same way yt-dlp and NewPipe independently implement the
+/// same API. Why a director at all: as of the November 2026 catalog data the
+/// ANDROID_VR family (our previous single client) resolves the player but
+/// YouTube 403s sustained media ranges after the first 512 KiB, and the
+/// third-party Piped/Invidious ecosystem bot-walls by the minute — the
+/// first-party endpoints are the only path with no intermediary to churn.
+struct InnerTubeDirectSource;
+
+/// One tokenless, direct-transport InnerTube client profile.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ItClientProfile {
+    /// Diagnostic id (also the per-profile health key).
+    id: &'static str,
+    client_name: &'static str,
+    client_version: &'static str,
+    /// `X-YouTube-Client-Name` (numeric API client id).
+    client_id: &'static str,
+    user_agent: &'static str,
+    os_name: Option<&'static str>,
+    os_version: Option<&'static str>,
+    device_make: Option<&'static str>,
+    device_model: Option<&'static str>,
+    android_sdk_version: Option<&'static str>,
+    platform: Option<&'static str>,
+    /// Mirror the UA into `context.client.userAgent` (device-profiled clients).
+    ua_in_context: bool,
+    /// The profile serves the media-player (`music.youtube.com`) endpoint —
+    /// that endpoint omits `videoCheckOk` from the payload.
+    music_player_endpoint: bool,
+    /// Skip the profile when the visitor-data bootstrap failed (the catalog
+    /// benchmark only observed direct audio from anonymous sessions carrying
+    /// a visitor id).
+    needs_visitor: bool,
+}
+
+/// Ordered failover catalog. Values are the public benchmark observations of
+/// November 2026; the ecosystem moves, so profiles demote on failure and the
+/// instance pools remain behind this source as failover.
+const IT_CLIENTS: &[ItClientProfile] = &[
+    ItClientProfile {
+        id: "VISIONOS_0_1",
+        client_name: "VISIONOS",
+        client_version: "0.1",
+        client_id: "101",
+        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+        os_name: Some("VISION_OS"),
+        os_version: Some("1.3"),
+        device_make: Some("Apple"),
+        device_model: Some("RealityDevice14,1"),
+        android_sdk_version: None,
+        platform: Some("MOBILE"),
+        ua_in_context: false,
+        music_player_endpoint: true,
+        needs_visitor: true,
+    },
+    ItClientProfile {
+        id: "VISIONOS_1_02",
+        client_name: "VISIONOS",
+        client_version: "1.02",
+        client_id: "101",
+        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+        os_name: Some("visionOS"),
+        os_version: Some("26.5.23O471"),
+        device_make: Some("Apple"),
+        device_model: Some("RealityDevice17,1"),
+        android_sdk_version: None,
+        platform: None,
+        ua_in_context: false,
+        music_player_endpoint: true,
+        needs_visitor: false,
+    },
+    ItClientProfile {
+        id: "WEB_REMIX",
+        client_name: "WEB_REMIX",
+        client_version: "1.20260707.12.00",
+        client_id: "67",
+        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+        os_name: None,
+        os_version: None,
+        device_make: None,
+        device_model: None,
+        android_sdk_version: None,
+        platform: None,
+        ua_in_context: false,
+        music_player_endpoint: false,
+        needs_visitor: false,
+    },
+];
+
+/// A demoted profile is skipped for this long; successes clear the mark.
+const IT_DEMOTE: Duration = Duration::from_secs(10 * 60);
+#[allow(clippy::incompatible_msrv)] // file-wide pattern; MSRV raises with the 1.80 bump
+static IT_HEALTH: LazyLock<std::sync::Mutex<std::collections::HashMap<&'static str, Instant>>> =
+    LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn it_demoted(id: &str) -> bool {
+    let Ok(map) = IT_HEALTH.lock() else { return false };
+    map.get(id).is_some_and(|until| *until > Instant::now())
+}
+
+fn it_demote(id: &'static str) {
+    if let Ok(mut map) = IT_HEALTH.lock() {
+        map.insert(id, Instant::now() + IT_DEMOTE);
+    }
+}
+
+fn it_rehab(id: &str) {
+    if let Ok(mut map) = IT_HEALTH.lock() {
+        map.remove(id);
+    }
+}
+
+/// Bootstrap visitor data (YouTube's anonymous session id), cached
+/// process-wide. `https://www.youtube.com/sw.js_data` serves it as JSON;
+/// the music-homepage HTML carries it as a fallback. Values look like
+/// URL-safe base64 with `%3D` padding and survive the plain-string scan
+/// below; the 4 KB cap plus the quoted-value scan keep untrusted HTML from
+/// being over-read (mirrors MAX_METADATA_BYTES discipline).
+#[allow(clippy::incompatible_msrv)] // file-wide pattern; MSRV raises with the 1.80 bump
+static VISITOR_CACHE: LazyLock<std::sync::Mutex<VisitorCache>> =
+    LazyLock::new(|| std::sync::Mutex::new(None));
+const VISITOR_TTL: Duration = Duration::from_secs(30 * 60);
+const VISITOR_FAIL_COOLDOWN: Duration = Duration::from_secs(30);
+const VISITOR_DATA_URL: &str = "https://www.youtube.com/sw.js_data";
+const MUSIC_HOME_URL: &str = "https://music.youtube.com/";
+const UA_WEB: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0";
+
+/// Extracts a visitor id from `sw.js_data` JSON or homepage HTML: the value
+/// of the `VISITOR_DATA` / `visitorData` key, JSON-escape-processed.
+fn extract_visitor_data(text: &str) -> Option<String> {
+    for key in ["\"VISITOR_DATA\":\"", "\"visitorData\":\""] {
+        let Some(start) = text.find(key) else { continue };
+        let rest = &text[start + key.len()..];
+        // Find the closing quote, honoring backslash escapes so an escaped
+        // `\"` inside the value cannot terminate the scan early.
+        let bytes = rest.as_bytes();
+        let mut end = 0;
+        while end < bytes.len() {
+            match bytes[end] {
+                b'\\' if end + 1 < bytes.len() => end += 2,
+                b'"' => break,
+                _ => end += 1,
+            }
+        }
+        if end >= bytes.len() {
+            continue;
+        }
+        let raw = &rest[..end];
+        if raw.is_empty() {
+            continue;
+        }
+        // Minimal JSON string unescape — visitor ids are base64/pct-encoded
+        // ASCII, so only the two-char escapes can appear.
+        let unescaped = raw
+            .replace("\\/", "/")
+            .replace("\\\"", "\"")
+            .replace("\\\\", "\\");
+        return Some(unescaped);
+    }
+    None
+}
+
+/// Cached visitor bootstrap state: `Ok((visitor id, fetched at))` while
+/// fresh, `Err(cooldown deadline)` after both probes failed.
+type VisitorCache = Option<Result<(String, Instant), Instant>>;
+
+/// Cached visitor bootstrap; `None` when both probes failed recently.
+fn visitor_data(
+    client: &reqwest::blocking::Client,
+    deadline: Instant,
+) -> Option<String> {
+    {
+        let cache = VISITOR_CACHE.lock().ok()?;
+        match &*cache {
+            Some(Ok((vd, at))) if at.elapsed() < VISITOR_TTL => return Some(vd.clone()),
+            Some(Err(cooled)) if *cooled > Instant::now() => return None,
+            _ => {}
+        }
+    }
+    let fetched = (|| {
+        let left = remaining(deadline).ok()?;
+        let sw_budget = left.min(Duration::from_secs(4));
+        let html_budget = left.min(Duration::from_secs(5));
+        // 1) Service-worker data endpoint (JSON, small).
+        if let Ok(resp) = client
+            .get(VISITOR_DATA_URL)
+            .header(reqwest::header::USER_AGENT, UA_WEB)
+            .header(reqwest::header::ACCEPT, "application/json,text/plain,*/*")
+            .timeout(sw_budget)
+            .send()
+        {
+            if resp.status().is_success() {
+                if let Ok(bytes) = read_capped(resp, 1024 * 1024) {
+                    if let Some(vd) = extract_visitor_data(&String::from_utf8_lossy(&bytes)) {
+                        return Some(vd);
+                    }
+                }
+            }
+        }
+        // 2) Music homepage HTML fallback.
+        if let Ok(resp) = client
+            .get(MUSIC_HOME_URL)
+            .header(reqwest::header::USER_AGENT, UA_WEB)
+            .header(
+                reqwest::header::ACCEPT,
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .timeout(html_budget)
+            .send()
+        {
+            if resp.status().is_success() {
+                if let Ok(bytes) = read_capped(resp, MAX_METADATA_BYTES) {
+                    if let Some(vd) = extract_visitor_data(&String::from_utf8_lossy(&bytes)) {
+                        return Some(vd);
+                    }
+                }
+            }
+        }
+        None
+    })();
+    let mut cache = VISITOR_CACHE.lock().ok()?;
+    match &fetched {
+        Some(vd) => *cache = Some(Ok((vd.clone(), Instant::now()))),
+        None => *cache = Some(Err(Instant::now() + VISITOR_FAIL_COOLDOWN)),
+    }
+    fetched
+}
+
+/// Builds the `/player` payload for one profile. The music-player endpoint
+/// omits `videoCheckOk`; device-profiled fields land only when declared.
+fn build_player_payload(
+    p: &ItClientProfile,
+    video_id: &str,
+    visitor: Option<&str>,
+) -> serde_json::Value {
+    let mut c = serde_json::json!({
+        "clientName": p.client_name,
+        "clientVersion": p.client_version,
+        "hl": "en",
+        "gl": "US",
+    });
+    if let Some(v) = visitor {
+        c["visitorData"] = serde_json::json!(v);
+    }
+    if p.ua_in_context {
+        c["userAgent"] = serde_json::json!(p.user_agent);
+    }
+    for (key, val) in [
+        ("osName", p.os_name),
+        ("osVersion", p.os_version),
+        ("deviceMake", p.device_make),
+        ("deviceModel", p.device_model),
+        ("androidSdkVersion", p.android_sdk_version),
+        ("platform", p.platform),
+    ] {
+        if let Some(v) = val {
+            c[key] = serde_json::json!(v);
+        }
+    }
+    let mut body = serde_json::json!({
+        "context": { "client": c },
+        "videoId": video_id,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
+    });
+    if !p.music_player_endpoint {
+        body["videoCheckOk"] = serde_json::json!(true);
+    }
+    body
+}
+
+/// `playabilityStatus.status` of a player response (`None` when absent —
+/// a body without it is not the API we asked for).
+fn playability_status(body: &[u8]) -> Option<String> {
+    let val = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    val.get("playabilityStatus")?
+        .get("status")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// A stream URL carrying an `n` query parameter needs YouTube's JS
+/// n-transform before it will serve — treat those as not playback-ready.
+fn has_n_param(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("?n=") || lower.contains("&n=")
+}
+
+/// Filters parsed candidates down to playback-ready direct URLs.
+fn playback_ready(candidates: Vec<PipedAudio>) -> Vec<PipedAudio> {
+    candidates.into_iter().filter(|c| !has_n_param(&c.url)).collect()
 }
 
 fn parse_innertube_player_streams(body: &[u8]) -> Vec<PipedAudio> {
@@ -458,95 +769,142 @@ fn parse_innertube_player_streams(body: &[u8]) -> Vec<PipedAudio> {
     out
 }
 
+impl InnerTubeDirectSource {
+    const NAME: &'static str = "innertube-direct";
+    const CLIENTS: &'static [ItClientProfile] = IT_CLIENTS;
+}
+
 impl AudioSource for InnerTubeDirectSource {
     fn name(&self) -> &str {
-        &self.host
+        Self::NAME
     }
 
     fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-        let meta_budget = remaining(deadline)?.min(METADATA_TIMEOUT);
+        let mut last_err = String::from("no client profile attempted");
 
-        let payload = serde_json::json!({
-            "videoId": video_id,
-            "context": {
-                "client": {
-                    "clientName": "ANDROID_VR",
-                    "clientVersion": "1.60.19",
-                    "androidSdkVersion": 32,
-                    "hl": "en",
-                    "gl": "US"
+        for p in Self::CLIENTS {
+            if it_demoted(p.id) {
+                last_err = format!("{}: demoted after recent failures", p.id);
+                continue;
+            }
+            if remaining(deadline).is_err() {
+                return Err(format!("{last_err}; fast-path deadline exhausted"));
+            }
+            let visitor = visitor_data(client, deadline);
+            if visitor.is_none() {
+                log::info!("innertube-direct: visitor data unavailable");
+            }
+            if p.needs_visitor && visitor.is_none() {
+                last_err = format!("{}: visitor data unavailable", p.id);
+                log::info!("innertube-direct: {last_err}");
+                continue;
+            }
+            let payload = build_player_payload(p, video_id, visitor.as_deref());
+
+            let meta_budget = remaining(deadline)?.min(METADATA_TIMEOUT);
+            let mut req = client
+                .post("https://music.youtube.com/youtubei/v1/player?prettyPrint=false")
+                .header(reqwest::header::USER_AGENT, p.user_agent)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .header("X-Goog-Api-Format-Version", "1")
+                .header("X-YouTube-Client-Name", p.client_id)
+                .header("X-YouTube-Client-Version", p.client_version)
+                .header(reqwest::header::ORIGIN, "https://music.youtube.com")
+                .header("X-Origin", "https://music.youtube.com")
+                .header(reqwest::header::REFERER, "https://music.youtube.com/")
+                .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+                .timeout(meta_budget);
+            if let Some(v) = &visitor {
+                req = req.header("X-Goog-Visitor-Id", v);
+            }
+            let meta = match req.json(&payload).send() {
+                Ok(r) => r,
+                Err(e) => {
+                    it_demote(p.id);
+                    last_err = format!("{}: player request: {e}", p.id);
+                    log::info!("innertube-direct: {last_err}");
+                    continue;
                 }
-            },
-            "contentCheckOk": true,
-            "racyCheckOk": true
-        });
+            };
+            if !meta.status().is_success() {
+                it_demote(p.id);
+                last_err = format!("{}: HTTP {}", p.id, meta.status());
+                log::info!("innertube-direct: {last_err}");
+                continue;
+            }
+            let bytes = match read_capped(meta, MAX_METADATA_BYTES) {
+                Ok(b) => b,
+                Err(e) => {
+                    it_demote(p.id);
+                    last_err = format!("{}: body: {e}", p.id);
+                    continue;
+                }
+            };
+            match playability_status(&bytes).as_deref() {
+                Some("OK") | Some("LIVE_STREAM_OFFLINE") => {}
+                other => {
+                    it_demote(p.id);
+                    last_err = format!(
+                        "{}: playability {}",
+                        p.id,
+                        other.unwrap_or("response missing playabilityStatus")
+                    );
+                    log::info!("innertube-direct: {last_err}");
+                    continue;
+                }
+            }
+            let ready = playback_ready(parse_innertube_player_streams(&bytes));
+            let url = match select_best_m4a(&ready) {
+                Some(u) => u,
+                None => {
+                    it_demote(p.id);
+                    last_err = format!(
+                        "{}: no playback-ready direct audio/mp4 <=192k (cipher-only or n-param streams)",
+                        p.id
+                    );
+                    log::info!("innertube-direct: {last_err}");
+                    continue;
+                }
+            };
 
-        let meta = client
-            .post(format!(
-                "https://{}/youtubei/v1/player?prettyPrint=false",
-                self.host
-            ))
-            .header(
-                reqwest::header::USER_AGENT,
-                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-            )
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(&payload)
-            .timeout(meta_budget)
-            .send()
-            .map_err(|e| format!("innertube-direct {}: player request: {e}", self.host))?;
-
-        if !meta.status().is_success() {
-            return Err(format!(
-                "innertube-direct {}: HTTP {}",
-                self.host,
-                meta.status()
-            ));
+            let dl_budget = remaining(deadline)?;
+            let resp = match client
+                .get(url)
+                .header(reqwest::header::USER_AGENT, p.user_agent)
+                .timeout(dl_budget)
+                .send()
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    it_demote(p.id);
+                    last_err = format!("{}: download: {e}", p.id);
+                    continue;
+                }
+            };
+            if !resp.status().is_success() {
+                it_demote(p.id);
+                last_err = format!("{}: download HTTP {}", p.id, resp.status());
+                continue;
+            }
+            let ctype = resp
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
+                it_demote(p.id);
+                last_err = format!("{}: content-type `{ctype}` is not audio", p.id);
+                continue;
+            }
+            it_rehab(p.id);
+            log::info!("innertube-direct: {} serving {video_id}", p.id);
+            return Ok(Box::new(resp));
         }
-        let bytes = read_capped(meta, MAX_METADATA_BYTES)
-            .map_err(|e| format!("innertube-direct {}: body: {e}", self.host))?;
-        let candidates = parse_innertube_player_streams(&bytes);
-        let url = select_best_m4a(&candidates).ok_or_else(|| {
-            format!(
-                "innertube-direct {}: no direct audio/mp4 stream <=192k",
-                self.host
-            )
-        })?;
-
-        let dl_budget = remaining(deadline)?;
-        let resp = client
-            .get(url)
-            .header(
-                reqwest::header::USER_AGENT,
-                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-            )
-            .timeout(dl_budget)
-            .send()
-            .map_err(|e| format!("innertube-direct {}: download: {e}", self.host))?;
-
-        if !resp.status().is_success() {
-            return Err(format!(
-                "innertube-direct {}: download HTTP {}",
-                self.host,
-                resp.status()
-            ));
-        }
-        let ctype = resp
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
-            return Err(format!(
-                "innertube-direct {}: content-type `{ctype}` is not audio",
-                self.host
-            ));
-        }
-        Ok(Box::new(resp))
+        Err(last_err)
     }
 }
 
@@ -947,7 +1305,103 @@ mod tests {
         );
     }
 
+    // -- InnerTube-direct director (pure helpers) -----------------------------
+
+    fn pa(url: &str, bitrate: Option<u64>) -> PipedAudio {
+        PipedAudio {
+            url: url.to_string(),
+            bitrate,
+            mime_type: Some("audio/mp4; codecs=\"mp4a.40.2\"".to_string()),
+        }
+    }
+
+    #[test]
+    fn visitor_data_extracts_from_service_worker_json() {
+        let text = r#"({"VISITOR_DATA":"CgtAbc%3D%3Dg","Path":"/sw.js_data"};"#;
+        assert_eq!(extract_visitor_data(text).as_deref(), Some("CgtAbc%3D%3Dg"));
+    }
+
+    #[test]
+    fn visitor_data_extracts_lowercase_key_and_unescapes() {
+        let text = r#"{"visitorData":"Cg\/abc\"def"}"#;
+        assert_eq!(extract_visitor_data(text).as_deref(), Some(r#"Cg/abc"def"#));
+    }
+
+    #[test]
+    fn visitor_data_absent_or_empty_is_none() {
+        assert_eq!(extract_visitor_data("<html>nope</html>"), None);
+        assert_eq!(extract_visitor_data("\"VISITOR_DATA\":\"\""), None);
+    }
+
+    #[test]
+    fn n_param_urls_are_not_playback_ready() {
+        let cands = vec![
+            pa("https://googlevideo/videoplayback?n=abc&id=1", Some(128_000)),
+            pa("https://googlevideo/videoplayback?id=2", Some(64_000)),
+        ];
+        let ready = playback_ready(cands);
+        assert_eq!(ready.len(), 1);
+        assert!(ready[0].url.contains("id=2"));
+    }
+
+    #[test]
+    fn payload_shapes_match_endpoint_profiles() {
+        let visionos = &IT_CLIENTS[0];
+        assert_eq!(visionos.id, "VISIONOS_0_1");
+        assert!(visionos.music_player_endpoint && visionos.needs_visitor);
+        let body = build_player_payload(visionos, "vid12345678", Some("VD%3D"));
+        let c = &body["context"]["client"];
+        assert_eq!(c["clientName"], "VISIONOS");
+        assert_eq!(c["osName"], "VISION_OS");
+        assert_eq!(c["visitorData"], "VD%3D");
+        assert!(body.get("videoCheckOk").is_none());
+        assert!(c.get("userAgent").is_none());
+
+        let remix = IT_CLIENTS.iter().find(|p| p.id == "WEB_REMIX").unwrap();
+        let body = build_player_payload(remix, "vid12345678", None);
+        assert_eq!(body["videoCheckOk"], serde_json::json!(true));
+        assert!(body["context"]["client"].get("osName").is_none());
+        assert!(body["context"]["client"].get("visitorData").is_none());
+    }
+
+    #[test]
+    fn playability_status_reads_ok_and_garbage() {
+        assert_eq!(
+            playability_status(br#"{"playabilityStatus":{"status":"OK"}}"#).as_deref(),
+            Some("OK")
+        );
+        assert_eq!(playability_status(b"not json"), None);
+        assert_eq!(playability_status(br#"{"other":1}"#), None);
+    }
+
+    #[test]
+    fn director_catalog_profiles_are_well_formed() {
+        assert!(IT_CLIENTS.len() >= 2);
+        for (i, p) in IT_CLIENTS.iter().enumerate() {
+            assert!(!p.client_name.is_empty() && !p.client_version.is_empty());
+            if i > 0 {
+                assert_ne!(IT_CLIENTS[i - 1].id, p.id, "duplicate profile id");
+            }
+        }
+        // First profile is the visitor-backed visionOS probe per the catalog.
+        assert!(IT_CLIENTS[0].needs_visitor);
+        // The broken-after-512KiB VR family must stay out of the catalog.
+        assert!(IT_CLIENTS.iter().all(|p| !p.client_name.contains("ANDROID_VR")));
+    }
+
     // -- live (opt-in) --------------------------------------------------------
+
+    /// MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_innertube_direct -- --ignored --nocapture
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_innertube_direct_resolve() {
+        let _tc = crate::online::stream::test_support::TestCache::acquire();
+        let t0 = Instant::now();
+        match InnerTubeDirectSource.open("dQw4w9WgXcQ", Instant::now() + Duration::from_secs(25)) {
+            Ok(_) => println!("DIRECT resolve: {:?}", t0.elapsed()),
+            Err(e) => panic!("innertube-direct failed (catalog churn?): {e}"),
+        }
+    }
 
     /// MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_piped -- --ignored --nocapture
     #[test]

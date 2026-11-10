@@ -3,6 +3,8 @@
 //! Exposes `run()` for both the desktop binary (`src/main.rs`) and the Android
 //! JNI library (`#[cfg_attr(mobile, tauri::mobile_entry_point)]`).
 
+#[cfg(target_os = "android")]
+mod android_dirs;
 mod commands;
 mod config;
 mod event_bridge;
@@ -68,26 +70,54 @@ fn install_macos_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Android: app processes have no $HOME and dirs-sys' android fallback is
+    // None — export the XDG vars from the app-private dirs FIRST so every
+    // identity::*/dirs path below (log file, settings, recommender DB,
+    // caches) resolves (issue #108). No-op on desktop.
+    #[cfg(target_os = "android")]
+    android_dirs::bootstrap();
+
     // Logs go to ~/.local/share/musico-online/musico.log (and stderr when RUST_LOG
-    // is set explicitly, for development).
-    let mut builder = env_logger::Builder::new();
-    builder.filter_level(log::LevelFilter::Info);
-    if let Some(dir) = crate::identity::data_dir() {
-        let _ = std::fs::create_dir_all(&dir);
-        if let Ok(file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join("musico.log"))
-        {
-            builder.target(env_logger::Target::Pipe(Box::new(file)));
+    // is set explicitly, for development). On Android the log crate's single
+    // global slot goes to tauri-plugin-log instead (logcat target, registered
+    // on the builder below) — env_logger's stderr/file outputs are not
+    // readable on a device without root.
+    #[cfg(not(target_os = "android"))]
+    {
+        let mut builder = env_logger::Builder::new();
+        builder.filter_level(log::LevelFilter::Info);
+        if let Some(dir) = crate::identity::data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("musico.log"))
+            {
+                builder.target(env_logger::Target::Pipe(Box::new(file)));
+            }
         }
+        if std::env::var("RUST_LOG").is_ok() {
+            builder.parse_default_env();
+        }
+        let _ = builder.try_init();
     }
-    if std::env::var("RUST_LOG").is_ok() {
-        builder.parse_default_env();
-    }
-    let _ = builder.try_init();
 
     let app_builder = tauri::Builder::default();
+
+    // Android: install the logcat logger directly (tag `musico`) before the
+    // builder runs, so every later line — including plugin init problems —
+    // is visible via adb logcat -s musico. See the Cargo.toml note for why
+    // this is not tauri-plugin-log.
+    #[cfg(target_os = "android")]
+    {
+        // The native Kotlin app initializes its own logger in
+        // mobile::Java_…MusicoCore_init; this process is the Tauri app.
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Info)
+                .with_tag("musico"),
+        );
+    }
 
     // Desktop-only single-instance plugin: blocks a second instance before it
     // can touch the sled DB or audio device; focuses the existing window.

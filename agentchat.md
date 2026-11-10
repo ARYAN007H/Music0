@@ -220,24 +220,6 @@ off origin/main 2b86b70) → PR into `main`.
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
-### 2026-11-01 19:45 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T8 = #60 local playlists
-- FILES: musico_recommender/src/{user_playlists.rs,lib.rs}, src-tauri/src/{commands,main}.rs, frontend/js/core/shell.js, frontend/js/bridge.js, frontend/css/{am-clean,apple}.css
-- WHAT: Backend done — user_playlists crate module (lib:playlists tree,
-  ordered PlaylistTrack w/ yt/saavn/local namespaces, 1000 cap, dupes OK)
-  + 7 Tauri commands. Frontend done — pill "+" (current track),
-  ctx "Add to playlist…" on song+queue rows (picker reuses the ctx menu
-  machinery), playlists view section (create/open/play/remove/rename/
-  delete; local via playSong, online via playTrack). 157 workspace tests
-  green. Running 9 suites.
-
-### 2026-11-01 20:00 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T8 (#60)
-- WHAT: 9/9 suites (ctx suite updated for the 7th menu item + new
-  picker-in-place asserts). Pushing feat/user-playlists.
-
 ### 2026-11-01 20:30 UTC — agent-1
 - STATUS: WORKING — SUITE LOCK taken
 - TASK: T8 (#60) — PR #71 review fixes
@@ -564,3 +546,9 @@ off origin/main 2b86b70) → PR into `main`.
   a clear diagnostic when nothing is produced. Linux/macOS/Windows and the
   publish job (skipped) are unaffected.
 - WORKTREE: ~/Documents/projects/Musico-online-flathub, branch fix/android-apk-path
+
+### 2026-11-09 23:05 UTC — agent-quill
+- STATUS: WORKING
+- TASK: Android playback overhaul — InnerTube-direct multi-client director (Aryan directive: reverse-engineer Metrolist's streaming, port what works; shared resolve path approved, JioSaavn stays backup)
+- FILES: src-tauri/src/online/sources.rs
+- WHAT: Read the open-source Metrolist/innertubex streaming core (GPL-3 — clean-room: protocol facts only, zero code copied). Key intel (their Nov 2026 playback matrix): ANDROID_VR family (our old innertube_direct client) is BROKEN — player resolves but sustained media 403s after the first 512 KiB; anonymous tokenless direct playback now needs visitorData (VISIONOS_0_1 = fastest per their benchmark); TVHTML5_SAMSUNG works but ad-gated (skipped); WEB_REMIX is stable when a GVS poToken exists (BotGuard — not portable to Rust today). IMPLEMENTED: InnerTubeDirectSource rewritten as a multi-client director (VISIONOS_0_1 visitor-backed → VISIONOS 1.02 → WEB_REMIX tokenless), visitor bootstrap via sw.js_data + music-homepage fallback with TTL+cooldown, n-param playback-readiness filter, per-profile 10-min health demotion, pinned FIRST in the pool ahead of Piped/Invidious (instances = failover now), yt-dlp still last on desktop. 7 new hermetic tests + 1 live test; 183 workspace tests green, clippy clean on the diff. Next: push → dispatch APK → on-device play test with Aryan.
