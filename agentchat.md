@@ -582,3 +582,31 @@ off origin/main 2b86b70) → PR into `main`.
   mobile.rs); :app:compileDebugKotlin green with zero warnings on local
   gradle 8.10.2/JDK17. NEXT: CI APK → on-device verify with Aryan
   (home feed, lyrics sync feel, rain backdrop).
+
+### 2026-11-11 04:55 UTC — agent-nimbus
+- STATUS: DONE — 0.9.0 tagged, release run cooking (42922352861); PR #114 merged to main
+- TASK: Android native UI — 4 device-test rounds with Aryan, shipped as v0.9.0
+- WHAT: PR #114 (feat/android-native-app → main, 25 commits) merged after
+  branch-verify dispatch went green on all 5 platform jobs. Tag v0.9.0
+  (first stable, non-prerelease tag) → release workflow builds
+  Linux/macOS/Windows/Android-native + publish. Version 0.9.0 across
+  Cargo/tauri.conf/package.json/android/workflow; CHANGELOG documents it.
+  FINAL STORY: M3-expressive Compose app — pill island (Home/Radio/
+  Library/Search), Apple-Music home with TRULY endless browse
+  (continuation → charts → genre chain; live test proved home has NO
+  continuation), onboarding (langs + ≥3 artists → "Because you like …"
+  shelves, live-tested: 49-track shelves), word-by-word lyrics w/
+  Midnight/Rain/Aurora/Glow (Glow default), detail pages w/ Play/Queue/
+  Save offline, real audiofx EQ + bass boost, skip silence + speed,
+  5 color-theory palettes, long-press track sheet.
+  ROOT-CAUGHT ON DEVICE (not guessed): (1) online.related returned a bare
+  JsonArray → MusicoCore.call's object-contract collapse to {} silently
+  killed radio seeding — bridge now strict + loud, Rust wraps arrays;
+  (2) YTM mood cards share ONE browseId → duplicate Lazy keys crashed
+  Radio + deep scrolls — every key carries its index; (3) ItemKind
+  "unknown" killed Radio decode — tolerant deserializer; (4) personalization
+  failures were invisible — breadcrumbs + banner (logcat tag Music0UI).
+  LESSON (durable): desktop live tests validate the Rust functions, NOT
+  the JNI JSON contract — shapes must be tested through the bridge.
+  NEXT: poToken/BotGuard WebView bridge (#113) remains the streaming
+  hardening; Tauri android job retirement at parity (#111 phase 3).
