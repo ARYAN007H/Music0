@@ -39,17 +39,36 @@ data class ResolvedTrack(
 // endpoints: videoId = playable song, browseId = detail page (album/artist/
 // playlist), playlistId = radio context.
 
-@Serializable
-enum class ItemKind {
-    @SerialName("song") SONG,
-    @SerialName("video") VIDEO,
-    @SerialName("album") ALBUM,
-    @SerialName("artist") ARTIST,
-    @SerialName("playlist") PLAYLIST,
-    @SerialName("single") SINGLE,
-    @SerialName("EP") EP,
-    @SerialName("profile") PROFILE,
-    @SerialName("genre") GENRE,
+/**
+ * Tolerant on purpose: the Rust side can add kinds (or add new ones we
+ * haven't mapped) without killing the whole shelf decode — unmapped
+ * strings degrade to UNKNOWN instead of throwing. Mirror of
+ * src-tauri/src/online/models.rs ItemKind (snake_case on the wire).
+ */
+@Serializable(with = ItemKindDeserializer::class)
+enum class ItemKind { SONG, VIDEO, ALBUM, ARTIST, PLAYLIST, UNKNOWN }
+
+object ItemKindDeserializer : kotlinx.serialization.KSerializer<ItemKind> {
+    override val descriptor: kotlinx.serialization.descriptors.SerialDescriptor =
+        kotlinx.serialization.descriptors.PrimitiveSerialDescriptor(
+            "ItemKind",
+            kotlinx.serialization.descriptors.PrimitiveKind.STRING,
+        )
+
+    override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): ItemKind =
+        runCatching {
+            when (decoder.decodeString().lowercase()) {
+                "song", "video" -> ItemKind.SONG
+                "album", "single", "ep" -> ItemKind.ALBUM
+                "artist", "profile" -> ItemKind.ARTIST
+                "playlist", "genre" -> ItemKind.PLAYLIST
+                else -> ItemKind.UNKNOWN
+            }
+        }.getOrDefault(ItemKind.UNKNOWN)
+
+    override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: ItemKind) {
+        encoder.encodeString(value.name.lowercase())
+    }
 }
 
 @Serializable
@@ -95,6 +114,11 @@ data class SuggestionsReply(
 @Serializable
 data class GenresReply(
     val items: List<ShelfItem> = emptyList(),
+)
+
+@Serializable
+data class RelatedReply(
+    val tracks: List<OnlineTrack> = emptyList(),
 )
 
 // ── Word-synced lyrics (mirror commands.rs EnhancedLyricsDto) ───────────────

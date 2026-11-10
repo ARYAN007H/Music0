@@ -246,11 +246,11 @@ class MusicViewModel(
                     for (seed in candidates) {
                         val radio = runCatching {
                             json.decodeFromJsonElement(
-                                kotlinx.serialization.builtins.ListSerializer(OnlineTrack.serializer()),
+                                io.github.aryan007h.musicoonline.core.RelatedReply.serializer(),
                                 MusicoCore.call("online.related", buildJsonObject { put("videoId", seed.videoId) }),
                             )
                         }.onFailure { Log.w(TAG, "personalize: radio seed failed: " + it.message) }
-                        .getOrNull().orEmpty()
+                        .getOrNull()?.tracks.orEmpty()
                         if (radio.size >= 4) {
                             shelves += io.github.aryan007h.musicoonline.core.Shelf(
                                 title = "Because you like $artist",

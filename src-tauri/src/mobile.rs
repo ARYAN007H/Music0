@@ -183,16 +183,17 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             }
         }
 
-        // Related tracks for a song (the Up Next shelf in the player) —
-        // the same engine online radio uses, seed excluded.
+        // Related tracks for a song (radio seeding / Up Next). Wrapped in
+        // an object: the bridge contract is object-shaped data — a bare
+        // JsonArray would collapse to {} in MusicoCore.call.
         "online.related" => {
             ensure_online()?;
             let video_id = args
                 .get("videoId")
                 .and_then(|v| v.as_str())
                 .ok_or("missing videoId")?;
-            serde_json::to_value(crate::online::radio_tracks(video_id)?)
-                .map_err(|e| format!("related serialize: {e}"))
+            let tracks = crate::online::radio_tracks(video_id)?;
+            Ok(serde_json::json!({ "tracks": tracks }))
         }
 
         "online.suggestions" => {
