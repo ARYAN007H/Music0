@@ -794,8 +794,12 @@ impl AudioSource for InnerTubeDirectSource {
                 return Err(format!("{last_err}; fast-path deadline exhausted"));
             }
             let visitor = visitor_data(client, deadline);
+            if visitor.is_none() {
+                log::info!("innertube-direct: visitor data unavailable");
+            }
             if p.needs_visitor && visitor.is_none() {
                 last_err = format!("{}: visitor data unavailable", p.id);
+                log::info!("innertube-direct: {last_err}");
                 continue;
             }
             let payload = build_player_payload(p, video_id, visitor.as_deref());
@@ -821,12 +825,14 @@ impl AudioSource for InnerTubeDirectSource {
                 Err(e) => {
                     it_demote(p.id);
                     last_err = format!("{}: player request: {e}", p.id);
+                    log::info!("innertube-direct: {last_err}");
                     continue;
                 }
             };
             if !meta.status().is_success() {
                 it_demote(p.id);
                 last_err = format!("{}: HTTP {}", p.id, meta.status());
+                log::info!("innertube-direct: {last_err}");
                 continue;
             }
             let bytes = match read_capped(meta, MAX_METADATA_BYTES) {
@@ -846,6 +852,7 @@ impl AudioSource for InnerTubeDirectSource {
                         p.id,
                         other.unwrap_or("response missing playabilityStatus")
                     );
+                    log::info!("innertube-direct: {last_err}");
                     continue;
                 }
             }
@@ -858,6 +865,7 @@ impl AudioSource for InnerTubeDirectSource {
                         "{}: no playback-ready direct audio/mp4 <=192k (cipher-only or n-param streams)",
                         p.id
                     );
+                    log::info!("innertube-direct: {last_err}");
                     continue;
                 }
             };
