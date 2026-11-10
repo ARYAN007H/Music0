@@ -65,6 +65,8 @@ fun HomeScreen(
     error: String?,
     styleItems: List<ShelfItem>,
     moreLoading: Boolean,
+    personalizing: Boolean,
+    personalizationError: String?,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
@@ -73,7 +75,41 @@ fun HomeScreen(
     when {
         error != null && shelves.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
         loading && shelves.isEmpty() -> HomeSkeleton()
-        else -> HomeFeed(shelves, styleItems, moreLoading, onOpenItem, onRetry, onLoadMore, currentTrackId)
+        else -> Column {
+            PersonalizationBanner(personalizing, personalizationError)
+            HomeFeed(shelves, styleItems, moreLoading, onOpenItem, onRetry, onLoadMore, currentTrackId)
+        }
+    }
+}
+
+/** Quiet status strip: "making it yours…" while building, notice on partial failure. */
+@Composable
+private fun PersonalizationBanner(personalizing: Boolean, error: String?) {
+    when {
+        personalizing -> Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Making your feed yours…",
+                style = Musico.type.caption,
+                color = Musico.extras.inkDim,
+            )
+        }
+        error != null -> Text(
+            error,
+            style = Musico.type.caption,
+            color = Musico.extras.coral,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+        )
     }
 }
 

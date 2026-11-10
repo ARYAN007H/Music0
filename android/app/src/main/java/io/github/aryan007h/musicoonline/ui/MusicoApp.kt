@@ -124,6 +124,8 @@ fun MusicoApp(vm: MusicViewModel) {
                         error = state.homeError,
                         styleItems = state.styleItems,
                         moreLoading = state.moreLoading,
+                        personalizing = state.personalizing,
+                        personalizationError = state.personalizationError,
                         onOpenItem = vm::openShelfItem,
                         onRetry = vm::loadHome,
                         onLoadMore = vm::loadMoreHome,

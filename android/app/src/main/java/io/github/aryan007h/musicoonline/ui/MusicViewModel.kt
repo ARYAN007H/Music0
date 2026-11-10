@@ -2,6 +2,7 @@ package io.github.aryan007h.musicoonline.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -223,6 +224,7 @@ class MusicViewModel(
      * shelves that DID build always land on home (separate from the feed).
      */
     private fun personalizeHome(languages: List<String>, artists: List<String>) {
+        Log.i(TAG, "personalize: start langs=$languages artists=$artists")
         if (personalizeJob?.isActive == true) return
         personalizeJob = viewModelScope.launch {
             _state.update { it.copy(personalizing = true, personalizationError = null) }
@@ -234,6 +236,7 @@ class MusicViewModel(
             // heuristic and one dead seed must not kill the shelf.
             artists.take(4).forEach { artist ->
                 var done = false
+                Log.i(TAG, "personalize: artist=$artist searching")
                 runCatching {
                     val page = json.decodeFromJsonElement(
                         SearchResultPage.serializer(),
@@ -246,7 +249,8 @@ class MusicViewModel(
                                 kotlinx.serialization.builtins.ListSerializer(OnlineTrack.serializer()),
                                 MusicoCore.call("online.related", buildJsonObject { put("videoId", seed.videoId) }),
                             )
-                        }.getOrNull().orEmpty()
+                        }.onFailure { Log.w(TAG, "personalize: radio seed failed: " + it.message) }
+                        .getOrNull().orEmpty()
                         if (radio.size >= 4) {
                             shelves += io.github.aryan007h.musicoonline.core.Shelf(
                                 title = "Because you like $artist",
@@ -265,11 +269,13 @@ class MusicViewModel(
                         }
                     }
                 }
+                Log.i(TAG, "personalize: artist=$artist built=" + done + " shelvesSoFar=" + shelves.size)
                 if (!done) failures += artist
             }
 
             // Language picks: match style cards by name, surface their songs.
             languages.take(3).forEach { lang ->
+                Log.i(TAG, "personalize: lang=" + lang + " starting")
                 runCatching {
                     val styles = json.decodeFromJsonElement(
                         io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
@@ -1057,6 +1063,7 @@ class MusicViewModel(
     private fun Throwable.userMessage(): String = (this as? CoreException)?.message ?: message ?: "unknown error"
 
     companion object {
+        private const val TAG = "Music0UI"
         private const val PREFS_NAME = "musico_ui"
         private const val PREF_LIKED = "liked_ids"
         private const val PREF_RECENTS = "recent_tracks"
