@@ -55,7 +55,11 @@ import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 @Composable
 fun EqScreen(onBack: () -> Unit) {
     var eq by remember { mutableStateOf(MobileEqualizer.currentState().snapshot()) }
-    val listener: () -> Unit = { eq = MobileEqualizer.currentState().snapshot() }
+    var bound by remember { mutableStateOf(MobileEqualizer.isAttached()) }
+    val listener: () -> Unit = {
+        eq = MobileEqualizer.currentState().snapshot()
+        bound = MobileEqualizer.isAttached()
+    }
 
     androidx.compose.runtime.LaunchedEffect(Unit) { MobileEqualizer.addListener(listener) }
     DisposableEffect(Unit) {
@@ -79,8 +83,7 @@ fun EqScreen(onBack: () -> Unit) {
             Column {
                 Text("Equalizer", style = Musico.type.display, color = MaterialTheme.colorScheme.onBackground)
                 Text(
-                    if (eq.bandCount > 0) "${eq.bandCount} bands · ${eq.bandFreqLabels.firstOrNull() ?: ""} – ${eq.bandFreqLabels.lastOrNull() ?: ""}"
-                    else "Waiting for playback…",
+                    "${eq.bandCount} bands · ${eq.bandFreqLabels.firstOrNull() ?: ""} – ${eq.bandFreqLabels.lastOrNull() ?: ""}",
                     style = Musico.type.caption,
                     color = Musico.extras.inkDim,
                 )
@@ -97,17 +100,16 @@ fun EqScreen(onBack: () -> Unit) {
             )
         }
 
-        if (eq.bandCount == 0) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "Play a song once — the equalizer binds to the audio session",
-                    style = Musico.type.body,
-                    color = Musico.extras.inkDim,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 48.dp),
-                )
-            }
-            return@Column
+        if (!bound) {
+            Text(
+                "Controls go live the moment you play a song",
+                style = Musico.type.caption,
+                color = Musico.extras.inkFaint,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 4.dp),
+                textAlign = TextAlign.Center,
+            )
         }
 
         Column(
@@ -164,7 +166,7 @@ fun EqScreen(onBack: () -> Unit) {
                             value = level,
                             range = eq.bandRange,
                             label = eq.bandFreqLabels.getOrElse(i) { "" },
-                            enabled = eq.enabled,
+                            enabled = bound && eq.enabled,
                             onValueChange = { MobileEqualizer.setBandLevel(i, it) },
                         )
                     }
@@ -197,7 +199,7 @@ fun EqScreen(onBack: () -> Unit) {
                         value = eq.bassBoost.toFloat(),
                         onValueChange = { MobileEqualizer.setBassBoost(it.toInt()) },
                         valueRange = 0f..1000f,
-                        enabled = eq.enabled,
+                        enabled = bound && eq.enabled,
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = Musico.extras.mint,

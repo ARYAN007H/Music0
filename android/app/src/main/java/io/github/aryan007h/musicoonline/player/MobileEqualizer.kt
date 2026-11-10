@@ -30,16 +30,19 @@ object MobileEqualizer {
 
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
+    private var attached = false
 
     // ── Persistence (SharedPreferences; created lazily with the app context) ──
 
     private var prefs: android.content.SharedPreferences? = null
+    // Placeholder bands: the EQ UI renders real-looking controls before
+    // the audio session exists, then values get replaced on attach.
     private val state = EqState(
         enabled = false,
-        bandCount = 0,
-        bandLevels = IntArray(0),
+        bandCount = 5,
+        bandLevels = IntArray(5),
         bandRange = -1500..1500,
-        bandFreqLabels = emptyList(),
+        bandFreqLabels = listOf("60Hz", "230Hz", "910Hz", "3.6k", "14k"),
         bassBoost = 0,
         presetName = null,
     )
@@ -55,6 +58,7 @@ object MobileEqualizer {
         val p = prefs ?: return
         releaseEffects()
         if (sessionId <= 0) return
+        attached = true
         equalizer = try {
             Equalizer(0, sessionId).also { eq ->
                 bassBoost = try {
@@ -77,14 +81,19 @@ object MobileEqualizer {
                 applyToEffects()
             }
         } catch (_: Exception) {
-            // Device without the effect (rare) — the UI shows a disabled state.
+            // Device without the effect (rare) — the UI keeps placeholders.
             null
         }
         notifyListeners()
     }
 
+    /** Whether a real effect is bound to a live audio session. */
+    fun isAttached(): Boolean = attached
+
     fun detach() {
         releaseEffects()
+        attached = false
+        notifyListeners()
     }
 
     private fun releaseEffects() {

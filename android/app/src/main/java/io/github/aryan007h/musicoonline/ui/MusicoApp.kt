@@ -86,6 +86,14 @@ fun MusicoApp(vm: MusicViewModel) {
     val state by vm.state.collectAsState()
     var sheetTrack by remember { mutableStateOf<io.github.aryan007h.musicoonline.core.OnlineTrack?>(null) }
 
+    // Runtime errors are transient toasts, not pinned banners.
+    androidx.compose.runtime.LaunchedEffect(state.error) {
+        if (state.error != null) {
+            kotlinx.coroutines.delay(4000)
+            vm.dismissError()
+        }
+    }
+
     io.github.aryan007h.musicoonline.ui.theme.MusicoTheme(palette = state.palette) {
         Box(
             Modifier
@@ -111,7 +119,7 @@ fun MusicoApp(vm: MusicViewModel) {
             ) { tab ->
                 when (tab) {
                     AppTab.HOME -> HomeScreen(
-                        shelves = state.homeShelves,
+                        shelves = state.personalizedShelves + state.homeShelves,
                         loading = state.homeLoading,
                         error = state.homeError,
                         styleItems = state.styleItems,
@@ -538,12 +546,12 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
             shape = MusicoShapes.chip,
             color = MaterialTheme.colorScheme.surfaceContainer,
             shadowElevation = 12.dp,
-            modifier = Modifier.padding(horizontal = 40.dp),
+            modifier = Modifier.padding(horizontal = 14.dp),
         ) {
             Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 destinations.forEach { dest ->
                     PillItem(
@@ -560,7 +568,7 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
 @Composable
 private fun PillItem(dest: PillDest, selected: Boolean, onClick: () -> Unit) {
     val labelWidth by animateDpAsState(
-        targetValue = if (selected) 64.dp else 0.dp,
+        targetValue = if (selected) 52.dp else 0.dp,
         animationSpec = MusicoMotion.expressive(),
         label = "pillLabel",
     )
@@ -577,7 +585,7 @@ private fun PillItem(dest: PillDest, selected: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick),
     ) {
         Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(

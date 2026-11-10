@@ -106,23 +106,28 @@ class MusicViewModel(
         val homeLoading: Boolean = false,
         val homeError: String? = null,
         val homeShelves: List<io.github.aryan007h.musicoonline.core.Shelf> = emptyList(),
-        // Endless browsing: real continuation paging + a styles tail
+        // Endless browsing: real continuation paging, then a genre chain
         val homeContinuation: String? = null,
         val moreLoading: Boolean = false,
         val moreExhausted: Boolean = false,
         val styleItems: List<io.github.aryan007h.musicoonline.core.ShelfItem> = emptyList(),
+        val styleQueue: List<io.github.aryan007h.musicoonline.core.ShelfItem> = emptyList(),
+        val chartsAppended: Boolean = false,
         // Radio tab: the full mood/genre station grid
         val radioStyles: List<io.github.aryan007h.musicoonline.core.ShelfItem> = emptyList(),
         val radioLoading: Boolean = false,
         // Onboarding + personalization
         val onboardingDone: Boolean = true,
         val personalizing: Boolean = false,
-        val personalizedTitles: Set<String> = emptySet(),
+        val personalizedShelves: List<io.github.aryan007h.musicoonline.core.Shelf> = emptyList(),
+        val personalizationError: String? = null,
         // Long-press actions
         val savingTrackId: String? = null,
         // Onboarding artist search
         val artistResults: List<OnlineTrack> = emptyList(),
         val artistSearching: Boolean = false,
+        val savedLanguages: List<String> = emptyList(),
+        val savedArtists: List<String> = emptyList(),
         // Player niceties (local prefs)
         val skipSilence: Boolean = false,
         val playbackSpeed: Float = 1f,
@@ -175,6 +180,16 @@ class MusicViewModel(
         loadHome()
         if (!_state.value.onboardingDone) {
             _state.update { it.copy(overlay = AppOverlay.ONBOARD) }
+        } else {
+            // Returning user with picks: make sure the personalized shelves
+            // are always on home, even if a previous run's personalization
+            // failed mid-way.
+            val st = _state.value
+            if ((st.savedLanguages.isNotEmpty() || st.savedArtists.isNotEmpty()) &&
+                st.personalizedShelves.isEmpty()
+            ) {
+                personalizeHome(st.savedLanguages, st.savedArtists)
+            }
         }
         // Player niceties apply the moment the controller binds.
         io.github.aryan007h.musicoonline.player.PlaybackPrefs.setSkipSilence(_state.value.skipSilence)
@@ -203,81 +218,216 @@ class MusicViewModel(
      * live-verified endpoints: each picked artist seeds a radio shelf
      * ("Because you like …"), each picked language matches a genre style
      * card and surfaces its first playable shelf ("… picks").
+     *
+     * Failures never vanish: whatever seeds fail are reported, and the
+     * shelves that DID build always land on home (separate from the feed).
      */
     private fun personalizeHome(languages: List<String>, artists: List<String>) {
-        viewModelScope.launch {
-            _state.update { it.copy(personalizing = true) }
+        if (personalizeJob?.isActive == true) return
+        personalizeJob = viewModelScope.launch {
+            _state.update { it.copy(personalizing = true, personalizationError = null) }
             val shelves = mutableListOf<io.github.aryan007h.musicoonline.core.Shelf>()
+            val failures = mutableListOf<String>()
 
-            // Artist radio shelves (max 4 — keep the feed balanced).
+            // Artist radio shelves (max 4). Seed fallback: try the first
+            // few search hits as radio seeds — artist-name matching is a
+            // heuristic and one dead seed must not kill the shelf.
             artists.take(4).forEach { artist ->
+                var done = false
                 runCatching {
                     val page = json.decodeFromJsonElement(
                         SearchResultPage.serializer(),
                         MusicoCore.call("online.search", buildJsonObject { put("query", artist) }),
                     )
-                    val seed = page.tracks.firstOrNull { t -> t.artist.contains(artist, ignoreCase = true) }
-                        ?: page.tracks.firstOrNull()
-                        ?: return@runCatching
-                    val radio = json.decodeFromJsonElement(
-                        kotlinx.serialization.builtins.ListSerializer(OnlineTrack.serializer()),
-                        MusicoCore.call("online.related", buildJsonObject { put("videoId", seed.videoId) }),
-                    )
-                    if (radio.isNotEmpty()) {
-                        shelves += io.github.aryan007h.musicoonline.core.Shelf(
-                            title = "Because you like $artist",
-                            items = radio.take(14).map { t ->
-                                io.github.aryan007h.musicoonline.core.ShelfItem(
-                                    kind = io.github.aryan007h.musicoonline.core.ItemKind.SONG,
-                                    title = t.title,
-                                    subtitle = t.artist,
-                                    thumbnail = t.thumbnail,
-                                    videoId = t.videoId,
-                                )
-                            },
-                        )
+                    val candidates = page.tracks.take(4)
+                    for (seed in candidates) {
+                        val radio = runCatching {
+                            json.decodeFromJsonElement(
+                                kotlinx.serialization.builtins.ListSerializer(OnlineTrack.serializer()),
+                                MusicoCore.call("online.related", buildJsonObject { put("videoId", seed.videoId) }),
+                            )
+                        }.getOrNull().orEmpty()
+                        if (radio.size >= 4) {
+                            shelves += io.github.aryan007h.musicoonline.core.Shelf(
+                                title = "Because you like $artist",
+                                items = radio.take(14).map { t ->
+                                    io.github.aryan007h.musicoonline.core.ShelfItem(
+                                        kind = io.github.aryan007h.musicoonline.core.ItemKind.SONG,
+                                        title = t.title,
+                                        subtitle = t.artist,
+                                        thumbnail = t.thumbnail,
+                                        videoId = t.videoId,
+                                    )
+                                },
+                            )
+                            done = true
+                            break
+                        }
                     }
                 }
+                if (!done) failures += artist
             }
 
             // Language picks: match style cards by name, surface their songs.
-            if (languages.isNotEmpty()) {
+            languages.take(3).forEach { lang ->
                 runCatching {
                     val styles = json.decodeFromJsonElement(
                         io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
                         MusicoCore.call("online.genres"),
                     ).items
-                    languages.take(3).forEach { lang ->
-                        val style = styles.firstOrNull { s -> s.title.contains(lang, ignoreCase = true) }
-                            ?: return@forEach
-                        runCatching {
-                            val page = json.decodeFromJsonElement(
-                                BrowsePage.serializer(),
-                                MusicoCore.call(
-                                    "online.browse",
-                                    buildJsonObject {
-                                        put("browseId", style.browseId ?: return@runCatching)
-                                        style.params?.let { put("params", it) }
-                                    },
-                                ),
-                            )
-                            val songShelf = page.shelves.firstOrNull { shelf -> shelf.items.any { it.videoId != null } }
-                            if (songShelf != null) {
-                                shelves += io.github.aryan007h.musicoonline.core.Shelf(
-                                    title = "$lang picks",
-                                    items = songShelf.items.take(14),
-                                )
-                            }
-                        }
+                    val style = styles.firstOrNull { s -> s.title.contains(lang, ignoreCase = true) }
+                    if (style?.browseId == null) {
+                        failures += lang
+                        return@forEach
+                    }
+                    val page = json.decodeFromJsonElement(
+                        BrowsePage.serializer(),
+                        MusicoCore.call(
+                            "online.browse",
+                            buildJsonObject {
+                                put("browseId", style.browseId)
+                                style.params?.let { put("params", it) }
+                            },
+                        ),
+                    )
+                    val songShelf = page.shelves.firstOrNull { shelf -> shelf.items.any { it.videoId != null } }
+                    if (songShelf != null) {
+                        shelves += io.github.aryan007h.musicoonline.core.Shelf(
+                            title = "$lang picks",
+                            items = songShelf.items.take(14),
+                        )
+                    } else {
+                        failures += lang
                     }
                 }
             }
 
+            prefs.edit()
+                .putString(
+                    PREF_PERSONAL_SHELVES,
+                    json.encodeToString(
+                        ListSerializer(io.github.aryan007h.musicoonline.core.Shelf.serializer()),
+                        shelves,
+                    ),
+                )
+                .apply()
             _state.update {
                 it.copy(
                     personalizing = false,
-                    homeShelves = shelves + it.homeShelves,
-                    personalizedTitles = shelves.map { s -> s.title }.toSet(),
+                    personalizedShelves = shelves,
+                    personalizationError = if (failures.isNotEmpty()) {
+                        "Couldn't build shelves for: ${failures.joinToString()}"
+                    } else null,
+                )
+            }
+            if (shelves.isEmpty() && failures.isNotEmpty()) {
+                _state.update { it.copy(error = "Personalization failed — check Airplane Mode") }
+            }
+        }
+    }
+
+    private var personalizeJob: kotlinx.coroutines.Job? = null
+
+    // ── Endless browsing: real continuation paging, then a genre chain ──
+
+    fun loadMoreHome() {
+        if (_state.value.moreLoading) return
+        viewModelScope.launch {
+            _state.update { it.copy(moreLoading = true) }
+
+            // 1. Real pagination: the home feed's own continuation token —
+            // when YTM provides one, page until it stops.
+            val cont = _state.value.homeContinuation
+            if (cont != null) {
+                runCatching {
+                    json.decodeFromJsonElement(
+                        BrowsePage.serializer(),
+                        MusicoCore.call("online.browse", buildJsonObject { put("continuation", cont) }),
+                    )
+                }.onFold(
+                    onSuccess = { page ->
+                        _state.update {
+                            val existing = it.homeShelves.map { s -> s.title }.toSet()
+                            val fresh = page.shelves.filter { s -> s.title !in existing && s.items.isNotEmpty() }
+                            it.copy(
+                                homeShelves = it.homeShelves + fresh,
+                                homeContinuation = page.nextContinuation,
+                                moreLoading = false,
+                            )
+                        }
+                    },
+                    onFailure = { _state.update { it.copy(moreLoading = false) } },
+                )
+                return@launch
+            }
+
+            // 2. No continuation support on this feed → the endless genre
+            // chain: each scroll-to-end browses the next style card's page
+            // and appends its shelves. ~50 styles × shelves each = home
+            // genuinely never runs dry. Charts get appended once, first.
+            val st = _state.value
+            if (!st.chartsAppended) {
+                val charts = runCatching {
+                    json.decodeFromJsonElement(
+                        BrowsePage.serializer(),
+                        MusicoCore.call("online.browse", buildJsonObject { put("browseId", "FEmusic_charts") }),
+                    )
+                }.getOrNull()
+                val styles = runCatching {
+                    json.decodeFromJsonElement(
+                        io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
+                        MusicoCore.call("online.genres"),
+                    )
+                }.getOrNull()
+
+                _state.update {
+                    val existing = it.homeShelves.map { s -> s.title }.toSet()
+                    val chartShelves = (charts?.shelves ?: emptyList()).filter { s -> s.title !in existing && s.items.isNotEmpty() }
+                    it.copy(
+                        homeShelves = it.homeShelves + chartShelves,
+                        styleItems = styles?.items ?: emptyList(),
+                        styleQueue = styles?.items?.shuffled()?.filter { s -> s.browseId != null } ?: emptyList(),
+                        chartsAppended = true,
+                        moreLoading = false,
+                    )
+                }
+                return@launch
+            }
+
+            // 3. Next style page(s) into the feed.
+            val queue = st.styleQueue
+            if (queue.isEmpty()) {
+                _state.update { it.copy(moreLoading = false, moreExhausted = true) }
+                return@launch
+            }
+            val batch = queue.take(2)
+            val fresh = mutableListOf<io.github.aryan007h.musicoonline.core.Shelf>()
+            batch.forEach { style ->
+                runCatching {
+                    val page = json.decodeFromJsonElement(
+                        BrowsePage.serializer(),
+                        MusicoCore.call(
+                            "online.browse",
+                            buildJsonObject {
+                                put("browseId", style.browseId ?: return@runCatching)
+                                style.params?.let { put("params", it) }
+                            },
+                        ),
+                    )
+                    page.shelves.filter { shelf -> shelf.items.any { it.videoId != null } }.forEach { shelf ->
+                        val title = style.title + " · " + shelf.title
+                        fresh += shelf.copy(title = title)
+                    }
+                }
+            }
+            _state.update {
+                val existing = it.homeShelves.map { s -> s.title }.toSet()
+                val add = fresh.filter { s -> s.title !in existing && s.items.isNotEmpty() }
+                it.copy(
+                    homeShelves = it.homeShelves + add,
+                    styleQueue = queue.drop(batch.size),
+                    moreLoading = false,
+                    moreExhausted = queue.size <= batch.size && add.isEmpty(),
                 )
             }
         }
@@ -307,6 +457,20 @@ class MusicViewModel(
                 palette = io.github.aryan007h.musicoonline.ui.theme.Palette.fromId(prefs.getString(PREF_PALETTE, null)),
                 displayName = prefs.getString(PREF_NAME, null) ?: it.displayName,
                 onboardingDone = prefs.getBoolean(PREF_ONBOARDED, false),
+                savedLanguages = prefs.getString(PREF_LANGS, null)?.let {
+                    runCatching { json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull()
+                } ?: emptyList(),
+                savedArtists = prefs.getString(PREF_ARTISTS, null)?.let {
+                    runCatching { json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrNull()
+                } ?: emptyList(),
+                personalizedShelves = prefs.getString(PREF_PERSONAL_SHELVES, null)?.let {
+                    runCatching {
+                        json.decodeFromString(
+                            ListSerializer(io.github.aryan007h.musicoonline.core.Shelf.serializer()),
+                            it,
+                        )
+                    }.getOrNull()
+                } ?: emptyList(),
                 skipSilence = prefs.getBoolean(PREF_SKIP_SILENCE, false),
                 playbackSpeed = prefs.getFloat(PREF_SPEED, 1f),
             )
@@ -582,69 +746,6 @@ class MusicViewModel(
         track.thumbnail?.let { put("thumbnail", it) }
         put("source", track.source)
         track.artistBrowseId?.let { put("artistBrowseId", it) }
-    }
-
-    // ── Endless browsing: real continuation paging + a styles tail ───────
-
-    fun loadMoreHome() {
-        if (_state.value.moreLoading || _state.value.moreExhausted) return
-        viewModelScope.launch {
-            _state.update { it.copy(moreLoading = true) }
-
-            // 1. Real pagination: the home feed's own continuation token —
-            // YTM keeps serving personalized sections as long as it has them.
-            val cont = _state.value.homeContinuation
-            if (cont != null) {
-                runCatching {
-                    json.decodeFromJsonElement(
-                        BrowsePage.serializer(),
-                        MusicoCore.call("online.browse", buildJsonObject { put("continuation", cont) }),
-                    )
-                }.onFold(
-                    onSuccess = { page ->
-                        _state.update {
-                            val existing = it.homeShelves.map { s -> s.title }.toSet()
-                            val fresh = page.shelves.filter { s -> s.title !in existing && s.items.isNotEmpty() }
-                            it.copy(
-                                homeShelves = it.homeShelves + fresh,
-                                homeContinuation = page.nextContinuation,
-                                moreLoading = false,
-                            )
-                        }
-                    },
-                    onFailure = { _state.update { it.copy(moreLoading = false) } },
-                )
-                return@launch
-            }
-
-            // 2. Continuation exhausted: append the editorial charts (titles
-            // already present are dropped — same dedupe the core does), then
-            // the genre-style grid as the tail. Styles open detail pages
-            // full of more shelves, so browsing still keeps expanding.
-            val charts = runCatching {
-                json.decodeFromJsonElement(
-                    BrowsePage.serializer(),
-                    MusicoCore.call("online.browse", buildJsonObject { put("browseId", "FEmusic_charts") }),
-                )
-            }.getOrNull()
-            val styles = runCatching {
-                json.decodeFromJsonElement(
-                    io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
-                    MusicoCore.call("online.genres"),
-                )
-            }.getOrNull()
-
-            _state.update {
-                val existing = it.homeShelves.map { s -> s.title }.toSet()
-                val chartShelves = (charts?.shelves ?: emptyList()).filter { s -> s.title !in existing && s.items.isNotEmpty() }
-                it.copy(
-                    homeShelves = it.homeShelves + chartShelves,
-                    styleItems = styles?.items ?: emptyList(),
-                    moreLoading = false,
-                    moreExhausted = true,
-                )
-            }
-        }
     }
 
     // ── Radio tab: the full mood/genre station grid ──────────────────────
@@ -967,6 +1068,7 @@ class MusicViewModel(
         private const val PREF_ARTISTS = "onboarding_artists"
         private const val PREF_SKIP_SILENCE = "skip_silence"
         private const val PREF_SPEED = "playback_speed"
+        private const val PREF_PERSONAL_SHELVES = "personalized_shelves"
         private const val PREF_NAME = "display_name"
         private const val RECENTS_LIMIT = 40
         private const val SEARCHES_LIMIT = 8
