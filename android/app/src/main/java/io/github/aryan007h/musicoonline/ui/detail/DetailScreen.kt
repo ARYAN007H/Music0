@@ -74,6 +74,7 @@ fun DetailScreen(
     onPlayTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
+    onTrackLongClick: (OnlineTrack) -> Unit = {},
 ) {
     val page = entry.page
     Column(
@@ -127,6 +128,7 @@ fun DetailScreen(
                     onPlayTrack = onPlayTrack,
                     onLikeToggle = onLikeToggle,
                     onOpenItem = onOpenItem,
+                    onTrackLongClick = onTrackLongClick,
                 )
             }
         }
@@ -146,6 +148,7 @@ private fun DetailBody(
     onPlayTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
+    onTrackLongClick: (OnlineTrack) -> Unit,
 ) {
     val header = page.header
     val heroArt = header?.thumbnail
@@ -271,6 +274,7 @@ private fun DetailBody(
                     resolving = false,
                     onClick = { onPlayTrack(track, tracks) },
                     onLikeToggle = { onLikeToggle(track) },
+                    onLongClick = { onTrackLongClick(track) },
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }

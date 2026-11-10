@@ -131,6 +131,16 @@ class PlaybackController(private val context: Context) {
         if (c.isPlaying) c.pause() else c.play()
     }
 
+    /** Skip silent segments — ExoPlayer-only flag, applied via [PlaybackPrefs]. */
+    suspend fun setSkipSilence(enabled: Boolean) {
+        PlaybackPrefs.setSkipSilence(enabled)
+    }
+
+    /** Playback speed 0.5×..2× (pitch-preserving by default). */
+    suspend fun setSpeed(speed: Float) {
+        obtain().setPlaybackSpeed(speed.coerceIn(0.5f, 2f))
+    }
+
     suspend fun seekTo(ms: Long) {
         val c = obtain()
         val duration = c.duration

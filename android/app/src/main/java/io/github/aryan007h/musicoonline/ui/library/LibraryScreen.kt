@@ -56,6 +56,7 @@ fun LibraryScreen(
     onPlayLiked: () -> Unit,
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
+    onTrackLongClick: (OnlineTrack) -> Unit = {},
 ) {
     // Liked playback resolves against the session's known tracks (same as the VM).
     val knownLiked = recentlyPlayed.filter { it.videoId in likedIds }
@@ -76,13 +77,13 @@ fun LibraryScreen(
             item(key = "recents-header") {
                 SectionLabel("Recently played")
             }
-            itemsIndexedRecent(recentlyPlayed, currentTrackId, isPlaying, resolvingId, likedIds, onOpenTrack, onLikeToggle)
+            itemsIndexedRecent(recentlyPlayed, currentTrackId, isPlaying, resolvingId, likedIds, onOpenTrack, onLikeToggle, onTrackLongClick)
         }
         if (queue.isNotEmpty()) {
             item(key = "queue-header") {
                 SectionLabel("Session queue")
             }
-            itemsIndexedQueue(queue, queueIndex, currentTrackId, isPlaying, resolvingId, likedIds, onOpenTrack, onLikeToggle)
+            itemsIndexedQueue(queue, queueIndex, currentTrackId, isPlaying, resolvingId, likedIds, onOpenTrack, onLikeToggle, onTrackLongClick)
         }
         if (recentlyPlayed.isEmpty() && queue.isEmpty()) {
             item(key = "empty") {
@@ -190,6 +191,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedRecent(
     likedIds: Set<String>,
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
+    onTrackLongClick: (OnlineTrack) -> Unit,
 ) {
     itemsIndexedTrack(tracks) { i, track ->
         TrackRow(
@@ -201,6 +203,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedRecent(
             resolving = resolvingId == track.videoId,
             onClick = { onOpenTrack(track, tracks) },
             onLikeToggle = { onLikeToggle(track) },
+            onLongClick = { onTrackLongClick(track) },
         )
     }
 }
@@ -214,6 +217,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedQueue(
     likedIds: Set<String>,
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
+    onTrackLongClick: (OnlineTrack) -> Unit,
 ) {
     itemsIndexedTrack(queue) { i, track ->
         TrackRow(
@@ -225,6 +229,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedQueue(
             resolving = resolvingId == track.videoId,
             onClick = { onOpenTrack(track, queue) },
             onLikeToggle = { onLikeToggle(track) },
+            onLongClick = { onTrackLongClick(track) },
         )
     }
 }

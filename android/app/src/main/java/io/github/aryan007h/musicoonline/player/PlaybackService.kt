@@ -37,6 +37,7 @@ class PlaybackService : MediaSessionService() {
         // Mobile EQ: attach the audiofx stack to the player's audio session
         // as soon as it exists (and re-attach on device changes).
         MobileEqualizer.attach(this)
+        PlaybackPrefs.attach(player)
         player.addListener(object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 MobileEqualizer.onAudioSessionId(audioSessionId)
@@ -57,6 +58,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         MobileEqualizer.detach()
+        PlaybackPrefs.detach()
         mediaSession?.run {
             player.release()
             release()

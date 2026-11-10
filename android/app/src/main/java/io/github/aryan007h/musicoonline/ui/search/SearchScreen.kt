@@ -68,6 +68,7 @@ fun SearchScreen(
     onClearRecents: () -> Unit,
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
+    onTrackLongClick: (OnlineTrack) -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -175,6 +176,7 @@ fun SearchScreen(
                         resolving = resolvingId == track.videoId,
                         onClick = { onOpenTrack(track, results) },
                         onLikeToggle = { onLikeToggle(track) },
+                        onLongClick = { onTrackLongClick(track) },
                     )
                 }
             } else if (!searching && query.isNotBlank()) {

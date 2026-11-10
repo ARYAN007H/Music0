@@ -42,7 +42,7 @@ pub mod search;
 pub mod sources;
 pub mod stream;
 
-pub use catalog::{browse, genres, home_feed};
+pub use catalog::{browse, browse_continuation, genres, home_feed};
 pub use lrclib::{fetch_synced_lyrics, SyncedLyricsDto};
 pub use lyrics::fetch_lyrics;
 pub use models::{BrowsePage, OnlineTrack, SearchResultPage, ShelfItem};

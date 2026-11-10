@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
@@ -83,6 +84,7 @@ import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 @Composable
 fun MusicoApp(vm: MusicViewModel) {
     val state by vm.state.collectAsState()
+    var sheetTrack by remember { mutableStateOf<io.github.aryan007h.musicoonline.core.OnlineTrack?>(null) }
 
     io.github.aryan007h.musicoonline.ui.theme.MusicoTheme(palette = state.palette) {
         Box(
@@ -119,6 +121,13 @@ fun MusicoApp(vm: MusicViewModel) {
                         onLoadMore = vm::loadMoreHome,
                         currentTrackId = state.nowPlaying?.videoId,
                     )
+                    AppTab.RADIO -> io.github.aryan007h.musicoonline.ui.radio.RadioScreen(
+                        styles = state.radioStyles,
+                        loading = state.radioLoading,
+                        error = state.error,
+                        onOpenStyle = { style -> vm.openShelfItem(style, emptyList()) },
+                        onRetry = vm::loadRadio,
+                    )
                     AppTab.LIBRARY -> LibraryScreen(
                         recentlyPlayed = state.recentlyPlayed,
                         queue = state.queue,
@@ -130,6 +139,7 @@ fun MusicoApp(vm: MusicViewModel) {
                         onPlayLiked = vm::playLiked,
                         onOpenTrack = vm::playTrack,
                         onLikeToggle = vm::toggleLike,
+                        onTrackLongClick = { sheetTrack = it },
                     )
                     AppTab.SEARCH -> SearchScreen(
                         query = state.searchQuery,
@@ -148,6 +158,7 @@ fun MusicoApp(vm: MusicViewModel) {
                         onClearRecents = vm::clearRecentSearches,
                         onOpenTrack = vm::playTrack,
                         onLikeToggle = vm::toggleLike,
+                        onTrackLongClick = { sheetTrack = it },
                     )
                 }
             }
@@ -217,8 +228,12 @@ fun MusicoApp(vm: MusicViewModel) {
                     onBack = vm::closeOverlay,
                     onBackdropChange = vm::setLyricBackdrop,
                     onPaletteChange = vm::setPalette,
+                    skipSilence = state.skipSilence,
+                    playbackSpeed = state.playbackSpeed,
                     onOfflineChange = { v -> vm.saveCoreSetting("offline_mode", toCoreBool(v)) },
                     onAutoplayChange = { v -> vm.saveCoreSetting("autoplay", toCoreBool(v)) },
+                    onSkipSilenceChange = vm::setSkipSilence,
+                    onSpeedChange = vm::setPlaybackSpeed,
                     onQualityChange = vm::setStreamingQuality,
                     onCacheCapChange = vm::setCacheCap,
                     onClearCache = vm::clearStreamCache,
@@ -251,6 +266,7 @@ fun MusicoApp(vm: MusicViewModel) {
                         onPlayTrack = vm::playTrack,
                         onLikeToggle = vm::toggleLike,
                         onOpenItem = vm::openShelfItem,
+                        onTrackLongClick = { sheetTrack = it },
                     )
                 }
             }
@@ -269,6 +285,34 @@ fun MusicoApp(vm: MusicViewModel) {
                     onBack = { vm.openOverlay(AppOverlay.SETTINGS) },
                 )
             }
+        }
+        // Long-press track action sheet (any screen).
+        sheetTrack?.let { track ->
+            io.github.aryan007h.musicoonline.ui.components.TrackActionSheet(
+                track = track,
+                isLiked = track.videoId in state.likedIds,
+                saving = state.savingTrackId == track.videoId,
+                onDismiss = { sheetTrack = null },
+                onPlayNext = { vm.playNext(track) },
+                onAddToQueue = { vm.enqueue(track) },
+                onSaveOffline = { vm.saveTrackOffline(track) },
+                onToggleLike = { vm.toggleLike(track) },
+            )
+        }
+        // First-run onboarding.
+        AnimatedVisibility(
+            visible = state.overlay == AppOverlay.ONBOARD,
+            enter = fadeIn(tween(260)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            io.github.aryan007h.musicoonline.ui.onboarding.OnboardingScreen(
+                artistResults = state.artistResults,
+                artistSearching = state.artistSearching,
+                onFinish = vm::finishOnboarding,
+                onDismiss = vm::dismissOnboarding,
+                onArtistQuery = vm::searchArtists,
+            )
         }
         AnimatedVisibility(
             visible = state.overlay == AppOverlay.PROFILE,
@@ -477,6 +521,7 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
     val destinations = remember {
         listOf(
             PillDest(AppTab.HOME, Icons.Filled.Home, "Home"),
+            PillDest(AppTab.RADIO, Icons.Filled.Radio, "Radio"),
             PillDest(AppTab.LIBRARY, Icons.Filled.LibraryMusic, "Library"),
             PillDest(AppTab.SEARCH, Icons.Filled.Search, "Search"),
         )

@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,8 +80,12 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onBackdropChange: (LyricBackdrop) -> Unit,
     onPaletteChange: (Palette) -> Unit,
+    skipSilence: Boolean,
+    playbackSpeed: Float,
     onOfflineChange: (Boolean) -> Unit,
     onAutoplayChange: (Boolean) -> Unit,
+    onSkipSilenceChange: (Boolean) -> Unit,
+    onSpeedChange: (Float) -> Unit,
     onQualityChange: (String) -> Unit,
     onCacheCapChange: (Int) -> Unit,
     onClearCache: () -> Unit,
@@ -185,6 +191,26 @@ fun SettingsScreen(
                     enabled = !settingsSaving,
                     onToggle = onAutoplayChange,
                 )
+                SwitchSettingRow(
+                    icon = Icons.Filled.SkipNext,
+                    title = "Skip silence",
+                    subtitle = "Jump over quiet stretches automatically",
+                    checked = skipSilence,
+                    onToggle = onSkipSilenceChange,
+                )
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingIcon(Icons.Filled.Speed)
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Playback speed", style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
+                        Text("Applies to everything you play", style = Musico.type.caption, color = Musico.extras.inkDim)
+                    }
+                }
+                SpeedChips(current = playbackSpeed, onPick = onSpeedChange, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+
                 // The door into the equalizer.
                 Row(
                     Modifier
@@ -373,6 +399,27 @@ private fun FilterChipPlain(label: String, selected: Boolean, enabled: Boolean, 
     }
 }
 
+private val SpeedOptions = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
+
+@Composable
+private fun SpeedChips(current: Float, onPick: (Float) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SpeedOptions.forEach { speed ->
+            FilterChipPlain(
+                label = if (speed == 1f) "1×" else "${speed}×",
+                selected = current == speed,
+                enabled = true,
+                onClick = { onPick(speed) },
+            )
+        }
+    }
+}
+
 // ── Group scaffolding ────────────────────────────────────────────────────
 
 @Composable
@@ -416,7 +463,7 @@ private fun SwitchSettingRow(
     title: String,
     subtitle: String,
     checked: Boolean,
-    enabled: Boolean,
+    enabled: Boolean = true,
     onToggle: (Boolean) -> Unit,
 ) {
     Row(

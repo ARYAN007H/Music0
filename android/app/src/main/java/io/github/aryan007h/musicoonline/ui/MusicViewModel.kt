@@ -44,9 +44,9 @@ enum class LyricBackdrop(val id: String, val label: String) {
     }
 }
 
-enum class AppTab { HOME, LIBRARY, SEARCH }
+enum class AppTab { HOME, RADIO, LIBRARY, SEARCH }
 
-enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE, DETAIL, EQ }
+enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE, DETAIL, EQ, ONBOARD }
 
 /**
  * App-wide state + every bridge call. One ViewModel for the shell: three
@@ -106,10 +106,26 @@ class MusicViewModel(
         val homeLoading: Boolean = false,
         val homeError: String? = null,
         val homeShelves: List<io.github.aryan007h.musicoonline.core.Shelf> = emptyList(),
-        // Endless browsing: charts + genre styles appended as the user scrolls
+        // Endless browsing: real continuation paging + a styles tail
+        val homeContinuation: String? = null,
         val moreLoading: Boolean = false,
         val moreExhausted: Boolean = false,
         val styleItems: List<io.github.aryan007h.musicoonline.core.ShelfItem> = emptyList(),
+        // Radio tab: the full mood/genre station grid
+        val radioStyles: List<io.github.aryan007h.musicoonline.core.ShelfItem> = emptyList(),
+        val radioLoading: Boolean = false,
+        // Onboarding + personalization
+        val onboardingDone: Boolean = true,
+        val personalizing: Boolean = false,
+        val personalizedTitles: Set<String> = emptySet(),
+        // Long-press actions
+        val savingTrackId: String? = null,
+        // Onboarding artist search
+        val artistResults: List<OnlineTrack> = emptyList(),
+        val artistSearching: Boolean = false,
+        // Player niceties (local prefs)
+        val skipSilence: Boolean = false,
+        val playbackSpeed: Float = 1f,
         // Detail pages (album / playlist / artist / genre) — a nav stack
         val details: List<DetailPageState> = emptyList(),
         // Save-offline progress
@@ -157,6 +173,119 @@ class MusicViewModel(
         loadLocalPrefs()
         loadCoreSettings()
         loadHome()
+        if (!_state.value.onboardingDone) {
+            _state.update { it.copy(overlay = AppOverlay.ONBOARD) }
+        }
+        // Player niceties apply the moment the controller binds.
+        io.github.aryan007h.musicoonline.player.PlaybackPrefs.setSkipSilence(_state.value.skipSilence)
+        viewModelScope.launch {
+            playback.setSkipSilence(_state.value.skipSilence)
+            playback.setSpeed(_state.value.playbackSpeed)
+        }
+    }
+
+    // ── Onboarding → personalized home ───────────────────────────────────
+
+    fun finishOnboarding(languages: List<String>, artists: List<String>) {
+        prefs.edit()
+            .putBoolean(PREF_ONBOARDED, true)
+            .putString(PREF_LANGS, json.encodeToString(ListSerializer(String.serializer()), languages))
+            .putString(PREF_ARTISTS, json.encodeToString(ListSerializer(String.serializer()), artists))
+            .apply()
+        _state.update { it.copy(onboardingDone = true, overlay = AppOverlay.NONE) }
+        if (languages.isNotEmpty() || artists.isNotEmpty()) {
+            personalizeHome(languages, artists)
+        }
+    }
+
+    /**
+     * Client-side personalization on top of the core's engine, all through
+     * live-verified endpoints: each picked artist seeds a radio shelf
+     * ("Because you like …"), each picked language matches a genre style
+     * card and surfaces its first playable shelf ("… picks").
+     */
+    private fun personalizeHome(languages: List<String>, artists: List<String>) {
+        viewModelScope.launch {
+            _state.update { it.copy(personalizing = true) }
+            val shelves = mutableListOf<io.github.aryan007h.musicoonline.core.Shelf>()
+
+            // Artist radio shelves (max 4 — keep the feed balanced).
+            artists.take(4).forEach { artist ->
+                runCatching {
+                    val page = json.decodeFromJsonElement(
+                        SearchResultPage.serializer(),
+                        MusicoCore.call("online.search", buildJsonObject { put("query", artist) }),
+                    )
+                    val seed = page.tracks.firstOrNull { t -> t.artist.contains(artist, ignoreCase = true) }
+                        ?: page.tracks.firstOrNull()
+                        ?: return@runCatching
+                    val radio = json.decodeFromJsonElement(
+                        kotlinx.serialization.builtins.ListSerializer(OnlineTrack.serializer()),
+                        MusicoCore.call("online.related", buildJsonObject { put("videoId", seed.videoId) }),
+                    )
+                    if (radio.isNotEmpty()) {
+                        shelves += io.github.aryan007h.musicoonline.core.Shelf(
+                            title = "Because you like $artist",
+                            items = radio.take(14).map { t ->
+                                io.github.aryan007h.musicoonline.core.ShelfItem(
+                                    kind = io.github.aryan007h.musicoonline.core.ItemKind.SONG,
+                                    title = t.title,
+                                    subtitle = t.artist,
+                                    thumbnail = t.thumbnail,
+                                    videoId = t.videoId,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+
+            // Language picks: match style cards by name, surface their songs.
+            if (languages.isNotEmpty()) {
+                runCatching {
+                    val styles = json.decodeFromJsonElement(
+                        io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
+                        MusicoCore.call("online.genres"),
+                    ).items
+                    languages.take(3).forEach { lang ->
+                        val style = styles.firstOrNull { s -> s.title.contains(lang, ignoreCase = true) }
+                            ?: return@forEach
+                        runCatching {
+                            val page = json.decodeFromJsonElement(
+                                BrowsePage.serializer(),
+                                MusicoCore.call(
+                                    "online.browse",
+                                    buildJsonObject {
+                                        put("browseId", style.browseId ?: return@runCatching)
+                                        style.params?.let { put("params", it) }
+                                    },
+                                ),
+                            )
+                            val songShelf = page.shelves.firstOrNull { shelf -> shelf.items.any { it.videoId != null } }
+                            if (songShelf != null) {
+                                shelves += io.github.aryan007h.musicoonline.core.Shelf(
+                                    title = "$lang picks",
+                                    items = songShelf.items.take(14),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            _state.update {
+                it.copy(
+                    personalizing = false,
+                    homeShelves = shelves + it.homeShelves,
+                    personalizedTitles = shelves.map { s -> s.title }.toSet(),
+                )
+            }
+        }
+    }
+
+    fun dismissOnboarding() {
+        prefs.edit().putBoolean(PREF_ONBOARDED, true).apply()
+        _state.update { it.copy(onboardingDone = true, overlay = AppOverlay.NONE) }
     }
 
     // ── Local prefs (backdrop, name, likes, recents, searches) ───────────
@@ -177,6 +306,9 @@ class MusicViewModel(
                 lyricBackdrop = LyricBackdrop.fromId(prefs.getString(PREF_BACKDROP, null)),
                 palette = io.github.aryan007h.musicoonline.ui.theme.Palette.fromId(prefs.getString(PREF_PALETTE, null)),
                 displayName = prefs.getString(PREF_NAME, null) ?: it.displayName,
+                onboardingDone = prefs.getBoolean(PREF_ONBOARDED, false),
+                skipSilence = prefs.getBoolean(PREF_SKIP_SILENCE, false),
+                playbackSpeed = prefs.getFloat(PREF_SPEED, 1f),
             )
         }
     }
@@ -298,8 +430,10 @@ class MusicViewModel(
 
     fun selectTab(tab: AppTab) {
         _state.update { it.copy(tab = tab, overlay = AppOverlay.NONE) }
-        if (tab == AppTab.HOME && _state.value.homeShelves.isEmpty() && !_state.value.homeLoading) {
-            loadHome()
+        when (tab) {
+            AppTab.HOME -> if (_state.value.homeShelves.isEmpty() && !_state.value.homeLoading) loadHome()
+            AppTab.RADIO -> if (_state.value.radioStyles.isEmpty() && !_state.value.radioLoading) loadRadio()
+            else -> Unit
         }
     }
 
@@ -317,7 +451,16 @@ class MusicViewModel(
                 val reply = MusicoCore.call("online.home")
                 json.decodeFromJsonElement(BrowsePage.serializer(), reply)
             }.onFold(
-                onSuccess = { page -> _state.update { it.copy(homeLoading = false, homeShelves = page.shelves) } },
+                onSuccess = { page ->
+                    _state.update {
+                        it.copy(
+                            homeLoading = false,
+                            homeShelves = page.shelves,
+                            homeContinuation = page.nextContinuation,
+                            moreExhausted = false,
+                        )
+                    }
+                },
                 onFailure = { e -> _state.update { it.copy(homeLoading = false, homeError = e.userMessage()) } },
             )
         }
@@ -441,45 +584,84 @@ class MusicViewModel(
         track.artistBrowseId?.let { put("artistBrowseId", it) }
     }
 
-    // ── Endless browsing: charts + genre styles after the home feed ──────
+    // ── Endless browsing: real continuation paging + a styles tail ───────
 
     fun loadMoreHome() {
         if (_state.value.moreLoading || _state.value.moreExhausted) return
         viewModelScope.launch {
             _state.update { it.copy(moreLoading = true) }
-            // Stage 1: editorial charts (guaranteed shelves). Titles already
-            // present in home are dropped — same dedupe the core does.
+
+            // 1. Real pagination: the home feed's own continuation token —
+            // YTM keeps serving personalized sections as long as it has them.
+            val cont = _state.value.homeContinuation
+            if (cont != null) {
+                runCatching {
+                    json.decodeFromJsonElement(
+                        BrowsePage.serializer(),
+                        MusicoCore.call("online.browse", buildJsonObject { put("continuation", cont) }),
+                    )
+                }.onFold(
+                    onSuccess = { page ->
+                        _state.update {
+                            val existing = it.homeShelves.map { s -> s.title }.toSet()
+                            val fresh = page.shelves.filter { s -> s.title !in existing && s.items.isNotEmpty() }
+                            it.copy(
+                                homeShelves = it.homeShelves + fresh,
+                                homeContinuation = page.nextContinuation,
+                                moreLoading = false,
+                            )
+                        }
+                    },
+                    onFailure = { _state.update { it.copy(moreLoading = false) } },
+                )
+                return@launch
+            }
+
+            // 2. Continuation exhausted: append the editorial charts (titles
+            // already present are dropped — same dedupe the core does), then
+            // the genre-style grid as the tail. Styles open detail pages
+            // full of more shelves, so browsing still keeps expanding.
             val charts = runCatching {
                 json.decodeFromJsonElement(
                     BrowsePage.serializer(),
                     MusicoCore.call("online.browse", buildJsonObject { put("browseId", "FEmusic_charts") }),
                 )
             }.getOrNull()
-            // Stage 2: the mood/genre style grid → a "Browse styles" shelf
-            // whose cards open detail pages (effectively endless browsing).
             val styles = runCatching {
                 json.decodeFromJsonElement(
                     io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
                     MusicoCore.call("online.genres"),
                 )
             }.getOrNull()
-                // Genre pages are the frontier: their detail pages carry
-                // their own shelves, so browsing never truly dead-ends.
-
 
             _state.update {
                 val existing = it.homeShelves.map { s -> s.title }.toSet()
                 val chartShelves = (charts?.shelves ?: emptyList()).filter { s -> s.title !in existing && s.items.isNotEmpty() }
-                val styleItems = styles?.items ?: emptyList()
                 it.copy(
                     homeShelves = it.homeShelves + chartShelves,
-                    styleItems = styleItems,
+                    styleItems = styles?.items ?: emptyList(),
                     moreLoading = false,
-                    // Nothing more to chain — the styles grid IS the frontier;
-                    // each style opens a detail page full of more shelves.
                     moreExhausted = true,
                 )
             }
+        }
+    }
+
+    // ── Radio tab: the full mood/genre station grid ──────────────────────
+
+    fun loadRadio() {
+        if (_state.value.radioLoading) return
+        viewModelScope.launch {
+            _state.update { it.copy(radioLoading = true) }
+            runCatching {
+                json.decodeFromJsonElement(
+                    io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
+                    MusicoCore.call("online.genres"),
+                )
+            }.onFold(
+                onSuccess = { styles -> _state.update { it.copy(radioLoading = false, radioStyles = styles.items) } },
+                onFailure = { e -> _state.update { it.copy(radioLoading = false, error = e.userMessage()) } },
+            )
         }
     }
 
@@ -501,6 +683,30 @@ class MusicViewModel(
                 )
                 json.decodeFromJsonElement(SuggestionsReply.serializer(), reply).suggestions
             }.onSuccess { s -> _state.update { it.copy(suggestions = s) } }
+        }
+    }
+
+    private var artistSearchJob: Job? = null
+
+    /** Debounced artist search for onboarding picks. */
+    fun searchArtists(query: String) {
+        artistSearchJob?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(artistResults = emptyList()) }
+            return
+        }
+        artistSearchJob = viewModelScope.launch {
+            delay(350)
+            _state.update { it.copy(artistSearching = true) }
+            runCatching {
+                json.decodeFromJsonElement(
+                    SearchResultPage.serializer(),
+                    MusicoCore.call("online.search", buildJsonObject { put("query", query) }),
+                )
+            }.onFold(
+                onSuccess = { page -> _state.update { it.copy(artistSearching = false, artistResults = page.tracks.take(12)) } },
+                onFailure = { _state.update { it.copy(artistSearching = false) } },
+            )
         }
     }
 
@@ -659,6 +865,53 @@ class MusicViewModel(
 
     fun isLiked(track: OnlineTrack): Boolean = track.videoId in _state.value.likedIds
 
+    // ── Long-press actions ───────────────────────────────────────────────
+
+    /** Insert right after the current track — "Play next". */
+    fun playNext(track: OnlineTrack) {
+        if (queueTracks.isEmpty() || _state.value.nowPlaying == null) {
+            playTrack(track)
+            return
+        }
+        val at = queuePosition + 1
+        queueTracks = queueTracks.toMutableList().apply { add(at, track) }
+        _state.update { it.copy(queue = queueTracks, error = "Playing next: ${track.title.ifEmpty { "track" }}") }
+    }
+
+    /** Append at the tail — "Add to queue". */
+    fun enqueue(track: OnlineTrack) {
+        if (queueTracks.isEmpty() || _state.value.nowPlaying == null) {
+            playTrack(track)
+            return
+        }
+        queueTracks = queueTracks + track
+        _state.update { it.copy(queue = queueTracks, error = "Added to queue") }
+    }
+
+    /** Resolve now → the stream cache holds the file (offline-ready). */
+    fun saveTrackOffline(track: OnlineTrack) {
+        viewModelScope.launch {
+            _state.update { it.copy(savingTrackId = track.videoId) }
+            runCatching { MusicoCore.call("track.resolve", resolveArgs(track)) }
+                .onSuccess { _state.update { it.copy(savingTrackId = null, error = "Saved offline: ${track.title.ifEmpty { "track" }}") } }
+                .onFailure { e -> _state.update { it.copy(savingTrackId = null, error = e.userMessage()) } }
+        }
+    }
+
+    // ── Player niceties ──────────────────────────────────────────────────
+
+    fun setSkipSilence(enabled: Boolean) {
+        prefs.edit().putBoolean(PREF_SKIP_SILENCE, enabled).apply()
+        _state.update { it.copy(skipSilence = enabled) }
+        viewModelScope.launch { playback.setSkipSilence(enabled) }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        prefs.edit().putFloat(PREF_SPEED, speed).apply()
+        _state.update { it.copy(playbackSpeed = speed) }
+        viewModelScope.launch { playback.setSpeed(speed) }
+    }
+
     // ── Lyrics ───────────────────────────────────────────────────────────
 
     private fun fetchLyrics(track: OnlineTrack) {
@@ -709,6 +962,11 @@ class MusicViewModel(
         private const val PREF_SEARCHES = "recent_searches"
         private const val PREF_BACKDROP = "lyric_backdrop"
         private const val PREF_PALETTE = "palette_id"
+        private const val PREF_ONBOARDED = "onboarding_done"
+        private const val PREF_LANGS = "onboarding_languages"
+        private const val PREF_ARTISTS = "onboarding_artists"
+        private const val PREF_SKIP_SILENCE = "skip_silence"
+        private const val PREF_SPEED = "playback_speed"
         private const val PREF_NAME = "display_name"
         private const val RECENTS_LIMIT = 40
         private const val SEARCHES_LIMIT = 8

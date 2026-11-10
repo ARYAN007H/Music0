@@ -167,13 +167,20 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
         "online.browse" => {
             ensure_online()?;
-            let browse_id = args
-                .get("browseId")
-                .and_then(|v| v.as_str())
-                .ok_or("missing browseId")?;
-            let params = args.get("params").and_then(|v| v.as_str());
-            serde_json::to_value(crate::online::browse(browse_id, params)?)
-                .map_err(|e| format!("browse serialize: {e}"))
+            // Continuation form: {"continuation": token} — the next slice of
+            // a browse feed (home infinite scroll). No browseId involved.
+            if let Some(token) = args.get("continuation").and_then(|v| v.as_str()) {
+                serde_json::to_value(crate::online::browse_continuation(token)?)
+                    .map_err(|e| format!("browse continuation serialize: {e}"))
+            } else {
+                let browse_id = args
+                    .get("browseId")
+                    .and_then(|v| v.as_str())
+                    .ok_or("missing browseId")?;
+                let params = args.get("params").and_then(|v| v.as_str());
+                serde_json::to_value(crate::online::browse(browse_id, params)?)
+                    .map_err(|e| format!("browse serialize: {e}"))
+            }
         }
 
         // Related tracks for a song (the Up Next shelf in the player) —

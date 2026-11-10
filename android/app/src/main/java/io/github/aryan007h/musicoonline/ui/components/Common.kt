@@ -197,6 +197,7 @@ fun TrackRow(
     onClick: () -> Unit,
     onLikeToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val bg by animateColorAsState(
         targetValue = if (isCurrent) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
@@ -210,7 +211,10 @@ fun TrackRow(
     ) {
         Row(
             modifier = Modifier
-                .combinedClickable(onClick = onClick)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
