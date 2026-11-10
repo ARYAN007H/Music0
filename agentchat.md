@@ -220,18 +220,6 @@ off origin/main 2b86b70) → PR into `main`.
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
-### 2026-11-01 20:30 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T8 (#60) — PR #71 review fixes
-- WHAT: Review verdict request-changes, findings real: P0 queue-row add
-  was dead (QueueRow never set data-video-id — rows now carry
-  data-song-id/data-file-path, qrow branch builds the ref from the
-  namespaced id); P1 move_track panicked at to==len (drag-to-end) —
-  remove-then-insert slot adjustment + boundary test; P1 view refetch
-  dead-end fixed (useEffect keyed on lists===null); P2s: create-failure
-  toasts, field-length caps, mock validates like the backend, Space
-  activation + focus-visible, copy fix. 160 tests green. Running suites.
-
 ### 2026-11-01 20:45 UTC — agent-1
 - STATUS: WORKING — SUITE LOCK released
 - TASK: T8 (#60)
@@ -552,3 +540,45 @@ off origin/main 2b86b70) → PR into `main`.
 - TASK: Android playback overhaul — InnerTube-direct multi-client director (Aryan directive: reverse-engineer Metrolist's streaming, port what works; shared resolve path approved, JioSaavn stays backup)
 - FILES: src-tauri/src/online/sources.rs
 - WHAT: Read the open-source Metrolist/innertubex streaming core (GPL-3 — clean-room: protocol facts only, zero code copied). Key intel (their Nov 2026 playback matrix): ANDROID_VR family (our old innertube_direct client) is BROKEN — player resolves but sustained media 403s after the first 512 KiB; anonymous tokenless direct playback now needs visitorData (VISIONOS_0_1 = fastest per their benchmark); TVHTML5_SAMSUNG works but ad-gated (skipped); WEB_REMIX is stable when a GVS poToken exists (BotGuard — not portable to Rust today). IMPLEMENTED: InnerTubeDirectSource rewritten as a multi-client director (VISIONOS_0_1 visitor-backed → VISIONOS 1.02 → WEB_REMIX tokenless), visitor bootstrap via sw.js_data + music-homepage fallback with TTL+cooldown, n-param playback-readiness filter, per-profile 10-min health demotion, pinned FIRST in the pool ahead of Piped/Invidious (instances = failover now), yt-dlp still last on desktop. 7 new hermetic tests + 1 live test; 183 workspace tests green, clippy clean on the diff. Next: push → dispatch APK → on-device play test with Aryan.
+
+### 2026-11-10 17:56 UTC — agent-quill
+- STATUS: DONE — native app verified END-TO-END on device (Aryan: searched "believer", it plays)
+- TASK: Android native app (#111/#112)
+- FILES: src-tauri/src/mobile.rs (JNI bridge), android/** (UI overhaul 5a905b0)
+- WHAT: Launch-crash root cause was JNI symbol naming — Rust must export
+  `Java_io_github_aryan007h_musicoonline_core_MusicoCore_initNative` (full
+  package path incl. `core` segment + exact Kotlin name); fixed in bf6837c,
+  build 42863970105 green, on-device `musico-native: mobile core:
+  initialized` clean. Playback flows: Kotlin UI → JNI JSON → Rust core
+  `track.resolve` → cached local file → ExoPlayer. Phase-1 UI was bare, so
+  overhauled: PlaybackController 500 ms position/duration poll + seekTo
+  (Media3 has no position callback), pinned mini player with progress +
+  tap-to-expand now-playing sheet (artwork, seek slider, play/pause),
+  animated equalizer on the playing row, source chips, empty/loading/error
+  states, edge-to-edge + values-night window theme. Release dispatch
+  42869880095 cooking; install + screenshot verify next. NEXT: poToken/
+  BotGuard WebView bridge issue (Metrolist's primary path), Tauri android
+  job retirement at parity (#111 phase 3).
+
+### 2026-11-11 01:55 UTC — agent-nimbus
+- STATUS: WORKING — CI dispatch cooking (run 42890108428)
+- TASK: Android native UI overhaul (Aryan direct brief: Apple-Music home, M3 expressive, word-by-word lyrics, pill island)
+- FILES: src-tauri/src/mobile.rs, src-tauri/src/commands.rs (pub(crate) on
+  build_enhanced_lines_from_timed), android/** (16 files, +4352/−680)
+- WHAT: Replaced the phase-1 single search screen with the full shell.
+  Rust bridge gained: online.home/genres/browse/related/suggestions,
+  lyrics.enhanced (LRCLIB synced → plain → YTM plain, desktop word-timing
+  synthesis REUSED not duplicated), settings.save (shallow-merge patch +
+  full re-parse). Kotlin: Home (hero pager + Made-for-you/Trending grids
+  + carousels, generic shelf rendering so YTM re-layouts can't dead-end),
+  Library (likes/recents/queue, on-device persistence), Search (debounced
+  suggestions), full-screen player (3 pages, word-by-word lyric stage per
+  Aryan's spec: one big fill-animated word + small prev/next neighbors,
+  tap-to-seek, frame-clock interpolation over the 200 ms controller
+  polls), backdrops (Midnight/Rain/Aurora/Artwork-Glow), organized
+  Settings (core-backed airplane mode + autoplay), Profile + avatar
+  context menu, 3-icon pill island nav, mini player. Gates so far:
+  cargo check + clippy clean on aarch64-linux-android (zero findings in
+  mobile.rs); :app:compileDebugKotlin green with zero warnings on local
+  gradle 8.10.2/JDK17. NEXT: CI APK → on-device verify with Aryan
+  (home feed, lyrics sync feel, rain backdrop).

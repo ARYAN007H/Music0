@@ -89,7 +89,7 @@ class MusicViewModel(
         val lyrics: EnhancedLyrics? = null,
         val lyricsLoading: Boolean = false,
         // Local prefs
-        val lyricBackdrop: LyricBackdrop = LyricBackdrop.Black,
+        val lyricBackdrop: LyricBackdrop = LyricBackdrop.Artwork,
         val palette: io.github.aryan007h.musicoonline.ui.theme.Palette = io.github.aryan007h.musicoonline.ui.theme.Palette.NEBULA,
         val displayName: String = "Listener",
         // Likes / recents (on-device library)
