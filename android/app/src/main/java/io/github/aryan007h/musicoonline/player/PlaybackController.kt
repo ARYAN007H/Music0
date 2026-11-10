@@ -15,7 +15,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
@@ -26,10 +28,18 @@ import kotlinx.coroutines.withContext
  * UI-side handle on the [PlaybackService]'s ExoPlayer, via a Media3
  * MediaController. Keeps the service alive while a track is loaded and
  * exposes the state the UI renders: now playing, playing flag, and the
- * position/duration pair for the seek bars. Media3 has no position
- * callback, so position is polled at 500 ms — the canonical pattern.
+ * position/duration pair for the seek bars.
+ *
+ * Media3 has no position callback, so position is polled — at 200 ms, the
+ * compromise between word-sync smoothness (the lyric pane interpolates
+ * between these samples with the frame clock) and battery. The queue
+ * itself lives in the ViewModel: resolving a track is a core call per
+ * item, so each advance is resolve-then-[playFile] orchestrated above.
  */
 class PlaybackController(private val context: Context) {
+
+    /** Application context for callers that need it (prefs, artwork cache keys). */
+    val appContext: Context = context.applicationContext
 
     private val _nowPlaying = MutableStateFlow<OnlineTrack?>(null)
     val nowPlaying: StateFlow<OnlineTrack?> = _nowPlaying
@@ -43,6 +53,13 @@ class PlaybackController(private val context: Context) {
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs
 
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering: StateFlow<Boolean> = _isBuffering
+
+    /** One event per natural track end (NOT manual skips) — the queue advances on this. */
+    private val _trackEnded = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    val trackEnded: SharedFlow<Unit> = _trackEnded
+
     private var controller: MediaController? = null
     private var pollJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -55,6 +72,13 @@ class PlaybackController(private val context: Context) {
                 c.addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _isPlaying.value = isPlaying
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        _isBuffering.value = playbackState == Player.STATE_BUFFERING
+                        if (playbackState == Player.STATE_ENDED) {
+                            _trackEnded.tryEmit(Unit)
+                        }
                     }
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -77,7 +101,7 @@ class PlaybackController(private val context: Context) {
                         if (d > 0) _durationMs.value = d
                     }
                 }
-                delay(500)
+                delay(POLL_INTERVAL_MS)
             }
         }
     }
@@ -87,7 +111,7 @@ class PlaybackController(private val context: Context) {
         _positionMs.value = 0
         _durationMs.value = 0
         val metadata = MediaMetadata.Builder()
-            .setTitle(track.title.ifEmpty { "Musico Online" })
+            .setTitle(track.title.ifEmpty { "Music0" })
             .setArtist(track.artist.ifEmpty { null })
             .setAlbumTitle(track.album.ifEmpty { null })
             .build()
@@ -120,5 +144,10 @@ class PlaybackController(private val context: Context) {
         pollJob = null
         controller?.release()
         controller = null
+    }
+
+    private companion object {
+        /** Word-sync interpolates between these samples; 200 ms is smooth enough and cheap. */
+        const val POLL_INTERVAL_MS = 200L
     }
 }
