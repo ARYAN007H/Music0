@@ -60,22 +60,36 @@ impl AudioOutput {
 
         // Collect configs, prefer f32.
         let configs: Vec<_> = supported.collect();
+        // A range capped under 8 kHz is enumeration garbage, not hardware —
+        // the Android oboe backend reported a real device a "5512 Hz, 1 ch"
+        // range when its AudioTrack buffer-size probe misfired. Never open
+        // one; fall through to a saner candidate.
+        let usable = |c: &cpal::SupportedStreamConfigRange| c.max_sample_rate().0 >= 8_000;
         let chosen = configs
             .iter()
-            .find(|c| c.sample_format() == cpal::SampleFormat::F32)
-            .or_else(|| configs.iter().find(|c| c.sample_format() == cpal::SampleFormat::I16))
+            .find(|c| usable(c) && c.sample_format() == cpal::SampleFormat::F32 && c.channels() == 2)
+            .or_else(|| configs.iter().find(|c| usable(c) && c.sample_format() == cpal::SampleFormat::F32))
+            .or_else(|| configs.iter().find(|c| usable(c) && c.sample_format() == cpal::SampleFormat::I16))
+            .or_else(|| configs.iter().find(|c| usable(c)))
             .or_else(|| configs.first())
             .ok_or_else(|| PlaybackError::StreamBuild("no supported config".into()))?;
 
         // Choose sample rate: prefer 48000, then 44100, then device default.
-        let min_sr = chosen.min_sample_rate().0;
-        let max_sr = chosen.max_sample_rate().0;
-        let sr = if (min_sr..=max_sr).contains(&48000) {
-            48000
-        } else if (min_sr..=max_sr).contains(&44100) {
-            44100
-        } else {
-            max_sr
+        // On Android the enumeration above can be degenerate, but AudioTrack
+        // resamples natively — 48 kHz is always the right thing to request.
+        #[cfg(target_os = "android")]
+        let sr: u32 = 48_000;
+        #[cfg(not(target_os = "android"))]
+        let sr: u32 = {
+            let min_sr = chosen.min_sample_rate().0;
+            let max_sr = chosen.max_sample_rate().0;
+            if (min_sr..=max_sr).contains(&48000) {
+                48000
+            } else if (min_sr..=max_sr).contains(&44100) {
+                44100
+            } else {
+                max_sr
+            }
         };
 
         let config = chosen.with_sample_rate(cpal::SampleRate(sr));
