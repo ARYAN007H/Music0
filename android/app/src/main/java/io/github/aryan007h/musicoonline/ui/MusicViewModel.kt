@@ -117,7 +117,10 @@ class MusicViewModel(
         }
     }
 
-    fun togglePlayPause() = playback.togglePlayPause()
+    /** Non-suspend for Compose click handlers. */
+    fun onTogglePlayback() {
+        viewModelScope.launch { playback.togglePlayPause() }
+    }
 
     private fun Throwable.userMessage(): String = (this as? CoreException)?.message ?: message ?: "unknown error"
 }

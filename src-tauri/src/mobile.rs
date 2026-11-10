@@ -50,23 +50,22 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_MusicoCore_init(
     set_env_var("XDG_DATA_HOME", &files);
     set_env_var("XDG_CONFIG_HOME", &files);
     set_env_var("XDG_CACHE_HOME", &cache);
-    // Same as the desktop: one log file, Info level, RUST_LOG overrides.
-    let mut builder = env_logger::Builder::new();
-    builder.filter_level(log::LevelFilter::Info);
-    if let Some(dir) = crate::identity::data_dir() {
-        let _ = std::fs::create_dir_all(&dir);
-        if let Ok(file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(dir.join("musico.log"))
-        {
-            builder.target(env_logger::Target::Pipe(Box::new(file)));
+    // Logcat is the only debugging surface on a device (the files dir is
+    // not readable over adb without root) — mirror everything there.
+    // RUST_LOG is settable via `adb shell am start --es RUST_LOG debug`-style
+    // wrappers only when the launcher passes it; keep Info as the default.
+    let _ = std::env::var("RUST_LOG"); // parsed below when present
+    let mut level = log::LevelFilter::Info;
+    if let Ok(spec) = std::env::var("RUST_LOG") {
+        if spec.contains("debug") {
+            level = log::LevelFilter::Debug;
         }
     }
-    if std::env::var("RUST_LOG").is_ok() {
-        builder.parse_default_env();
-    }
-    let _ = builder.try_init();
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(level)
+            .with_tag("musico-native"),
+    );
     MOBILE_INITIALIZED.store(true, Ordering::Release);
     log::info!("mobile core: initialized files={files} cache={cache}");
 }

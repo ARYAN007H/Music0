@@ -97,7 +97,7 @@ fun MusicScreen(vm: MusicViewModel) {
                 NowPlayingBar(
                     track = playing,
                     isPlaying = state.isPlaying,
-                    onToggle = vm::togglePlayPause,
+                    onToggle = vm::onTogglePlayback,
                 )
             }
         }
