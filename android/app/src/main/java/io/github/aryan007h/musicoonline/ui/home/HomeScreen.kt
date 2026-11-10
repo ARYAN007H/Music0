@@ -350,7 +350,7 @@ private fun GridSection(
                 .fillMaxWidth()
                 .height(386.dp),
         ) {
-            itemsIndexed(items, key = { _, it -> it.videoId ?: it.browseId ?: "${it.title}#${it.hashCode()}" }) { idx, item ->
+            itemsIndexed(items, key = { idx, it -> "g$idx-${it.videoId}-${it.browseId}-${it.params}-${it.title}" }) { idx, item ->
                 GridCard(
                     item = item,
                     rank = if (numbered) idx + 1 else null,

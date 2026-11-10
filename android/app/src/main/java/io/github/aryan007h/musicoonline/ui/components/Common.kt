@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -369,7 +370,10 @@ fun ShelfCarousel(
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            items(items, key = { it.videoId ?: it.browseId ?: it.title }) { item ->
+            // Mood/genre cards share browseId ("FEmusic_moods_and_genres_…",
+            // distinguished only by params) — content-only keys collide and
+            // crash Lazy lists, so every key carries the index.
+            itemsIndexed(items) { _, item ->
                 ShelfCard(
                     item = item,
                     width = cardWidth,

@@ -42,8 +42,24 @@ object MusicoCore {
 
     private external fun invoke(cmd: String, argsJson: String): String
 
-    /** Blocking bridge call — run on IO. Throws [CoreException] on `ok:false`. */
-    suspend fun call(cmd: String, args: JsonObject = buildJsonObject {}): JsonObject =
+    /**
+     * Blocking bridge call — run on IO. Throws [CoreException] on `ok:false`.
+     *
+     * STRICT about the data shape: the bridge contract is object-shaped
+     * data. A command returning a bare JsonArray used to collapse to `{}`
+     * here SILENTLY (the `as? JsonObject ?: empty` fallback), which hid a
+     * real bug for a release cycle — see `online.related`. Arrays are now
+     * a loud error: wrap them Rust-side (`{ "tracks": [...] }`) or decode
+     * via [callElement].
+     */
+    suspend fun call(cmd: String, args: JsonObject = buildJsonObject {}): JsonObject {
+        val data = callElement(cmd, args)
+        return data as? JsonObject
+            ?: throw CoreException("bridge contract: `$cmd` returned non-object data — wrap it Rust-side or use callElement")
+    }
+
+    /** Blocking bridge call returning the raw `data` element (any shape). */
+    suspend fun callElement(cmd: String, args: JsonObject = buildJsonObject {}): kotlinx.serialization.json.JsonElement =
         withContext(Dispatchers.IO) {
             val reply = json.parseToJsonElement(invoke(cmd, args.toString())).let {
                 require(it is JsonObject) { "bridge reply was not an object" }
@@ -53,7 +69,7 @@ object MusicoCore {
             if (!ok) {
                 throw CoreException((reply["error"] as? JsonPrimitive)?.content ?: "unknown error")
             }
-            (reply["data"] as? JsonObject) ?: buildJsonObject { }
+            reply["data"] ?: kotlinx.serialization.json.JsonNull
         }
 
     suspend fun ping(): JsonObject = call("ping")

@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -297,7 +297,7 @@ private fun DetailBody(
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    items(shelf.items, key = { it.videoId ?: it.browseId ?: "${it.title}#${it.hashCode()}" }) { item ->
+                    itemsIndexed(shelf.items, key = { i, it -> "d$i-${it.videoId}-${it.browseId}-${it.params}-${it.title}" }) { _, item ->
                         io.github.aryan007h.musicoonline.ui.components.ShelfCard(
                             item = item,
                             width = 150.dp,

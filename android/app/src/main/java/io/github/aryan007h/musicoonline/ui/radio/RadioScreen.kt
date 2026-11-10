@@ -75,7 +75,7 @@ fun RadioScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(styles, key = { _, it -> it.browseId ?: it.title }) { _, style ->
+                itemsIndexed(styles, key = { i, it -> "r$i-${it.params}-${it.title}" }) { _, style ->
                     RadioCard(style = style, onClick = { onOpenStyle(style) })
                 }
             }
