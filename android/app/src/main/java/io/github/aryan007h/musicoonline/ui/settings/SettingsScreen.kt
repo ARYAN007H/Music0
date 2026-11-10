@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -255,6 +256,9 @@ private fun BackdropChooser(current: LyricBackdrop, onPick: (LyricBackdrop) -> U
                     label = {
                         Text(
                             backdrop.label,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false,
                             fontWeight = if (current == backdrop) FontWeight.Bold else FontWeight.Medium,
                         )
                     },

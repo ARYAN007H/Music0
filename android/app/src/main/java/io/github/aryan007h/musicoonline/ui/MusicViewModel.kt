@@ -34,7 +34,7 @@ import kotlinx.serialization.json.put
 
 /** Local look-and-feel preferences (SharedPreferences, not the Rust core). */
 enum class LyricBackdrop(val id: String, val label: String) {
-    Black("black", "Midnight"),
+    Black("black", "Dark"),
     Rain("rain", "Rain"),
     Aurora("aurora", "Aurora"),
     Artwork("artwork", "Glow");
