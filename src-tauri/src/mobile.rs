@@ -30,7 +30,7 @@ fn set_env_var(key: &str, value: &str) {
 
 /// Called from `MusicoCore.init(filesDir, cacheDir)` before any other entry.
 #[no_mangle]
-pub extern "system" fn Java_io_github_aryan007h_musicoonline_MusicoCore_init(
+pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_init(
     mut env: JNIEnv,
     _class: JClass,
     files_dir: JString,
@@ -72,7 +72,7 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_MusicoCore_init(
 
 /// The one IPC entry: `MusicoCore.invoke(cmd, argsJson)`.
 #[no_mangle]
-pub extern "system" fn Java_io_github_aryan007h_musicoonline_MusicoCore_invoke<'local>(
+pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_invoke<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     cmd: JString<'local>,
