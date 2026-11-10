@@ -147,6 +147,131 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             }))
         }
 
+        // ── Browse surfaces (Apple-Music-style home) ──────────────────────
+        // Same engines the desktop commands run; spawn_blocking is not needed
+        // because the Kotlin caller is already on Dispatchers.IO.
+
+        "online.home" => {
+            ensure_online()?;
+            serde_json::to_value(crate::online::home_feed()?).map_err(|e| format!("home serialize: {e}"))
+        }
+
+        "online.genres" => {
+            ensure_online()?;
+            serde_json::to_value(crate::online::genres()?).map_err(|e| format!("genres serialize: {e}"))
+        }
+
+        "online.browse" => {
+            ensure_online()?;
+            let browse_id = args
+                .get("browseId")
+                .and_then(|v| v.as_str())
+                .ok_or("missing browseId")?;
+            let params = args.get("params").and_then(|v| v.as_str());
+            serde_json::to_value(crate::online::browse(browse_id, params)?)
+                .map_err(|e| format!("browse serialize: {e}"))
+        }
+
+        // Related tracks for a song (the Up Next shelf in the player) —
+        // the same engine online radio uses, seed excluded.
+        "online.related" => {
+            ensure_online()?;
+            let video_id = args
+                .get("videoId")
+                .and_then(|v| v.as_str())
+                .ok_or("missing videoId")?;
+            serde_json::to_value(crate::online::radio_tracks(video_id)?)
+                .map_err(|e| format!("related serialize: {e}"))
+        }
+
+        "online.suggestions" => {
+            ensure_online()?;
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .ok_or("missing query")?;
+            Ok(serde_json::json!({
+                "suggestions": crate::online::search_suggestions(query),
+            }))
+        }
+
+        // ── Word-synced lyrics ────────────────────────────────────────────
+        // Desktop parity: LRCLIB synced (word timings synthesized across line
+        // spans by `build_enhanced_lines_from_timed`) → LRCLIB plain → YTM
+        // InnerTube plain. `{"synced":false,"lines":[]}` = no lyrics found —
+        // never an error, the player just hides the lyrics pane.
+        "lyrics.enhanced" => {
+            ensure_online()?;
+            let s = |k: &str| {
+                args.get(k)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            let title = s("title");
+            let artist = s("artist");
+            let track_id = s("trackId");
+            let video_id = s("videoId");
+            let duration = args
+                .get("durationSecs")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+            let dur_f32 = duration.unwrap_or(200) as f32;
+
+            if title.trim().is_empty() {
+                return Ok(no_lyrics());
+            }
+
+            // 1. LRCLIB synced lines → word-level timing (desktop path).
+            if let Some(lrc) = crate::online::fetch_synced_lyrics(&artist, &title, duration) {
+                if !lrc.synced.is_empty() {
+                    let pairs: Vec<(f32, String)> = lrc
+                        .synced
+                        .into_iter()
+                        .map(|l| (l.time_secs, l.text))
+                        .collect();
+                    let mut dto = crate::commands::build_enhanced_lines_from_timed(&pairs, dur_f32);
+                    dto.track_id = track_id;
+                    dto.source = "LRCLIB".into();
+                    return serde_json::to_value(dto).map_err(|e| format!("lyrics serialize: {e}"));
+                }
+                if let Some(plain) = lrc.plain {
+                    return Ok(plain_lines(&plain, track_id, "LRCLIB"));
+                }
+            }
+
+            // 2. YTM InnerTube plain-text fallback (needs the video id).
+            if !video_id.is_empty() {
+                if let Some(text) = crate::online::fetch_lyrics(&video_id) {
+                    return Ok(plain_lines(&text, track_id, "YouTube Music"));
+                }
+            }
+
+            Ok(no_lyrics())
+        }
+
+        // ── Settings write-back ───────────────────────────────────────────
+        // Patch semantics: `{"settings": {…partial…}}` is shallow-merged over
+        // the loaded AppSettings, then validated by a full re-parse and saved.
+
+        "settings.save" => {
+            let patch = args
+                .get("settings")
+                .and_then(|v| v.as_object())
+                .ok_or("missing settings object")?;
+            let current = serde_json::to_value(crate::config::AppSettings::load())
+                .map_err(|e| format!("settings serialize: {e}"))?;
+            let mut merged = current;
+            for (k, v) in patch {
+                merged[k] = v.clone();
+            }
+            let settings: crate::config::AppSettings =
+                serde_json::from_value(merged).map_err(|e| format!("invalid settings: {e}"))?;
+            settings.save()?;
+            log::info!("mobile core: settings saved");
+            serde_json::to_value(settings).map_err(|e| format!("settings serialize: {e}"))
+        }
+
         other => Err(format!("unknown command `{other}`")),
     }
 }
@@ -159,6 +284,47 @@ fn ensure_online() -> Result<(), String> {
         return Err("Offline — turn Airplane Mode off to reach YouTube Music".into());
     }
     Ok(())
+}
+
+/// The "no lyrics exist" reply the Kotlin side treats as an empty pane.
+fn no_lyrics() -> serde_json::Value {
+    serde_json::json!({
+        "track_id": "",
+        "synced": false,
+        "source": "",
+        "has_word_sync": false,
+        "has_romanized": false,
+        "has_translation": false,
+        "lines": [],
+    })
+}
+
+/// Unsynced plain text → [`crate::commands::EnhancedLyricsDto`]-shaped JSON
+/// (one line per row, no word timings).
+fn plain_lines(text: &str, track_id: String, source: &str) -> serde_json::Value {
+    let lines: Vec<serde_json::Value> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            serde_json::json!({
+                "time_secs": 0.0,
+                "text": l,
+                "words": [],
+                "romanized": null,
+                "translation": null,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "track_id": track_id,
+        "synced": false,
+        "source": source,
+        "has_word_sync": false,
+        "has_romanized": false,
+        "has_translation": false,
+        "lines": lines,
+    })
 }
 
 /// Builds an [`crate::online::OnlineTrack`] from loose JNI args: `videoId`

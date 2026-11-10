@@ -1411,7 +1411,10 @@ pub struct EnhancedLyricsDto {
 
 /// Splits a lyric line text that may contain inline `primary / [romanized] / (translation)`
 /// or synthesizes word-level timestamps across `[start_secs, end_secs]`.
-fn build_enhanced_lines_from_timed(raw_lines: &[(f32, String)], total_dur_secs: f32) -> EnhancedLyricsDto {
+/// `pub(crate)`: the mobile JNI bridge (`mobile.rs` `lyrics.enhanced`) reuses
+/// the exact same word-timing synthesis the desktop `get_enhanced_lyrics`
+/// command runs — one implementation, two frontends.
+pub(crate) fn build_enhanced_lines_from_timed(raw_lines: &[(f32, String)], total_dur_secs: f32) -> EnhancedLyricsDto {
     let mut lines = Vec::with_capacity(raw_lines.len());
     let mut has_romanized = false;
     let mut has_translation = false;
