@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Musico Online</string>
+    <string name="app_name">Music0</string>
     <string name="search_hint">Songs, artists, albums…</string>
     <string name="now_playing">Now playing</string>
     <string name="resolve_failed">Couldn\'t resolve this track</string>
