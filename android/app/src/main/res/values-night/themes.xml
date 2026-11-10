@@ -1,0 +1,9 @@
+<resources>
+    <!-- Dark twin of Theme.Musico: the window background behind Compose and
+         the pre-edge-to-edge status bar flag must follow the system theme,
+         or the launch flash is a bright grey sheet in dark mode. -->
+    <style name="Theme.Musico" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

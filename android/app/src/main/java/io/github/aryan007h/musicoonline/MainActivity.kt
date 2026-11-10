@@ -3,6 +3,7 @@ package io.github.aryan007h.musicoonline
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.player.PlaybackController
@@ -23,6 +24,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         MusicoCore.init(this)
         playback = PlaybackController(this)
         setContent {

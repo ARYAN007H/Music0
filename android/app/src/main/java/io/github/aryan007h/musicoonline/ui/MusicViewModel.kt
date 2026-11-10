@@ -36,6 +36,9 @@ class MusicViewModel(
         val resolvingId: String? = null,
         val nowPlaying: OnlineTrack? = null,
         val isPlaying: Boolean = false,
+        val positionMs: Long = 0,
+        val durationMs: Long = 0,
+        val playerExpanded: Boolean = false,
         val coreVersion: String? = null,
     )
 
@@ -55,6 +58,12 @@ class MusicViewModel(
         }
         viewModelScope.launch {
             playback.isPlaying.collect { playing -> _state.update { it.copy(isPlaying = playing) } }
+        }
+        viewModelScope.launch {
+            playback.positionMs.collect { pos -> _state.update { it.copy(positionMs = pos) } }
+        }
+        viewModelScope.launch {
+            playback.durationMs.collect { dur -> _state.update { it.copy(durationMs = dur) } }
         }
     }
 
@@ -88,6 +97,11 @@ class MusicViewModel(
 
     fun play(track: OnlineTrack) {
         if (_state.value.resolvingId != null) return
+        // Tapping the current track toggles playback instead of re-resolving.
+        if (_state.value.nowPlaying?.videoId == track.videoId) {
+            onTogglePlayback()
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(resolvingId = track.videoId, error = null) }
             runCatching {
@@ -120,6 +134,14 @@ class MusicViewModel(
     /** Non-suspend for Compose click handlers. */
     fun onTogglePlayback() {
         viewModelScope.launch { playback.togglePlayPause() }
+    }
+
+    fun seekTo(ms: Long) {
+        viewModelScope.launch { playback.seekTo(ms) }
+    }
+
+    fun setPlayerExpanded(expanded: Boolean) {
+        _state.update { it.copy(playerExpanded = expanded) }
     }
 
     private fun Throwable.userMessage(): String = (this as? CoreException)?.message ?: message ?: "unknown error"
