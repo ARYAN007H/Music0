@@ -152,7 +152,9 @@ fun MusicoApp(vm: MusicViewModel) {
                         (fadeOut(tween(140)))
                 },
                 label = "tabContent",
-                modifier = Modifier.weight(1f),
+                // Fills everything under the top bar — the mini player and
+                // dock overlay it, so shelves scroll BEHIND the pills.
+                modifier = Modifier.fillMaxSize(),
             ) { tab ->
                 when (tab) {
                     AppTab.HOME -> HomeScreen(
@@ -209,8 +211,18 @@ fun MusicoApp(vm: MusicViewModel) {
                     )
                 }
             }
+        }
 
-            // Mini player + pill island live above the bottom inset.
+        // Mini player + pill island FLOAT over the content (no reserved
+        // band): the tab feed scrolls behind them, and the screens' bottom
+        // content padding (140–150 dp) keeps the last rows reachable above
+        // them. Nothing here paints a background — only the pill surfaces
+        // themselves are opaque.
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+        ) {
             MiniPlayer(state, onExpand = vm::openPlayer, onToggle = vm::onTogglePlayback)
             PillNavBar(
                 current = state.tab,

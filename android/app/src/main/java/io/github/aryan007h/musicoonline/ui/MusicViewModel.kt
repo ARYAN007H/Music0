@@ -216,7 +216,9 @@ class MusicViewModel(
         }
         // Player niceties apply the moment the controller binds.
         io.github.aryan007h.musicoonline.player.PlaybackPrefs.setSkipSilence(_state.value.skipSilence)
-        maybeAutoCheckUpdate()
+        // Check for a new release on EVERY launch — the notification is the
+        // only channel that reaches users who never open Settings.
+        checkForUpdate()
         viewModelScope.launch {
             playback.setSkipSilence(_state.value.skipSilence)
             playback.setSpeed(_state.value.playbackSpeed)
@@ -1163,12 +1165,6 @@ class MusicViewModel(
 
     // ── In-app updater ───────────────────────────────────────────────────
 
-    private fun maybeAutoCheckUpdate() {
-        val last = prefs.getLong(PREF_LAST_UPDATE_CHECK, 0)
-        if (System.currentTimeMillis() - last < 24 * 60 * 60 * 1000) return
-        checkForUpdate()
-    }
-
     fun checkForUpdate() {
         if (_state.value.updateChecking || _state.value.updateDownloading) return
         viewModelScope.launch {
@@ -1177,10 +1173,11 @@ class MusicViewModel(
                 io.github.aryan007h.musicoonline.updater.UpdateManager.check()
             }.onFold(
                 onSuccess = { info ->
-                    prefs.edit().putLong(PREF_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
                     _state.update {
                         it.copy(updateChecking = false, updateInfo = info, updateDismissed = false)
                     }
+                    announceUpdate(info)
+                    tryStartRequestedDownload()
                 },
                 onFailure = { e ->
                     Log.w(TAG, "update check failed: ${e.message}")
@@ -1188,6 +1185,35 @@ class MusicViewModel(
                 },
             )
         }
+    }
+
+    /**
+     * System notification for a newly discovered release — once per
+     * version (the banner only reaches users who open the app; this
+     * reaches everyone). "Cleared cache"-style notices are not errors but
+     * they reuse the toast channel; the notification is the durable one.
+     */
+    private fun announceUpdate(info: io.github.aryan007h.musicoonline.updater.UpdateInfo) {
+        if (!info.updateAvailable) return
+        if (prefs.getString(PREF_NOTIFIED_UPDATE, null) == info.latest) return
+        prefs.edit().putString(PREF_NOTIFIED_UPDATE, info.latest).apply()
+        io.github.aryan007h.musicoonline.updater.UpdateManager.notifyUpdateAvailable(appContext, info)
+    }
+
+    /** MainActivity consumed the update-notification tap: download as soon
+     *  as the release check lands (it may still be in flight). */
+    fun openFromUpdateNotification() {
+        openUpdateRequest = true
+        tryStartRequestedDownload()
+    }
+
+    private var openUpdateRequest = false
+
+    private fun tryStartRequestedDownload() {
+        if (!openUpdateRequest) return
+        val info = _state.value.updateInfo ?: return // check still in flight
+        openUpdateRequest = false
+        if (info.updateAvailable) downloadAndInstallUpdate()
     }
 
     fun dismissUpdateBanner() = _state.update { it.copy(updateDismissed = true) }
@@ -1241,7 +1267,7 @@ class MusicViewModel(
         private const val PREF_SKIP_SILENCE = "skip_silence"
         private const val PREF_SPEED = "playback_speed"
         private const val PREF_PERSONAL_SHELVES = "personalized_shelves"
-        private const val PREF_LAST_UPDATE_CHECK = "last_update_check"
+        private const val PREF_NOTIFIED_UPDATE = "notified_update_version"
         private const val PREF_NAME = "display_name"
         private const val RECENTS_LIMIT = 40
         private const val SEARCHES_LIMIT = 8
