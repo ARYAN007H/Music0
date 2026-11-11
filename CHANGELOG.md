@@ -12,25 +12,6 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
-## [0.9.4] - 2026-11-12
-
-### Fixed (Android native)
-
-- International recommendations (the J-POP shelf: "死ぬのがいいわ -
-  Shinunoga E-Wa", "すずめ - Suzume (feat. Toaka)") failed to play while
-  Indian/English songs worked. Three compounding causes in the JioSaavn
-  cross-source fast path, the layer everything rides on: a ±4 s duration
-  veto rejected the right song outright (releases drift across platforms
-  — YTM 215 s vs saavn's 185 s single edit), the 3 s API timeout missed
-  on carrier networks, and mixed-script titles ("すずめ - Suzume") got
-  zero search results. Duration now RANKS candidates instead of vetoing
-  them (>20% relative drift still disqualifies a different recording),
-  the artist match ignores punctuation ("RADWIMPS, Toaka"), query
-  variants cover YTM's "native - romanized" convention, and the API
-  timeout doubles to 6 s. Proven live on both reported tracks.
-- The InnerTube-direct director now chains per-profile failure reasons
-  in its error (only the last was visible before), for diagnosability.
-
 ## [0.9.3] - 2026-11-12
 
 The update experience becomes first-class, and the shell looks the way a

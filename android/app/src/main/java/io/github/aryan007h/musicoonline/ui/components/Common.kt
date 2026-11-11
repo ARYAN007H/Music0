@@ -1,22 +1,14 @@
 package io.github.aryan007h.musicoonline.ui.components
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -55,7 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,12 +55,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,15 +69,10 @@ import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
-import io.github.aryan007h.musicoonline.ui.theme.breathing
-import io.github.aryan007h.musicoonline.ui.theme.pressable
-import io.github.aryan007h.musicoonline.ui.theme.shimmer
-import io.github.aryan007h.musicoonline.ui.theme.staggerIn
-import kotlinx.coroutines.launch
 
 // ── Artwork ────────────────────────────────────────────────────────────────
 
-/** Artwork with crossfade + a shimmering placeholder that keeps layout rhythm while loading. */
+/** Artwork with crossfade + a tinted placeholder that keeps layout rhythm while loading. */
 @Composable
 fun Artwork(
     url: String?,
@@ -99,12 +81,8 @@ fun Artwork(
     cornerRadius: Dp = Musico.extras.cardRadius,
     placeholderIcon: ImageVector = Icons.Filled.MusicNote,
 ) {
-    val request = androidx.coil.request.ImageRequest.Builder(LocalContext.current)
-        .data(url)
-        .crossfade(220)
-        .build()
     SubcomposeAsyncImage(
-        model = request,
+        model = url,
         contentDescription = contentDescription,
         contentScale = ContentScale.Crop,
         modifier = modifier.clip(RoundedCornerShape(cornerRadius)),
@@ -126,8 +104,7 @@ private fun ArtworkPlaceholder(cornerRadius: Dp, icon: ImageVector) {
                         MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
                 ),
-            )
-            .shimmer(),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -180,19 +157,13 @@ fun EqualizerBars(
             repeat(barCount) { i ->
                 // The infinite transition only exists while playing — a
                 // paused mini player must not tick the frame clock forever.
-                // FastOutSlowIn reversed + a per-bar phase delay reads as
-                // organic dance instead of metronome.
                 val bounce = if (playing) {
                     val transition = rememberInfiniteTransition(label = "eq$i")
                     transition.animateFloat(
                         initialValue = 0.25f,
                         targetValue = 1f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(
-                                durationMillis = 520 + i * 130,
-                                delayMillis = i * 110,
-                                easing = FastOutSlowInEasing,
-                            ),
+                            animation = tween(durationMillis = 420 + i * 120, easing = LinearEasing),
                             repeatMode = RepeatMode.Reverse,
                         ),
                         label = "bar$i",
@@ -247,10 +218,9 @@ fun TrackRow(
     ) {
         Row(
             modifier = Modifier
-                .pressable(
+                .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick,
-                    pressedScale = 0.985f,
                 )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -307,65 +277,25 @@ fun LikeButton(
     modifier: Modifier = Modifier,
     size: Dp = 26.dp,
 ) {
-    val view = LocalView.current
     val color by animateColorAsState(
         targetValue = if (liked) Musico.extras.coral else Musico.extras.inkFaint,
         animationSpec = MusicoMotion.snappy(),
         label = "likeColor",
     )
-    // The heart is a rubber ball: on like it drops small and springs back
-    // past 1 while a coral ring ripples out and fades. Unlike just calms.
-    val burst = remember { androidx.compose.animation.core.Animatable(1f) }
-    val ring = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(liked) {
-        if (liked) {
-            burst.snapTo(0.4f)
-            launch {
-                burst.animateTo(
-                    1f,
-                    spring(
-                        dampingRatio = 0.45f,
-                        stiffness = Spring.StiffnessMedium,
-                    ),
-                )
-            }
-            ring.snapTo(0f)
-            ring.animateTo(1f, tween(450, easing = MusicoMotion.decelerate))
-        } else {
-            burst.snapTo(1f)
-            ring.snapTo(0f)
-        }
-    }
-    Box(
-        modifier = modifier.size(size),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (ring.value > 0.01f && ring.value < 0.99f) {
-            Canvas(Modifier.size(size * 2.2f)) {
-                drawCircle(
-                    color = Musico.extras.coral,
-                    radius = this.size.minDimension / 2f * ring.value,
-                    alpha = (1f - ring.value) * 0.55f,
-                    style = Stroke(width = 2.dp.toPx() * (1f - ring.value * 0.6f)),
-                )
-            }
-        }
-        Icon(
-            imageVector = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-            contentDescription = if (liked) "Unlike" else "Like",
-            tint = color,
-            modifier = Modifier
-                .size(size)
-                .graphicsLayer {
-                    scaleX = burst.value
-                    scaleY = burst.value
-                }
-                .clickable {
-                    view.tick()
-                    onToggle()
-                },
-        )
-    }
+    val scale by animateFloatAsState(
+        targetValue = if (liked) 1.08f else 1f,
+        animationSpec = MusicoMotion.snappy(),
+        label = "likeScale",
+    )
+    Icon(
+        imageVector = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+        contentDescription = if (liked) "Unlike" else "Like",
+        tint = color,
+        modifier = modifier
+            .size(size)
+            .scale(scale)
+            .clickable(onClick = onToggle),
+    )
 }
 
 /** A tiny breathing dot used as the "resolving…" indicator. */
@@ -399,7 +329,7 @@ fun ShelfCard(
     Column(
         modifier = modifier
             .width(width)
-            .pressable(onClick = onClick, pressedScale = 0.95f),
+            .clickable(onClick = onClick),
     ) {
         Artwork(
             url = item.thumbnail,
@@ -449,12 +379,11 @@ fun ShelfCarousel(
             // Mood/genre cards share browseId ("FEmusic_moods_and_genres_…",
             // distinguished only by params) — content-only keys collide and
             // crash Lazy lists, so every key carries the index.
-            itemsIndexed(items) { i, item ->
+            itemsIndexed(items) { _, item ->
                 ShelfCard(
                     item = item,
                     width = cardWidth,
                     onClick = { onItemClick(item, items) },
-                    modifier = Modifier.staggerIn(index = i),
                 )
             }
         }
@@ -469,14 +398,12 @@ fun ErrorState(
     onRetry: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    StateShell(modifier.staggerIn(index = 0)) {
+    StateShell(modifier) {
         Icon(
             Icons.Filled.GraphicEq,
             contentDescription = null,
             tint = Musico.extras.coral,
-            modifier = Modifier
-                .size(40.dp)
-                .breathing(max = 1.08f),
+            modifier = Modifier.size(40.dp),
         )
         Spacer(Modifier.height(14.dp))
         Text("Something skipped a beat", style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
@@ -493,7 +420,6 @@ fun ErrorState(
                 onClick = onRetry,
                 shape = MusicoShapes.chip,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.pressable(onClick = onRetry, pressedScale = 0.94f),
             ) {
                 Text("Try again", fontWeight = FontWeight.SemiBold)
             }
@@ -508,15 +434,8 @@ fun EmptyState(
     subtitle: String,
     modifier: Modifier = Modifier,
 ) {
-    StateShell(modifier.staggerIn(index = 0)) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = Musico.extras.inkFaint,
-            modifier = Modifier
-                .size(40.dp)
-                .breathing(),
-        )
+    StateShell(modifier) {
+        Icon(icon, contentDescription = null, tint = Musico.extras.inkFaint, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(14.dp))
         Text(title, style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(6.dp))
@@ -555,30 +474,15 @@ fun MiniPlayFab(
         modifier = modifier
             .size(44.dp)
             .scale(scale)
-            .pressable(onClick = onClick, pressedScale = 0.86f),
+            .clickable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            AnimatedContent(
-                targetState = playing,
-                transitionSpec = {
-                    (androidx.compose.animation.scaleIn(
-                        initialScale = 0.55f,
-                        animationSpec = MusicoMotion.snappy(),
-                    ) + fadeIn(tween(MusicoMotion.FAST))) togetherWith
-                        (androidx.compose.animation.scaleOut(
-                            targetScale = 0.55f,
-                            animationSpec = tween(MusicoMotion.FAST),
-                        ) + fadeOut(tween(MusicoMotion.FAST)))
-                },
-                label = "fabIcon",
-            ) { isPlaying ->
-                Icon(
-                    if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color(0xFF05291D),
-                    modifier = Modifier.size(26.dp),
-                )
-            }
+            Icon(
+                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                contentDescription = if (playing) "Pause" else "Play",
+                tint = Color(0xFF05291D),
+                modifier = Modifier.size(26.dp),
+            )
         }
     }
 }

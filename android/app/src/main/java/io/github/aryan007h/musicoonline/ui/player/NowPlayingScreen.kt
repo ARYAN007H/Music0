@@ -1,22 +1,15 @@
 package io.github.aryan007h.musicoonline.ui.player
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,8 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -77,9 +68,6 @@ import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
-import io.github.aryan007h.musicoonline.ui.theme.pressable
-import io.github.aryan007h.musicoonline.ui.theme.thud
-import io.github.aryan007h.musicoonline.ui.theme.tick
 import kotlinx.coroutines.launch
 
 /**
@@ -112,7 +100,6 @@ fun NowPlayingScreen(
     onPlayFromQueue: (Int) -> Unit,
 ) {
     val track = track ?: return
-    val view = LocalView.current
     // Frame-interpolated position — scoped to this overlay so the shell
     // behind it doesn't recompose at refresh rate while it's open.
     val smoothPositionMs = rememberSmoothPositionMs(
@@ -162,17 +149,11 @@ fun NowPlayingScreen(
                     modifier = Modifier.basicMarquee(),
                 )
             }
-            IconButton(onClick = { view.thud(); onLikeToggle() }) {
-                val likeScale by animateFloatAsState(
-                    targetValue = if (liked) 1.14f else 1f,
-                    animationSpec = MusicoMotion.snappy(),
-                    label = "npLikeScale",
-                )
+            IconButton(onClick = onLikeToggle) {
                 Icon(
                     if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                     contentDescription = if (liked) "Unlike" else "Like",
                     tint = if (liked) Musico.extras.coral else Color.White,
-                    modifier = Modifier.scale(likeScale),
                 )
             }
         }
@@ -209,26 +190,18 @@ fun NowPlayingScreen(
         ) {
             repeat(3) { i ->
                 val active = pagerState.currentPage == i
-                val dotWidth by animateDpAsState(
-                    targetValue = if (active) 16.dp else 5.dp,
-                    animationSpec = MusicoMotion.expressive(),
-                    label = "npDotW$i",
-                )
-                val dotColor by animateColorAsState(
-                    targetValue = when {
-                        active -> Color.White
-                        i == 1 -> Musico.extras.mint.copy(alpha = 0.55f)
-                        else -> Color.White.copy(alpha = 0.28f)
-                    },
-                    animationSpec = MusicoMotion.gentle(),
-                    label = "npDotC$i",
-                )
                 Box(
                     Modifier
                         .padding(horizontal = 4.dp)
-                        .size(width = dotWidth, height = 5.dp)
+                        .size(width = if (active) 16.dp else 5.dp, height = 5.dp)
                         .clip(CircleShape)
-                        .background(dotColor),
+                        .background(
+                            when {
+                                active -> Color.White
+                                i == 1 -> Musico.extras.mint.copy(alpha = 0.55f)
+                                else -> Color.White.copy(alpha = 0.28f)
+                            },
+                        ),
                 )
             }
         }
@@ -248,17 +221,11 @@ fun NowPlayingScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            val repeatScale by animateFloatAsState(
-                targetValue = if (repeatAll) 1.12f else 1f,
-                animationSpec = MusicoMotion.snappy(),
-                label = "npRepeatScale",
-            )
-            IconButton(onClick = { view.tick(); onRepeatToggle() }) {
+            IconButton(onClick = onRepeatToggle) {
                 Icon(
                     Icons.Filled.Repeat,
                     contentDescription = if (repeatAll) "Repeat on" else "Repeat off",
                     tint = if (repeatAll) Musico.extras.mint else Color.White.copy(alpha = 0.75f),
-                    modifier = Modifier.scale(repeatScale),
                 )
             }
             TransportButton(onClick = onPrevious, size = 38.dp) {
@@ -279,7 +246,6 @@ fun NowPlayingScreen(
                 )
             }
             IconButton(onClick = {
-                view.tick()
                 scope.launch { pagerState.animateScrollToPage(1) }
             }) {
                 Icon(
@@ -304,33 +270,14 @@ private fun ArtworkPage(track: OnlineTrack, isBuffering: Boolean, onTogglePlay: 
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box {
-                // Track changes arrive as a morph: new art scales up from
-                // 92% while the old one drifts out — the cover never hard-cuts.
-                AnimatedContent(
-                    targetState = track,
-                    transitionSpec = {
-                        (fadeIn(tween(MusicoMotion.SLOW, easing = MusicoMotion.decelerate)) +
-                            scaleIn(
-                                initialScale = 0.92f,
-                                animationSpec = MusicoMotion.spatial(),
-                            )) togetherWith
-                            (fadeOut(tween(MusicoMotion.MED)) +
-                                scaleOut(
-                                    targetScale = 1.05f,
-                                    animationSpec = tween(MusicoMotion.MED, easing = MusicoMotion.accelerate),
-                                ))
-                    },
-                    label = "artworkMorph",
-                ) { current ->
-                    Artwork(
-                        url = current.thumbnail,
-                        contentDescription = current.title,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f),
-                        cornerRadius = Musico.extras.cardLargeRadius,
-                    )
-                }
+                Artwork(
+                    url = track.thumbnail,
+                    contentDescription = track.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
+                    cornerRadius = Musico.extras.cardLargeRadius,
+                )
                 if (isBuffering) {
                     Box(
                         Modifier.matchParentSize(),
@@ -344,24 +291,13 @@ private fun ArtworkPage(track: OnlineTrack, isBuffering: Boolean, onTogglePlay: 
                 }
             }
             Spacer(Modifier.height(22.dp))
-            AnimatedContent(
-                targetState = track,
-                transitionSpec = {
-                    (fadeIn(tween(MusicoMotion.MED, easing = MusicoMotion.decelerate)) +
-                        slideInVertically(MusicoMotion.spatial()) { it / 3 }) togetherWith
-                        fadeOut(tween(MusicoMotion.FAST))
-                },
-                label = "npTitleMorph",
-            ) { current ->
-                Text(
-                    current.title.ifEmpty { "Untitled" },
-                    color = Color.White,
-                    style = Musico.type.display.copy(fontSize = 24.sp),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-            }
+            Text(
+                track.title.ifEmpty { "Untitled" },
+                color = Color.White,
+                style = Musico.type.display.copy(fontSize = 24.sp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
             Spacer(Modifier.height(4.dp))
             Text(
                 track.artist.ifEmpty { track.album }.ifEmpty { "Unknown artist" },
@@ -424,17 +360,12 @@ private fun QueuePage(queue: List<OnlineTrack>, queueIndex: Int, onPlayFromQueue
             items(queue.size, key = { "q-${queue[it].videoId}-$it" }) { i ->
                 val item = queue[i]
                 val isCurrent = i == queueIndex
-                val rowBg by animateColorAsState(
-                    targetValue = if (isCurrent) Color.White.copy(alpha = 0.10f) else Color.Transparent,
-                    animationSpec = MusicoMotion.gentle(),
-                    label = "queueBg$i",
-                )
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .clip(MusicoShapes.chip)
-                        .background(rowBg)
-                        .pressable(onClick = { onPlayFromQueue(i) }, pressedScale = 0.98f)
+                        .background(if (isCurrent) Color.White.copy(alpha = 0.10f) else Color.Transparent)
+                        .clickable { onPlayFromQueue(i) }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -474,7 +405,6 @@ private fun QueuePage(queue: List<OnlineTrack>, queueIndex: Int, onPlayFromQueue
 
 @Composable
 private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
-    val view = LocalView.current
     var dragging by remember { mutableFloatStateOf(Float.NaN) }
     val posFraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     val shown = if (dragging.isNaN()) posFraction else dragging
@@ -486,7 +416,6 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
             onValueChangeFinished = {
                 if (!dragging.isNaN() && durationMs > 0) {
                     onSeek((dragging * durationMs).toLong())
-                    view.tick()
                 }
                 dragging = Float.NaN
             },
@@ -509,28 +438,20 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
 /** The big squishy M3-expressive play FAB. */
 @Composable
 private fun BigPlayButton(isPlaying: Boolean, isBuffering: Boolean, onClick: () -> Unit) {
-    val view = LocalView.current
-    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
+    var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.86f else 1f,
+        targetValue = if (pressed) 0.88f else 1f,
         animationSpec = MusicoMotion.snappy(),
         label = "playScale",
     )
     Box(
         Modifier
             .size(78.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+            .scale(scale)
             .clip(CircleShape)
             .background(Color.White)
-            .clickable(
-                interactionSource = source,
-                indication = LocalIndication.current,
-            ) {
-                view.thud()
+            .clickable {
+                pressed = true
                 onClick()
             },
         contentAlignment = Alignment.Center,
@@ -544,12 +465,7 @@ private fun BigPlayButton(isPlaying: Boolean, isBuffering: Boolean, onClick: () 
         } else {
             AnimatedContent(
                 targetState = isPlaying,
-                transitionSpec = {
-                    (scaleIn(initialScale = 0.55f, animationSpec = MusicoMotion.snappy()) +
-                        fadeIn(tween(MusicoMotion.FAST))) togetherWith
-                        (scaleOut(targetScale = 0.55f, animationSpec = tween(MusicoMotion.FAST)) +
-                            fadeOut(tween(MusicoMotion.FAST)))
-                },
+                transitionSpec = { (fadeIn(tween(120)) togetherWith fadeOut(tween(80))) },
                 label = "playIcon",
             ) { playing ->
                 Icon(
@@ -561,6 +477,13 @@ private fun BigPlayButton(isPlaying: Boolean, isBuffering: Boolean, onClick: () 
             }
         }
     }
+    // Reset the squish on the next frame after press.
+    androidx.compose.runtime.LaunchedEffect(pressed) {
+        if (pressed) {
+            kotlinx.coroutines.delay(120)
+            pressed = false
+        }
+    }
 }
 
 @Composable
@@ -569,7 +492,7 @@ private fun TransportButton(onClick: () -> Unit, size: androidx.compose.ui.unit.
         Modifier
             .size(size * 1.6f)
             .clip(CircleShape)
-            .pressable(onClick = onClick, pressedScale = 0.84f)
+            .clickable(onClick = onClick)
             .padding(4.dp),
         contentAlignment = Alignment.Center,
     ) {

@@ -15,8 +15,7 @@
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Musico"
         android:allowBackup="true"
-        android:supportsRtl="true"
-        android:enableOnBackInvokedCallback="true">
+        android:supportsRtl="true">
 
         <activity
             android:name=".MainActivity"

@@ -205,7 +205,7 @@ const Online = (() => {
     const dur = t.duration_secs ? fmtTime(t.duration_secs) : '';
     const sub = [t.artist, t.album, dur].filter(Boolean).join(' · ');
     const thumb = t.thumbnail
-      ? `<img class="browse-thumb" src="${escapeAttr(t.thumbnail)}" alt="" loading="lazy" decoding="async"/>`
+      ? `<img class="browse-thumb" src="${escapeAttr(t.thumbnail)}" alt="" loading="lazy"/>`
       : `<div class="browse-thumb browse-thumb-fallback">${svgMusic()}</div>`;
     const badge = t.cached ? '<span class="browse-cached-badge" title="Already downloaded">cached</span>' : '';
     return `

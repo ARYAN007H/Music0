@@ -172,16 +172,6 @@ const App = (() => {
     try { localStorage.setItem('musico-theme', s.theme === 'dark' ? 'dark' : 'light'); } catch (e) {}
     document.querySelectorAll('[data-theme-pill]').forEach((p) =>
       p.classList.toggle('active', p.dataset.themePill === (s.theme === 'dark' ? 'dark' : 'light')));
-    // Design language (skin): "ios" is the default look. An explicit value
-    // (persisted settings) wins; an ABSENT one (mock bridge, first run
-    // before settings load) keeps whatever the pre-paint script applied from
-    // localStorage instead of clobbering it.
-    if (s.skin === 'm3e' || s.skin === 'ios') {
-      document.documentElement.setAttribute('data-skin', s.skin);
-      try { localStorage.setItem('musico-skin', s.skin); } catch (e) {}
-      document.querySelectorAll('[data-skin-pill]').forEach((p) =>
-        p.classList.toggle('active', p.dataset.skinPill === s.skin));
-    }
     if (s.palette) {
       document.documentElement.setAttribute('data-palette', s.palette);
       document.querySelectorAll('.swatch').forEach((sw) =>
@@ -432,22 +422,6 @@ const App = (() => {
         document.documentElement.setAttribute('data-theme', theme);
         try { localStorage.setItem('musico-theme', theme); } catch (e) {}
         persistSettings({ theme });
-      });
-    });
-
-    // Design language (skin) pills — the whole-app look, applied live: the
-    // attribute flips every token in m3-expressive.css at once.
-    document.querySelectorAll('[data-skin-pill]').forEach((pill) => {
-      pill.addEventListener('click', () => {
-        document.querySelectorAll('[data-skin-pill]').forEach((p) => p.classList.remove('active'));
-        pill.classList.add('active');
-        const skin = pill.dataset.skinPill === 'm3e' ? 'm3e' : 'ios';
-        document.documentElement.setAttribute('data-skin', skin);
-        try { localStorage.setItem('musico-skin', skin); } catch (e) {}
-        persistSettings({ skin });
-        showToast(skin === 'm3e'
-          ? 'Material 3 Expressive design language applied'
-          : 'iOS design language applied');
       });
     });
 
@@ -1822,7 +1796,7 @@ const App = (() => {
     row.tabIndex = 0;
     row.setAttribute('aria-label', `Play ${track.title} by ${track.artist}`);
     const art = track.thumbnail
-      ? `<img class="sug-thumb" src="${escapeAttr(track.thumbnail)}" alt="" loading="lazy" decoding="async"/>`
+      ? `<img class="sug-thumb" src="${escapeAttr(track.thumbnail)}" alt="" loading="lazy"/>`
       : `<div class="sug-thumb sug-thumb-fallback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>`;
     row.innerHTML = `
       ${art}

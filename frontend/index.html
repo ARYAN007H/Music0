@@ -14,8 +14,6 @@
   try {
     var t = localStorage.getItem('musico-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
-    var skin = localStorage.getItem('musico-skin');
-    if (skin === 'm3e' || skin === 'ios') document.documentElement.setAttribute('data-skin', skin);
   } catch (e) {}
 </script>
 
@@ -37,7 +35,7 @@
 <!-- Asset URLs carry ?v= — bump on frontend changes so the WebKit webview
      can't serve stale cached scripts/styles (bit us once: old bridge.js
      kept breaking IPC after an update). -->
-<link rel="manifest" href="manifest.json?v=0.9.4"/>
+<link rel="manifest" href="manifest.json?v=0.8.1"/>
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg"/>
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png"/>
 <meta name="theme-color" content="#7c6bc4"/>
@@ -46,25 +44,21 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="apple-mobile-web-app-title" content="Musico"/>
 
-<link rel="stylesheet" href="css/tokens.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/neumorphic.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/animations.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/layout.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/now-playing.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/library.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/queue.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/settings.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/online.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/topbar.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/queue-panel.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/am-clean.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/liquid.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/apple.css?v=0.9.4"/>
-<link rel="stylesheet" href="css/native.css?v=0.9.4"/>
-<!-- The M3 Expressive skin loads LAST: every rule is scoped under
-     html[data-skin="m3e"] so the default Cupertino look is untouched, and
-     attribute specificity beats the earlier layers without !important. -->
-<link rel="stylesheet" href="css/m3-expressive.css?v=0.9.4"/>
+<link rel="stylesheet" href="css/tokens.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/neumorphic.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/animations.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/layout.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/now-playing.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/library.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/queue.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/settings.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/online.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/topbar.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/queue-panel.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/am-clean.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/liquid.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/apple.css?v=0.8.1"/>
+<link rel="stylesheet" href="css/native.css?v=0.8.1"/>
 </head>
 <body>
 
@@ -881,16 +875,6 @@
 
           <!-- THEMES TAB -->
           <div class="settings-panel" id="panel-themes">
-            <!-- Design language (skin) — the whole-app look. Applied live. -->
-            <div class="s-card">
-              <div class="s-card-header">Design Language</div>
-              <div class="s-card-desc">The overall look of every surface. Applied instantly — no restart needed.</div>
-              <div style="padding: var(--space-4) var(--space-20) var(--space-16); display:flex; gap:var(--space-8); flex-wrap:wrap;">
-                <button class="sort-pill active" data-skin-pill="ios"> iOS (Default)</button>
-                <button class="sort-pill" data-skin-pill="m3e">Material 3 Expressive</button>
-              </div>
-            </div>
-
             <!-- Theme -->
             <div class="s-card">
               <div class="s-card-header">Theme</div>
@@ -1016,15 +1000,15 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════
      JAVASCRIPT
      ═══════════════════════════════════════════════════════════════════════════ -->
-<script src="js/bridge.js?v=0.9.4"></script>
-<script src="js/app.js?v=0.9.4"></script>
+<script src="js/bridge.js?v=0.8.1"></script>
+<script src="js/app.js?v=0.8.1"></script>
   <!-- shell.js imports store/router (versioned inside the module graph);
        standalone tags removed — they created duplicate module instances -->
-  <script type="module" src="js/core/shell.js?v=0.9.4"></script>
-<script src="js/online.js?v=0.9.4"></script>
-<script src="js/vinyl.js?v=0.9.4"></script>
-<script src="js/knob.js?v=0.9.4"></script>
-<script src="js/seek.js?v=0.9.4"></script>
+  <script type="module" src="js/core/shell.js?v=0.8.1"></script>
+<script src="js/online.js?v=0.8.1"></script>
+<script src="js/vinyl.js?v=0.8.1"></script>
+<script src="js/knob.js?v=0.8.1"></script>
+<script src="js/seek.js?v=0.8.1"></script>
 
 </body>
 </html>

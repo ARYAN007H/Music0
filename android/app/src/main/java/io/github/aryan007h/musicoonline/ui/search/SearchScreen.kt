@@ -44,9 +44,7 @@ import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.theme.Musico
-import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
-import io.github.aryan007h.musicoonline.ui.theme.pressable
 
 /**
  * The Search tab — opens only from the pill's search icon, keyboard up.
@@ -179,7 +177,6 @@ fun SearchScreen(
                         onClick = { onOpenTrack(track, results) },
                         onLikeToggle = { onLikeToggle(track) },
                         onLongClick = { onTrackLongClick(track) },
-                        modifier = Modifier.animateItem(placementSpec = MusicoMotion.spatial()),
                     )
                 }
             } else if (!searching && query.isNotBlank()) {
@@ -246,7 +243,7 @@ private fun SuggestionRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
     Row(
         Modifier
             .fillMaxWidth()
-            .pressable(onClick = onClick, pressedScale = 0.98f)
+            .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

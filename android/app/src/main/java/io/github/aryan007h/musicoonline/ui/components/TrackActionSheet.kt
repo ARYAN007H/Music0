@@ -32,8 +32,6 @@ import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
-import io.github.aryan007h.musicoonline.ui.theme.pressable
-import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 
 /** One row in the long-press sheet. */
 private data class TrackAction(
@@ -97,31 +95,26 @@ fun TrackActionSheet(
             }
 
             Spacer(Modifier.height(6.dp))
-            // Rows cascade in as the sheet rises — the sheet itself already
-            // springs; the stagger makes the contents feel unpacked, not dumped.
-            SheetAction(Icons.Filled.PlaylistAdd, "Play next", index = 0) { onPlayNext(); onDismiss() }
-            SheetAction(Icons.Filled.Queue, "Add to queue", index = 1) { onAddToQueue(); onDismiss() }
+            SheetAction(Icons.Filled.PlaylistAdd, "Play next") { onPlayNext(); onDismiss() }
+            SheetAction(Icons.Filled.Queue, "Add to queue") { onAddToQueue(); onDismiss() }
             SheetAction(
                 Icons.Filled.Download,
                 if (saving) "Saving offline…" else "Save offline",
-                index = 2,
             ) { onSaveOffline(); onDismiss() }
             SheetAction(
                 if (isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 if (isLiked) "Remove from liked" else "Save to liked",
-                index = 3,
             ) { onToggleLike(); onDismiss() }
         }
     }
 }
 
 @Composable
-private fun SheetAction(icon: ImageVector, label: String, index: Int = 0, onClick: () -> Unit) {
+private fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .staggerIn(index = index, drop = 10.dp)
-            .pressable(onClick = onClick, pressedScale = 0.97f)
+            .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),

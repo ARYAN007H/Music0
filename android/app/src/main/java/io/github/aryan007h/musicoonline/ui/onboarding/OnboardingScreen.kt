@@ -1,12 +1,9 @@
 package io.github.aryan007h.musicoonline.ui.onboarding
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -61,10 +58,7 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.theme.Musico
-import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
-import io.github.aryan007h.musicoonline.ui.theme.breathing
-import io.github.aryan007h.musicoonline.ui.theme.pressable
 
 /**
  * First-launch onboarding: pick preferred languages, then at least 3
@@ -102,15 +96,10 @@ fun OnboardingScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             repeat(2) { i ->
-                val dotWidth by animateDpAsState(
-                    targetValue = if (step == i) 20.dp else 8.dp,
-                    animationSpec = MusicoMotion.expressive(),
-                    label = "onboardDot$i",
-                )
                 Box(
                     Modifier
                         .padding(end = 6.dp)
-                        .size(width = dotWidth, height = 8.dp)
+                        .size(width = if (step == i) 20.dp else 8.dp, height = 8.dp)
                         .clip(CircleShape)
                         .background(if (step == i) MaterialTheme.colorScheme.primary else Musico.extras.inkFaint),
                 )
@@ -121,17 +110,7 @@ fun OnboardingScreen(
 
         AnimatedContent(
             targetState = step,
-            transitionSpec = {
-                // Steps glide directionally: forward enters from the right,
-                // back re-enters from the left — spatial continuity.
-                val forward = targetState > initialState
-                (slideInHorizontally(MusicoMotion.spatial()) { if (forward) it / 3 else -it / 3 } +
-                    fadeIn(tween(MusicoMotion.MED))) togetherWith
-                    (slideOutHorizontally(
-                        tween(MusicoMotion.MED, easing = MusicoMotion.accelerate),
-                    ) { if (forward) -it / 4 else it / 4 } +
-                        fadeOut(tween(MusicoMotion.FAST)))
-            },
+            transitionSpec = { fadeIn(tween(260)) togetherWith fadeOut(tween(160)) },
             label = "onboardStep",
             modifier = Modifier.weight(1f),
         ) { s ->
@@ -230,16 +209,14 @@ fun OnboardingScreen(
                             Row(
                                 Modifier
                                     .fillMaxWidth()
-                                    .pressable(
-                                        onClick = {
-                                            if (!already && pickedArtists.size < 6) {
-                                                pickedArtists = pickedArtists + track
-                                                query = ""
-                                                onArtistQuery("")
-                                            }
-                                        },
-                                        pressedScale = 0.97f,
-                                    )
+                                    .clip(MusicoShapes.chip)
+                                    .clickable {
+                                        if (!already && pickedArtists.size < 6) {
+                                            pickedArtists = pickedArtists + track
+                                            query = ""
+                                            onArtistQuery("")
+                                        }
+                                    }
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -277,15 +254,10 @@ fun OnboardingScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
-                    .then(if (enabled) Modifier.breathing(max = 1.015f) else Modifier)
-                    .pressable(
-                        onClick = {
-                            if (step == 0) step = 1
-                            else onFinish(selectedLangs.toList(), pickedArtists.map { it.artist.ifEmpty { it.title } })
-                        },
-                        enabled = enabled,
-                        pressedScale = 0.97f,
-                    ),
+                    .clip(MusicoShapes.chip)
+                    .clickable(enabled = enabled) {
+                        if (step == 0) step = 1 else onFinish(selectedLangs.toList(), pickedArtists.map { it.artist.ifEmpty { it.title } })
+                    },
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(

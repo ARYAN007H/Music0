@@ -158,107 +158,6 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  android:
-    name: Android aarch64 (APK)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable (android target)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Set up Java 17 (Gradle + apksigner)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Install project dependencies (CLI as devDependency)
-        # Everything Tauri-CLI on this job goes through `npm run tauri`:
-        # the Gradle→Rust bridge that `tauri android init` generates is
-        # templated from the invoking process — a bare `tauri` in a shell
-        # step renders `node tauri …` (→ "Cannot find module …/src-tauri/
-        # tauri"), while an npm-script invocation (npm_execpath set) renders
-        # `npm run -- tauri …`, which resolves the local CLI in node_modules.
-        run: npm install
-
-      - name: Android SDK environment
-        run: |
-          # SDK + NDK ship preinstalled on ubuntu-latest runners.
-          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
-          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | sort -V | tail -1)
-          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
-
-      - name: Build APK (aarch64)
-        # tauri.android.conf.json lowers the app id for the Android package
-        # (Java namespaces are lowercase; the desktop identifier keeps its
-        # case for Flatpak).  Pure-Rust resolvers stream on-device — no
-        # yt-dlp on Android.
-        run: |
-          npm run tauri -- android init
-          # The Rust lib links libc++_shared (cpal → oboe is C++; build.rs
-          # adds the DT_NEEDED) — AGP only packs it when it sits in jniLibs.
-          # NDK r30 dropped the sources/cxx-stl prebuilts AND the sysroot
-          # copies probed earlier, so hunt for a REAL (non-stub, >100k)
-          # arm64 runtime across every installed NDK, newest first.
-          LIBCXX=""
-          for NDK_DIR in $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
-            LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
-              -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
-            [ -n "$LIBCXX" ] && break
-          done
-          if [ -z "$LIBCXX" ]; then
-            echo "No real arm64 libc++_shared.so in any installed NDK:" >&2
-            ls "$ANDROID_HOME"/ndk/ >&2
-            find "$ANDROID_HOME"/ndk -name 'libc++_shared.so' 2>/dev/null | head -20 >&2
-            exit 1
-          fi
-          echo "Packing $LIBCXX"
-          mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
-          cp "$LIBCXX" src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
-          npm run tauri -- android build --apk --target aarch64
-
-      - name: Collect and sign APK
-        run: |
-          mkdir -p dist
-          # `tauri android build --apk --target aarch64` writes one APK under
-          # apk/universal/ (the folder is named by the Gradle flavor, not the
-          # target), so locate it instead of hard-coding the ABI directory.
-          UNSIGNED=$(find src-tauri/gen/android/app/build/outputs/apk \
-            -type f -name '*-release-unsigned.apk' | head -1)
-          if [ -z "$UNSIGNED" ]; then
-            echo "No unsigned APK produced; build output was:" >&2
-            find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' >&2 || true
-            exit 1
-          fi
-          echo "Signing $UNSIGNED"
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/musico.keystore
-          "$BT/zipalign" -f 4 "$UNSIGNED" /tmp/musico-aligned.apk
-          "$BT/apksigner" sign \
-            --ks /tmp/musico.keystore \
-            --ks-key-alias "$ANDROID_KEY_ALIAS" \
-            --ks-pass pass:"$ANDROID_KEYSTORE_PASSWORD" \
-            --key-pass pass:"$ANDROID_KEY_PASSWORD" \
-            --out dist/musico-online-android-aarch64.apk /tmp/musico-aligned.apk
-          "$BT/apksigner" verify dist/musico-online-android-aarch64.apk
-        env:
-          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist-android
-          path: dist/*
-          if-no-files-found: error
-
   android-native:
     name: Android native aarch64 (Compose APK)
     runs-on: ubuntu-latest
@@ -355,12 +254,12 @@ jobs:
             echo "MUSICO_VERSION_CODE=$((MINOR * 10000 + PATCH * 100))" >> "$GITHUB_ENV"
           else
             # workflow_dispatch / branch runs keep the gradle defaults
-            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-0.9.4-native}" >> "$GITHUB_ENV"
-            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-90400}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-0.9.3-native}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-90300}" >> "$GITHUB_ENV"
           fi
 
       - name: Assemble release APK
-        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90400}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.4-native}"
+        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90300}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.3-native}"
         working-directory: android
         env:
           ANDROID_KEYSTORE_FILE: /tmp/musico.keystore
@@ -385,7 +284,7 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [linux, macos, windows, android]
+    needs: [linux, macos, windows, android-native]
     # Dispatch runs exist to VERIFY the platform jobs; only tags release
     # (a dispatch ref has no tag — action-gh-release errors harmlessly,
     # but skipping keeps the verification run green).
