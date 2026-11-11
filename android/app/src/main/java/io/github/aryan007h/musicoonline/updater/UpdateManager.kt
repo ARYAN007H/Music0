@@ -132,6 +132,11 @@ object UpdateManager {
         val dir = File(context.filesDir, UPDATE_DIR).apply { mkdirs() }
         val part = File(dir, "$APK_NAME.part")
         val target = File(dir, APK_NAME)
+
+        // A fully downloaded+verified APK (e.g. the user granted
+        // "Install unknown apps" and came back) is reused — no 40 MB
+        // re-download for a retry of the same release.
+        if (target.exists() && verifyApk(target, info)) return@withContext target
         target.delete() // no stale payload survives a fresh download
 
         val expectedSha = info.assetDigest
@@ -192,6 +197,27 @@ object UpdateManager {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Verifies an APK file against the release manifest (digest when
+     *  published, exact size otherwise). */
+    private fun verifyApk(file: File, info: UpdateInfo): Boolean {
+        if (info.assetSizeBytes > 0 && file.length() != info.assetSizeBytes) return false
+        val expectedSha = info.assetDigest
+            ?.removePrefix("sha256:")
+            ?.lowercase()
+            ?.takeIf { it.length == 64 && it.all { c -> c.isDigit() || c in 'a'..'f' } }
+            ?: return info.assetSizeBytes > 0
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) } == expectedSha
     }
 
     /** Hands the downloaded APK to the system package installer. */
