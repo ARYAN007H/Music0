@@ -12,6 +12,13 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-12
+
+First release delivered **through the in-app updater itself**: installs on
+0.9.1 see the banner, download with progress, verify the published sha256
+digest, and hand off to the system installer — the end-to-end exercise of
+the 0.9.1 updater on a real device (Android 17).
+
 ## [0.9.1] - 2026-11-11
 
 Bug-fix round from the first external testers' reports.

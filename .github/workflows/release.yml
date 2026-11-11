@@ -334,12 +334,12 @@ jobs:
             echo "MUSICO_VERSION_CODE=$((MINOR * 10000 + PATCH * 100))" >> "$GITHUB_ENV"
           else
             # workflow_dispatch / branch runs keep the gradle defaults
-            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-0.9.1-native}" >> "$GITHUB_ENV"
-            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-90100}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-0.9.2-native}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-90200}" >> "$GITHUB_ENV"
           fi
 
       - name: Assemble release APK
-        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90100}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.1-native}"
+        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90200}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.2-native}"
         working-directory: android
         env:
           ANDROID_KEYSTORE_FILE: /tmp/musico.keystore
