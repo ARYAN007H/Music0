@@ -12,6 +12,22 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+### Added (Android native)
+
+- Release notifications: the updater now checks GitHub releases on
+  **every app launch** (the old once-per-24 h gate buried the only
+  update channel), and a newly discovered release posts a system
+  notification — once per version, tapping it opens the app and starts
+  the download immediately. POST_NOTIFICATIONS is requested once on
+  first launch (Android 13+).
+
+### Fixed (Android native)
+
+- The mini player + pill dock no longer reserve an opaque black band at
+  the bottom of the screen: the feed scrolls behind the floating pills
+  (the screens' bottom content padding keeps the last rows reachable),
+  which is how a floating dock was always meant to look.
+
 ## [0.9.2] - 2026-11-12
 
 First release delivered **through the in-app updater itself**: installs on
