@@ -55,7 +55,11 @@ pub(crate) const SOURCE: &str = "saavn";
 /// Cap on the saavn block merged after the YT results in `online_search`.
 pub const SEARCH_MERGE_LIMIT: usize = 10;
 /// Metadata lookups are best-effort — 3 s total each (#54).
-const API_TIMEOUT: Duration = Duration::from_secs(3);
+// 3 s was tuned for desktop broadband — on carrier networks the search
+// response (~50 KB) can miss it entirely and the cross-source path
+// silently covers nothing. 6 s is still well inside the interactive
+// resolve budget (saavn is the first stage).
+const API_TIMEOUT: Duration = Duration::from_secs(6);
 /// Background resolve budget, mirroring stream.rs's 2 × 120 s total.
 const RESOLVE_BUDGET: Duration = Duration::from_secs(240);
 /// Interactive resolve budget, mirroring `stream::PLAY_RESOLVE_BUDGET`.
@@ -348,27 +352,92 @@ pub(crate) fn try_cross_source_resolve(track: &OnlineTrack) -> Option<PathBuf> {
     if track.title.trim().is_empty() {
         return None;
     }
-    let query = format!("{} {}", track.title, track.artist);
-    let candidates = search_songs(&query, 4);
-    let req_title = track.title.to_lowercase();
+    let req_title = norm_title(&track.title);
     let req_artist = track.artist.to_lowercase();
+    if req_title.is_empty() {
+        return None;
+    }
 
-    let matched = candidates.into_iter().find(|c| {
-        let ct = c.title.to_lowercase();
-        let ca = c.artist.to_lowercase();
-        let title_ok = ct.contains(&req_title) || req_title.contains(&ct);
-        let artist_ok = req_artist.is_empty()
-            || req_artist
-                .split_whitespace()
-                .any(|tok| tok.len() >= 2 && ca.contains(tok));
-        let dur_ok = match (track.duration_secs, c.duration_secs) {
-            (Some(a), Some(b)) if a > 0 && b > 0 => a.abs_diff(b) <= 4,
-            _ => true,
-        };
-        title_ok && artist_ok && dur_ok
-    })?;
+    // Query variants, tried in order. YTM renders international songs as
+    // "native - romanized" ("すずめ - Suzume (feat. Toaka)"), and saavn's
+    // search returns ZERO results for the mixed-script form while the
+    // romanized tail hits directly — so the tail is a real fallback, not
+    // a nicety.
+    let title = track.title.trim();
+    let mut queries = vec![format!("{} {}", title, track.artist)];
+    if let Some(pos) = title.rfind(" - ") {
+        let tail = title[pos + 3..].trim();
+        if !tail.is_empty() && tail != title {
+            queries.push(format!("{} {}", tail, track.artist));
+        }
+    }
 
-    resolve_track(&matched, true).ok()
+    for query in queries {
+        let candidates = search_songs(&query, 6);
+        // Identity anchors: bidirectional ALPHANUMERIC title containment
+        // (punctuation variants — "(feat. Toaka)" vs "feat. Toaka" — must
+        // not break the match) + artist-word overlap. Duration is a
+        // RANKING signal, not a veto: releases drift across platforms
+        // (JioSaavn's single edit of a YTM album track legitimately
+        // differs by 15-40 s — Shinunoga E-Wa is 215 s on YTM, 185 s on
+        // saavn), and the old ±4 s hard window rejected the right song
+        // outright. Only absurd drift (> 20% relative) still disqualifies
+        // — that shape is a different recording (live/sped-up), and those
+        // differ in title anyway.
+        let matched = candidates
+            .into_iter()
+            .filter(|c| {
+                let ct = norm_title(&c.title);
+                let ca = c.artist.to_lowercase();
+                let title_ok = !ct.is_empty() && (ct.contains(&req_title) || req_title.contains(&ct));
+                let artist_ok = req_artist.is_empty()
+                    || req_artist
+                        .split_whitespace()
+                        .any(|tok| tok.len() >= 2 && ca.contains(tok));
+                title_ok && artist_ok
+            })
+            .filter(|c| duration_plausible(track.duration_secs, c.duration_secs))
+            .min_by_key(|c| duration_drift(track.duration_secs, c.duration_secs));
+        if let Some(matched) = matched {
+            if let Ok(path) = resolve_track(&matched, true) {
+                return Some(path);
+            }
+            // The best identity match failed to resolve (dead saavn id?) —
+            // keep trying query variants / candidates rather than giving up.
+        }
+    }
+    None
+}
+
+/// Comparison key: lowercase, alphanumeric-only. YTM titles carry
+/// punctuation variants ("(feat. Toaka)" vs "feat. Toaka", "E-Wa" vs
+/// "E Wa") that break naive substring matching; the kana/kanji/latin
+/// letters and digits are all that identify a song.
+fn norm_title(s: &str) -> String {
+    s.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
+/// Relative duration drift (per-mille) between two tracks; `u32::MAX`
+/// when either side is unknown — unknown ranks last but never
+/// disqualifies.
+fn duration_drift(a: Option<u32>, b: Option<u32>) -> u32 {
+    match (a, b) {
+        (Some(x), Some(y)) if x > 0 && y > 0 => x.abs_diff(y) * 1000 / x.max(y),
+        _ => u32::MAX,
+    }
+}
+
+/// Drift gate: unknown on either side is fine; known drift beyond 20%
+/// relative (with a 6 s absolute floor for very short clips) is a
+/// different recording — a live/sped-up cut, which differs in title
+/// anyway.
+fn duration_plausible(a: Option<u32>, b: Option<u32>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) if x > 0 && y > 0 => {
+            x.abs_diff(y) <= 6 || x.abs_diff(y) * 100 / x.max(y) <= 20
+        }
+        _ => true,
+    }
 }
 
 /// Fetches song details by id (the resolve path — the [`OnlineTrack`] the
@@ -752,5 +821,37 @@ mod tests {
             first.duration_secs.unwrap_or(0)
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    // -- cross-source matching gates (hermetic) ------------------------------
+
+    #[test]
+    fn duration_drift_and_plausibility() {
+        // Shinunoga E-Wa: YTM 215 s, saavn's single edit 185 s — 14% drift
+        // (139‰), the case the old ±4 s window rejected outright.
+        assert!(duration_plausible(Some(215), Some(185)));
+        assert_eq!(duration_drift(Some(215), Some(185)), 139);
+    }
+
+    #[test]
+    fn duration_plausible_rejects_different_recordings() {
+        // A live/sped-up cut at ~2x length is a different recording.
+        assert!(!duration_plausible(Some(215), Some(430)));
+        // Tiny-clip floor: 6 s absolute always passes.
+        assert!(duration_plausible(Some(20), Some(24)));
+        // Unknown on either side never disqualifies.
+        assert!(duration_plausible(None, Some(185)));
+        assert!(duration_plausible(Some(215), None));
+        assert!(duration_plausible(Some(0), Some(185)));
+    }
+
+    #[test]
+    fn norm_title_ignores_punctuation_and_scripts_mix() {
+        // "(feat. Toaka)" vs "feat. Toaka" — parens/periods must vanish.
+        assert_eq!(norm_title("Suzume (feat. Toaka)"), norm_title("Suzume feat. Toaka"));
+        // "E-Wa" vs "E Wa".
+        assert_eq!(norm_title("Shinunoga E-Wa"), norm_title("Shinunoga E Wa"));
+        // Kana survives as identity, casing does not.
+        assert_eq!(norm_title("すずめ - Suzume"), norm_title("すずめ - SUZUME"));
     }
 }

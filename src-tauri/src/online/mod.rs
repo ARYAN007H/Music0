@@ -221,6 +221,65 @@ mod live_tests {
         }
     }
 
+    /// Live cross-source resolve of the exact shelf metadata the phone's
+    /// J-POP recommendation carries ("死ぬのがいいわ - Shinunoga E-Wa" /
+    /// Fujii Kaze) — proves the saavn matcher handles romanized titles
+    /// embedded in the request string.
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_cross_source_jpop() {
+        let track = super::OnlineTrack {
+            video_id: "3zh9Wb1KuW8".into(),
+            title: "死ぬのがいいわ - Shinunoga E-Wa".into(),
+            artist: "Fujii Kaze".into(),
+            album: String::new(),
+            duration_secs: Some(215),
+            thumbnail: None,
+            cached: false,
+            source: String::new(),
+            artist_browse_id: None,
+        };
+        match super::saavn::try_cross_source_resolve(&track) {
+            Some(path) => println!(
+                "cross-source SERVED: {} ({} KB)",
+                path.display(),
+                std::fs::metadata(&path).map(|m| m.len() / 1024).unwrap_or(0)
+            ),
+            None => {
+                println!("cross-source MISSED");
+                let query = format!("{} {}", track.title, track.artist);
+                for c in super::saavn::search_songs(&query, 6) {
+                    println!(
+                        "candidate: {:?} | {:?} | dur={:?} | id={}",
+                        c.title, c.artist, c.duration_secs, c.video_id
+                    );
+                }
+            }
+        }
+        assert!(super::saavn::try_cross_source_resolve(&track).is_some(), "Shinunoga E-Wa must resolve cross-source");
+
+        // Same shelf class: すずめ (Suzume) — romanized title embedded in
+        // the request string, feat. credit on the artist.
+        let suzume = super::OnlineTrack {
+            video_id: "qF8kxW7cXRo".into(),
+            title: "すずめ - Suzume (feat. Toaka)".into(),
+            artist: "RADWIMPS, Toaka".into(),
+            album: String::new(),
+            duration_secs: None,
+            thumbnail: None,
+            cached: false,
+            source: String::new(),
+            artist_browse_id: None,
+        };
+        println!(
+            "suzume: {}",
+            match super::saavn::try_cross_source_resolve(&suzume) {
+                Some(p) => format!("SERVED {} KB", std::fs::metadata(&p).map(|m| m.len() / 1024).unwrap_or(0)),
+                None => "MISSED (reported, not asserted)".into(),
+            }
+        );
+    }
+
     /// Live album detail page: header + playable tracklist (C2.2 path).
     #[test]
     #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
