@@ -81,6 +81,10 @@ data class ShelfItem(
     @SerialName("browse_id") val browseId: String? = null,
     val params: String? = null,
     @SerialName("playlist_id") val playlistId: String? = null,
+    // Present on list-row items (detail pages) and on shelves the app
+    // builds itself (onboarding radio shelves); feeds the LRCLIB
+    // exact-duration match so lyrics never come from a wrong song.
+    @SerialName("duration_secs") val durationSecs: Long? = null,
 ) {
     val isPlayable: Boolean get() = videoId != null
 }

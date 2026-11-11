@@ -741,6 +741,7 @@ pub(crate) fn parse_genre_page(json: &serde_json::Value) -> Vec<ShelfItem> {
             browse_id,
             params,
             playlist_id: None,
+            duration_secs: None,
         });
     }
     out
@@ -831,6 +832,7 @@ fn parse_shelf(container: &serde_json::Value) -> Option<Shelf> {
                 browse_id,
                 params,
                 playlist_id: None,
+                duration_secs: track.duration_secs,
             });
         }
     }
@@ -879,6 +881,18 @@ fn parse_two_row_item(renderer: &serde_json::Value) -> ShelfItem {
         .and_then(|u| u.as_str())
         .map(|u| upscale_thumbnail(u));
 
+    // Two-row subtitles sometimes end with the duration ("3:45 · 5M views"
+    // shapes) — grab it when the LAST run parses as m:ss so lyrics matching
+    // gets the exact-duration path. Absent on many card shapes; optional.
+    let duration_secs = renderer
+        .pointer("/subtitle/runs")
+        .and_then(|v| v.as_array())
+        .and_then(|runs| runs.last())
+        .and_then(|r| r.get("text"))
+        .and_then(|t| t.as_str())
+        .map(str::trim)
+        .and_then(parse_duration);
+
     ShelfItem {
         kind: ItemKind::from_ids(browse_id.as_deref(), video_id.as_deref()),
         title,
@@ -888,6 +902,7 @@ fn parse_two_row_item(renderer: &serde_json::Value) -> ShelfItem {
         browse_id,
         params,
         playlist_id,
+        duration_secs,
     }
 }
 

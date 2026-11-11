@@ -12,6 +12,28 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-11
+
+Bug-fix round from the first external testers' reports.
+
+### Fixed
+
+- Lyrics could come from a completely different song: shelf-built tracks
+  carry no duration, and the LRCLIB duration-less fallback handed the
+  SHORTEST same-titled song worldwide to the lyric stage ("lyrics are a
+  mix of english and chinese" on Backbone). Shelf items now carry
+  `duration_secs` (list rows on detail pages + two-row subtitle tails),
+  and duration-less LRCLIB matches pass a title/artist word-set
+  similarity gate — foreign songs are rejected and the YTM plain-text
+  fallback (always the right song's lyrics) takes over. Proven by
+  `live_lyrics_durationless_no_foreign_song`.
+- "First one is not playing": a failed resolve skipped to the next track
+  SILENTLY — the skip now names the track ("Couldn't play X — skipped to
+  the next song") so dead tracks aren't mistaken for wrong taps.
+- 15–20 s first-play latency, mitigated: the next two queue tracks are
+  resolved in the background the moment a song starts, so advances hit
+  the stream cache instead of the 10 s fast-path pool; `resolve` also
+  logs its fast-path timing (info) for on-device diagnosis via logcat.
 ## [0.9.0] - 2026-11-11
 
 The native Android app release: the phone experience moves from the Tauri

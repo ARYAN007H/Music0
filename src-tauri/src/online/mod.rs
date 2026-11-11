@@ -91,6 +91,33 @@ mod live_tests {
         println!("radio: {} related tracks", radio.len());
     }
 
+    /// Live reproduction of the "lyrics are a mix of english and chinese"
+    /// bug: Backbone (Hardy Sandhu) with NO duration — the pre-gate code
+    /// handed the shortest same-titled song worldwide to the lyric stage.
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_lyrics_durationless_no_foreign_song() {
+        // Shelf-built track: duration unknown.
+        let dto = crate::online::fetch_synced_lyrics("Hardy Sandhu", "Backbone", None);
+        if let Some(d) = dto {
+            let text = d
+                .synced
+                .first()
+                .map(|l| l.text.clone())
+                .or(d.plain.clone())
+                .unwrap_or_default();
+            println!("durationless match first line: {text}");
+            // Chinese characters would mean a foreign song won.
+            let foreign = text.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
+            assert!(!foreign, "foreign-language lyrics leaked into a Hindi song");
+        } else {
+            println!("durationless: no plausible match — falls back to YTM plain (correct)");
+        }
+        // With the real duration, the exact path still works.
+        let dto = crate::online::fetch_synced_lyrics("Hardy Sandhu", "Backbone", Some(199));
+        println!("with duration: {}", if dto.is_some() { "matched" } else { "none" });
+    }
+
     /// Live end-to-end personalization pipeline — exactly what the Kotlin
     /// onboarding drives: artist search → radio seed → related tracks, and
     /// language style-card match → genre browse. Verifies the app's

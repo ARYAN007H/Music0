@@ -324,7 +324,7 @@ jobs:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
 
       - name: Assemble release APK
-        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90000}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.0-native}"
+        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90100}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.1-native}"
         working-directory: android
         env:
           ANDROID_KEYSTORE_FILE: /tmp/musico.keystore

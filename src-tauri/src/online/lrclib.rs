@@ -85,6 +85,10 @@ struct LrcRecord {
     plain_lyrics: Option<String>,
     #[serde(default, rename = "syncedLyrics")]
     synced_lyrics: Option<String>,
+    #[serde(default, rename = "artistName")]
+    artist_name: Option<String>,
+    #[serde(default, rename = "trackName")]
+    track_name: Option<String>,
 }
 
 /// Fetches synced lyrics, matching by artist + title + duration (#61).
@@ -125,7 +129,49 @@ pub fn fetch_synced_lyrics(
     // first result would put the wrong lyrics over the song.
     let records = api_search(artist, title)?;
     let candidates = pick_candidates(&records, duration_secs);
-    candidates.iter().find_map(|r| record_to_dto(r))
+    for r in candidates {
+        // When the duration is unknown (shelf-built tracks), the window
+        // filter can't discriminate — without a similarity gate the
+        // SHORTEST same-titled song worldwide would win and the lyric
+        // stage would sing a different song entirely.
+        if duration_secs.is_none() && !plausibly_same_song(artist, title, r) {
+            continue;
+        }
+        if let Some(dto) = record_to_dto(r) {
+            return Some(dto);
+        }
+    }
+    None
+}
+
+/// Word-set similarity gate for duration-less LRCLIB matches: the title
+/// word set must overlap in both directions' favor (containment either
+/// way — tolerates "(Official Video)" suffixes) and the artists must
+/// share at least one word. Pure and unit-testable.
+fn plausibly_same_song(artist: &str, title: &str, rec: &LrcRecord) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let title_w = words(title);
+    let rec_title_w = words(rec.track_name.as_deref().unwrap_or(""));
+    let title_ok = !title_w.is_empty()
+        && !rec_title_w.is_empty()
+        && (rec_title_w.starts_with(&title_w) || title_w.starts_with(&rec_title_w));
+    if !title_ok {
+        return false;
+    }
+    let artist_w = words(artist);
+    let rec_artist_w = words(rec.artist_name.as_deref().unwrap_or(""));
+    if artist_w.is_empty() || rec_artist_w.is_empty() {
+        // No artist on one side: title match alone is too weak to trust.
+        return false;
+    }
+    artist_w.iter().any(|w| rec_artist_w.contains(w))
+        || rec_artist_w.iter().any(|w| artist_w.contains(w))
 }
 
 /// Search candidates filtered to the ±2 s duration window, nearest duration
@@ -298,6 +344,33 @@ fn strip_word_tags(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plausibly_same_song_gates_durationless_matches() {
+        let rec = |artist: &str, track: &str| LrcRecord {
+            artist_name: Some(artist.into()),
+            track_name: Some(track.into()),
+            ..Default::default()
+        };
+        // Same song, suffixed title → accepted.
+        assert!(plausibly_same_song(
+            "Hardy Sandhu",
+            "Backbone",
+            &rec("Hardy Sandhu", "Backbone (Official Video) Jaani B Praak"),
+        ));
+        // A foreign song that merely shares the title → rejected.
+        assert!(!plausibly_same_song(
+            "Hardy Sandhu",
+            "Backbone",
+            &rec("Backbone Band", "Backbone"),
+        ));
+        // Same title, different artist → rejected.
+        assert!(!plausibly_same_song(
+            "Arijit Singh",
+            "Tum Hi Ho",
+            &rec("Someone Else", "Tum Hi Ho"),
+        ));
+    }
 
     #[test]
     fn parses_stamps_metadata_and_multi_stamp_lines() {

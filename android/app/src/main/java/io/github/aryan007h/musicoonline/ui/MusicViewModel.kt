@@ -949,12 +949,42 @@ class MusicViewModel(
         }
     }
 
+    /**
+     * Warms the next queue entries in the background while the current
+     * track plays — the single biggest perceived-latency win (the next tap
+     * resolves from cache instead of the 10 s+ fast-path pool). Background
+     * budget is generous (120 s/attempt), failures are silent by design,
+     * and it never holds the interactive resolve lock.
+     */
+    private var prefetchJob: Job? = null
+
+    private fun prefetchUpcoming() {
+        if (!_state.value.coreSettingsAutoplay) return
+        prefetchJob?.cancel()
+        prefetchJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val upcoming = queueTracks.drop(queuePosition + 1).take(2)
+            for (track in upcoming) {
+                if (_state.value.nowPlaying?.videoId != queueTracks.getOrNull(queuePosition)?.videoId) {
+                    return@launch // the user moved on — stop warming old queue
+                }
+                runCatching { MusicoCore.call("track.resolve", resolveArgs(track)) }
+            }
+        }
+    }
+
     private fun skipFailedTrack() {
+        val failed = queueTracks.getOrNull(queuePosition)
         val queue = queueTracks
         if (queue.size <= 1 || queuePosition !in queue.indices) return
         queueTracks = queue.filterIndexed { i, _ -> i != queuePosition }
         queuePosition = queuePosition.coerceAtMost(queueTracks.size - 1)
-        _state.update { it.copy(queue = queueTracks, queueIndex = queuePosition) }
+        _state.update {
+            it.copy(
+                queue = queueTracks,
+                queueIndex = queuePosition,
+                error = "Couldn't play \"${failed?.title?.ifEmpty { "track" }.orEmpty()}\" — skipped to the next song",
+            )
+        }
         resolveAndPlay(queueTracks[queuePosition])
     }
 
@@ -1093,6 +1123,7 @@ private fun ShelfItem.toTrackOrNull(): OnlineTrack? = videoId?.let { videoId ->
         videoId = videoId,
         title = title,
         artist = subtitle,
+        durationSecs = durationSecs,
         thumbnail = thumbnail,
         source = "",
     )
