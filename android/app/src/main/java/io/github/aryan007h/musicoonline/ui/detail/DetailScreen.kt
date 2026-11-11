@@ -54,7 +54,10 @@ import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.theme.Musico
+import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
+import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 
 /**
  * Album / playlist / artist / genre page: hero header (art, title,
@@ -162,7 +165,7 @@ private fun DetailBody(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         item(key = "hero") {
-            Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().staggerIn(index = 0)) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -275,7 +278,9 @@ private fun DetailBody(
                     onClick = { onPlayTrack(track, tracks) },
                     onLikeToggle = { onLikeToggle(track) },
                     onLongClick = { onTrackLongClick(track) },
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .animateItem(placementSpec = MusicoMotion.spatial())
+                        .padding(horizontal = 16.dp),
                 )
             }
         }
@@ -338,9 +343,11 @@ private fun DetailAction(
     Surface(
         shape = MusicoShapes.chip,
         color = if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier
-            .clip(MusicoShapes.chip)
-            .clickable(enabled = !busy, onClick = onClick),
+        modifier = modifier.pressable(
+            onClick = onClick,
+            enabled = !busy,
+            pressedScale = 0.94f,
+        ),
     ) {
         Row(
             Modifier.padding(horizontal = 12.dp, vertical = 10.dp),

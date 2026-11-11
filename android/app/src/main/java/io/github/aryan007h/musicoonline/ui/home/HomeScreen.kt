@@ -1,5 +1,7 @@
 package io.github.aryan007h.musicoonline.ui.home
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,7 +51,11 @@ import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.components.SectionHeader
 import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
 import io.github.aryan007h.musicoonline.ui.theme.Musico
+import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
+import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.shimmer
+import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 import kotlinx.coroutines.delay
 
 /**
@@ -252,7 +259,20 @@ private fun HeroCarousel(
             modifier = Modifier.fillMaxWidth(),
         ) { page ->
             val item = items[page]
-            HeroCard(item = item, onClick = { onOpenItem(item, items) })
+            HeroCard(
+                item = item,
+                onClick = { onOpenItem(item, items) },
+                modifier = Modifier.graphicsLayer {
+                    // ColorOS carousel depth: neighbours shrink and dim as
+                    // they leave the stage; the current card holds presence.
+                    val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                    val abs = kotlin.math.abs(offset).coerceAtMost(1f)
+                    val s = 1f - 0.06f * abs
+                    scaleX = s
+                    scaleY = s
+                    alpha = 1f - 0.35f * (abs(offset) - 1f).coerceIn(0f, 1f)
+                },
+            )
         }
         Spacer(Modifier.height(12.dp))
         Row(
@@ -261,12 +281,26 @@ private fun HeroCarousel(
         ) {
             repeat(items.size) { i ->
                 val active = pagerState.currentPage == i
+                val dotWidth by animateDpAsState(
+                    targetValue = if (active) 18.dp else 6.dp,
+                    animationSpec = MusicoMotion.expressive(),
+                    label = "heroDotW$i",
+                )
+                val dotColor by animateColorAsState(
+                    targetValue = if (active) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        Musico.extras.inkFaint
+                    },
+                    animationSpec = MusicoMotion.gentle(),
+                    label = "heroDotC$i",
+                )
                 Box(
                     Modifier
                         .padding(horizontal = 3.dp)
-                        .size(width = if (active) 18.dp else 6.dp, height = 6.dp)
+                        .size(width = dotWidth, height = 6.dp)
                         .clip(CircleShape)
-                        .background(if (active) MaterialTheme.colorScheme.primary else Musico.extras.inkFaint),
+                        .background(dotColor),
                 )
             }
         }
@@ -274,13 +308,13 @@ private fun HeroCarousel(
 }
 
 @Composable
-private fun HeroCard(item: ShelfItem, onClick: () -> Unit) {
+private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .aspectRatio(1.55f)
             .clip(MusicoShapes.hero)
-            .clickable(onClick = onClick),
+            .pressable(onClick = onClick, pressedScale = 0.97f),
     ) {
         Artwork(
             url = item.thumbnail,
@@ -356,6 +390,7 @@ private fun GridSection(
                     rank = if (numbered) idx + 1 else null,
                     isCurrent = item.videoId != null && item.videoId == currentTrackId,
                     onClick = { onOpenItem(item, items) },
+                    modifier = Modifier.staggerIn(index = idx),
                 )
             }
         }
@@ -368,12 +403,13 @@ private fun GridCard(
     rank: Int?,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        Modifier
+        modifier
             .width(172.dp)
             .clip(MusicoShapes.card)
-            .clickable(onClick = onClick)
+            .pressable(onClick = onClick, pressedScale = 0.95f)
             .padding(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -430,7 +466,8 @@ private fun HomeSkeleton() {
                     .fillMaxWidth()
                     .aspectRatio(1.55f)
                     .clip(MusicoShapes.hero)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .shimmer(),
             )
         }
         item { SectionHeader("Made for you") }
@@ -454,7 +491,8 @@ private fun SkeletonRow(tall: Boolean) {
                 Modifier
                     .size(size)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .shimmer(),
             )
         }
     }

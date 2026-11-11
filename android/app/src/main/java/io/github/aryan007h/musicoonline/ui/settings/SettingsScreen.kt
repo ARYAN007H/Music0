@@ -62,6 +62,7 @@ import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.Palette
+import io.github.aryan007h.musicoonline.ui.theme.pressable
 
 /**
  * Settings, redesigned: every row is a control or a door. Groups —
@@ -226,8 +227,7 @@ fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(MusicoShapes.chip)
-                        .clickable(onClick = onOpenEq)
+                        .pressable(onClick = onOpenEq, pressedScale = 0.98f)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -289,8 +289,7 @@ fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(MusicoShapes.chip)
-                        .clickable(onClick = onClearCache)
+                        .pressable(onClick = onClearCache, pressedScale = 0.98f)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -344,8 +343,7 @@ fun SettingsScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clip(MusicoShapes.chip)
-                                .clickable(onClick = onUpdateNow)
+                                .pressable(onClick = onUpdateNow, pressedScale = 0.98f)
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -377,8 +375,7 @@ fun SettingsScreen(
                     else -> Row(
                         Modifier
                             .fillMaxWidth()
-                            .clip(MusicoShapes.chip)
-                            .clickable(enabled = !updateChecking, onClick = onCheckUpdates)
+                            .pressable(onClick = onCheckUpdates, enabled = !updateChecking, pressedScale = 0.98f)
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -433,7 +430,7 @@ private fun PalettePicker(current: Palette, onPick: (Palette) -> Unit) {
                 color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .clickable { onPick(p) }
+                    .pressable(onClick = { onPick(p) }, pressedScale = 0.93f)
                     .padding(4.dp),
             ) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -493,9 +490,7 @@ private fun FilterChipPlain(label: String, selected: Boolean, enabled: Boolean, 
     Surface(
         shape = MusicoShapes.chip,
         color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier
-            .clip(MusicoShapes.chip)
-            .clickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier.pressable(onClick = onClick, enabled = enabled, pressedScale = 0.9f),
     ) {
         Text(
             label,

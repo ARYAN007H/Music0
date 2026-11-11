@@ -35,6 +35,8 @@ import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
+import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 
 /**
  * The Radio tab: YouTube Music's mood/genre station universe — every card
@@ -75,8 +77,12 @@ fun RadioScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(styles, key = { i, it -> "r$i-${it.params}-${it.title}" }) { _, style ->
-                    RadioCard(style = style, onClick = { onOpenStyle(style) })
+                itemsIndexed(styles, key = { i, it -> "r$i-${it.params}-${it.title}" }) { i, style ->
+                    RadioCard(
+                        style = style,
+                        onClick = { onOpenStyle(style) },
+                        modifier = Modifier.staggerIn(index = i),
+                    )
                 }
             }
         }
@@ -89,7 +95,7 @@ fun RadioScreen(
  * support hues so the grid reads like Apple Music's mood wall.
  */
 @Composable
-private fun RadioCard(style: ShelfItem, onClick: () -> Unit) {
+private fun RadioCard(style: ShelfItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
     // Deterministic hue from the title so each card keeps its color between
     // recompositions.
     val seed = style.title.hashCode()
@@ -97,11 +103,11 @@ private fun RadioCard(style: ShelfItem, onClick: () -> Unit) {
     val wash = blend(Musico.extras.primary, Musico.extras.support, hueShift)
 
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .aspectRatio(1.25f)
             .clip(RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick),
+            .pressable(onClick = onClick, pressedScale = 0.94f),
     ) {
         Box(
             Modifier

@@ -1,7 +1,6 @@
 package io.github.aryan007h.musicoonline.ui.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,7 +36,11 @@ import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.theme.Musico
+import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
+import io.github.aryan007h.musicoonline.ui.theme.breathing
+import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 
 /**
  * The Library tab: your on-device world — Liked Songs, Recently Played —
@@ -104,6 +107,7 @@ private fun LikedHero(count: Int, canPlay: Boolean, onPlay: () -> Unit) {
         color = Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
+            .staggerIn(index = 0)
             .padding(vertical = 12.dp),
     ) {
         Box(
@@ -119,7 +123,7 @@ private fun LikedHero(count: Int, canPlay: Boolean, onPlay: () -> Unit) {
                         ),
                     ),
                 )
-                .clickable(enabled = canPlay, onClick = onPlay)
+                .pressable(onClick = onPlay, enabled = canPlay, pressedScale = 0.97f)
                 .padding(22.dp),
         ) {
             Column {
@@ -127,7 +131,9 @@ private fun LikedHero(count: Int, canPlay: Boolean, onPlay: () -> Unit) {
                     Icons.Filled.Favorite,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier
+                        .size(34.dp)
+                        .breathing(max = 1.1f),
                 )
                 Spacer(Modifier.height(14.dp))
                 Text(
@@ -204,6 +210,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedRecent(
             onClick = { onOpenTrack(track, tracks) },
             onLikeToggle = { onLikeToggle(track) },
             onLongClick = { onTrackLongClick(track) },
+            modifier = Modifier.animateItem(placementSpec = MusicoMotion.spatial()),
         )
     }
 }
@@ -230,13 +237,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedQueue(
             onClick = { onOpenTrack(track, queue) },
             onLikeToggle = { onLikeToggle(track) },
             onLongClick = { onTrackLongClick(track) },
+            modifier = Modifier.animateItem(placementSpec = MusicoMotion.spatial()),
         )
     }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.itemsIndexedTrack(
     tracks: List<OnlineTrack>,
-    row: @Composable (Int, OnlineTrack) -> Unit,
+    row: @Composable androidx.compose.foundation.lazy.LazyItemScope.(Int, OnlineTrack) -> Unit,
 ) {
     items(tracks.size, key = { "${tracks[it].videoId}#$it" }) { i ->
         row(i, tracks[i])
