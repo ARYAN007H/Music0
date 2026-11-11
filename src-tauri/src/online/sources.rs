@@ -783,7 +783,7 @@ impl AudioSource for InnerTubeDirectSource {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-        let mut last_err = String::from("no client profile attempted");
+        let mut last_err = String::from("innertube-direct:");
 
         for p in Self::CLIENTS {
             if it_demoted(p.id) {
@@ -795,7 +795,7 @@ impl AudioSource for InnerTubeDirectSource {
             }
             let visitor = visitor_data(client, deadline);
             if p.needs_visitor && visitor.is_none() {
-                last_err = format!("{}: visitor data unavailable", p.id);
+                last_err = format!("{last_err}; {}: visitor data unavailable", p.id);
                 continue;
             }
             let payload = build_player_payload(p, video_id, visitor.as_deref());
@@ -820,20 +820,20 @@ impl AudioSource for InnerTubeDirectSource {
                 Ok(r) => r,
                 Err(e) => {
                     it_demote(p.id);
-                    last_err = format!("{}: player request: {e}", p.id);
+                    last_err = format!("{last_err}; {}: player request: {e}", p.id);
                     continue;
                 }
             };
             if !meta.status().is_success() {
                 it_demote(p.id);
-                last_err = format!("{}: HTTP {}", p.id, meta.status());
+                last_err = format!("{last_err}; {}: HTTP {}", p.id, meta.status());
                 continue;
             }
             let bytes = match read_capped(meta, MAX_METADATA_BYTES) {
                 Ok(b) => b,
                 Err(e) => {
                     it_demote(p.id);
-                    last_err = format!("{}: body: {e}", p.id);
+                    last_err = format!("{last_err}; {}: body: {e}", p.id);
                     continue;
                 }
             };
@@ -842,7 +842,7 @@ impl AudioSource for InnerTubeDirectSource {
                 other => {
                     it_demote(p.id);
                     last_err = format!(
-                        "{}: playability {}",
+                        "{last_err}; {}: playability {}",
                         p.id,
                         other.unwrap_or("response missing playabilityStatus")
                     );
@@ -855,7 +855,7 @@ impl AudioSource for InnerTubeDirectSource {
                 None => {
                     it_demote(p.id);
                     last_err = format!(
-                        "{}: no playback-ready direct audio/mp4 <=192k (cipher-only or n-param streams)",
+                        "{last_err}; {}: no playback-ready direct audio/mp4 <=192k (cipher-only or n-param streams)",
                         p.id
                     );
                     continue;
@@ -872,13 +872,13 @@ impl AudioSource for InnerTubeDirectSource {
                 Ok(r) => r,
                 Err(e) => {
                     it_demote(p.id);
-                    last_err = format!("{}: download: {e}", p.id);
+                    last_err = format!("{last_err}; {}: download: {e}", p.id);
                     continue;
                 }
             };
             if !resp.status().is_success() {
                 it_demote(p.id);
-                last_err = format!("{}: download HTTP {}", p.id, resp.status());
+                last_err = format!("{last_err}; {}: download HTTP {}", p.id, resp.status());
                 continue;
             }
             let ctype = resp
@@ -889,7 +889,7 @@ impl AudioSource for InnerTubeDirectSource {
                 .to_ascii_lowercase();
             if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
                 it_demote(p.id);
-                last_err = format!("{}: content-type `{ctype}` is not audio", p.id);
+                last_err = format!("{last_err}; {}: content-type `{ctype}` is not audio", p.id);
                 continue;
             }
             it_rehab(p.id);

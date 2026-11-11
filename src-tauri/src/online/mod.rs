@@ -197,6 +197,30 @@ mod live_tests {
         );
     }
 
+    /// Live resolve of a non-saavn-matched track (Japanese title, the
+    /// J-POP shelf class): the JioSaavn cross-source fast path misses these,
+    /// so playback depends on the InnerTube-direct director. Prints the
+    /// per-profile fast-path outcome — this is the exact wire behavior the
+    /// phone sees for the "not able to play" bug report.
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_resolve_non_saavn_track() {
+        let page = search("Shinunoga E-Wa", false, None).expect("search");
+        let track = page.tracks.first().expect("search hit").clone();
+        println!(
+            "target: {} — {} ({})",
+            track.title, track.artist, track.video_id
+        );
+        match super::sources::try_fast_path(&track.video_id) {
+            Ok(path) => println!(
+                "fast path SERVED: {} ({} KB)",
+                path.display(),
+                std::fs::metadata(&path).map(|m| m.len() / 1024).unwrap_or(0)
+            ),
+            Err(e) => println!("fast path FAILED: {e}"),
+        }
+    }
+
     /// Live album detail page: header + playable tracklist (C2.2 path).
     #[test]
     #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
