@@ -23,13 +23,19 @@ await page.addInitScript(() => {
   try { localStorage.setItem('musico-skin', 'm3e'); } catch (e) {}
 });
 await page.goto(`http://127.0.0.1:${PORT}/index.html`);
-await page.waitForTimeout(1200);
+// Real readiness, not a blind sleep: the shell must have rendered nav.
+await page.waitForSelector('#sidebar-root .nav-item', { timeout: 10000 });
+await page.waitForTimeout(300);
 const results = [];
 const check = (n, c) => results.push(`${c ? 'PASS' : 'FAIL'} ${n}`);
 
 // 1. The pre-paint attribute: applied before stylesheets resolved.
 check('data-skin=m3e from localStorage', await page.evaluate(() =>
   document.documentElement.getAttribute('data-skin') === 'm3e'));
+
+// 1b. Webfonts load only under the skin (pre-paint injected them).
+check('M3E webfont stylesheet injected', await page.evaluate(() =>
+  !!document.getElementById('m3e-fonts')));
 
 // 2. Settings (mock bridge has no skin) must not flip it back.
 check('applySettings respects the skin', await page.evaluate(() =>

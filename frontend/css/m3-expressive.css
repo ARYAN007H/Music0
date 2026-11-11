@@ -23,7 +23,10 @@
      active), M3 type-scale weights and tracking.
    ══════════════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300;8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap');
+/* Roboto Flex is NOT @import-ed here: an unconditional import would make
+   every user fetch webfonts every launch even on the iOS skin. The font
+   stylesheet is injected only when the skin is active — see the pre-paint
+   script in index.html and ensureM3eFonts() in app.js. */
 
 /* ─── Skin tokens (light) ────────────────────────────────────────────────────── */
 
@@ -750,7 +753,7 @@ html[data-skin="m3e"] .s-toggle {
 }
 
 html[data-skin="m3e"] .s-toggle::after {
-  top: 6px;
+  top: 8px; /* (track 32 − thumb 16) / 2 */
   left: 6px;
   width: 16px;
   height: 16px;
@@ -913,7 +916,21 @@ html[data-skin="m3e"] .eq-bars span {
   html[data-skin="m3e"] .radio-card:hover,
   html[data-skin="m3e"] .album-card:hover,
   html[data-skin="m3e"] .am-hero-play:hover,
-  html[data-skin="m3e"] .play-btn-main:hover {
+  html[data-skin="m3e"] .play-btn-main:hover,
+  html[data-skin="m3e"] .swatch:hover {
+    transform: none;
+  }
+  html[data-skin="m3e"] .sort-pill:active,
+  html[data-skin="m3e"] .s-action-btn:active,
+  html[data-skin="m3e"] .browse-search-btn:active,
+  html[data-skin="m3e"] .browse-load-more:active,
+  html[data-skin="m3e"] .am-hero-play:active,
+  html[data-skin="m3e"] .play-btn-main:active,
+  html[data-skin="m3e"] .action-btn:active,
+  html[data-skin="m3e"] .transport-btn:active,
+  html[data-skin="m3e"] .lcd-btn:active:not(:disabled),
+  html[data-skin="m3e"] .side-nav .nav-item:active,
+  html[data-skin="m3e"] .swatch:active {
     transform: none;
   }
 }

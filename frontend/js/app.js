@@ -178,6 +178,7 @@ const App = (() => {
     // localStorage instead of clobbering it.
     if (s.skin === 'm3e' || s.skin === 'ios') {
       document.documentElement.setAttribute('data-skin', s.skin);
+      if (s.skin === 'm3e') ensureM3eFonts();
       try { localStorage.setItem('musico-skin', s.skin); } catch (e) {}
       document.querySelectorAll('[data-skin-pill]').forEach((p) =>
         p.classList.toggle('active', p.dataset.skinPill === s.skin));
@@ -287,6 +288,17 @@ const App = (() => {
       el.style.display = showTranslated ? 'block' : 'none';
     });
     refreshPrefetchPanel();
+  }
+
+  // Injects the M3 Expressive webfont stylesheet on demand — never
+  // unconditionally, so users on the iOS skin fetch no webfonts. Idempotent.
+  function ensureM3eFonts() {
+    if (document.getElementById('m3e-fonts')) return;
+    const l = document.createElement('link');
+    l.id = 'm3e-fonts';
+    l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300;8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap';
+    document.head.appendChild(l);
   }
 
   function persistSettings(patch) {
@@ -443,6 +455,7 @@ const App = (() => {
         pill.classList.add('active');
         const skin = pill.dataset.skinPill === 'm3e' ? 'm3e' : 'ios';
         document.documentElement.setAttribute('data-skin', skin);
+        if (skin === 'm3e') ensureM3eFonts();
         try { localStorage.setItem('musico-skin', skin); } catch (e) {}
         persistSettings({ skin });
         showToast(skin === 'm3e'

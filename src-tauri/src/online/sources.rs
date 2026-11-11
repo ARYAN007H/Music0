@@ -65,26 +65,32 @@ const MAX_AUDIO_BITRATE: u64 = 192_000;
 /// Fast-path ceiling unlocked by the `high`/`lossless` quality tiers. This is
 /// the itag-141 class (256 kbps audio-only AAC) — the same rung the yt-dlp
 /// selector already picks on those tiers, so the fast path now keeps pace
-/// instead of silently capping quality at 192k.
-const HIGH_TIER_AUDIO_BITRATE: u64 = 256_000;
+/// instead of silently capping quality at 192k. A little headroom above 256k
+/// keeps variant bitrates usable, same policy as [`MAX_AUDIO_BITRATE`].
+const HIGH_TIER_AUDIO_BITRATE: u64 = 264_000;
 
 /// Effective fast-path bitrate ceiling for the active quality tier.
-/// Mirrors `stream.rs::yt_dlp_format_selector`: the download tier wins when
-/// explicitly set, else the streaming tier. Loads settings directly — the
-/// same pattern, called once per resolve on a worker thread.
+/// Mirrors `stream.rs::yt_dlp_format_selector` exactly: an explicit download
+/// tier decides; the streaming tier only matters when the download tier is
+/// unrecognized. Loads settings directly — the same pattern, called once per
+/// resolve on a worker thread.
 fn fast_path_bitrate_cap() -> u64 {
     let settings = crate::config::AppSettings::load();
     tier_cap(&settings.download_quality, &settings.streaming_quality)
 }
 
-/// Pure tier → ceiling mapping (`high`/`lossless` unlock 256k), so the
-/// policy is unit-testable without touching process settings.
+/// Pure tier → ceiling mapping, so the policy is unit-testable without
+/// touching process settings. Semantics match the yt-dlp selector: download
+/// `low`/`normal` are explicit caps (256k never unlocks); `high`/`lossless`
+/// unlock it; anything unrecognized defers to the streaming tier.
 fn tier_cap(download_quality: &str, streaming_quality: &str) -> u64 {
-    let high = |tier: &str| tier == "high" || tier == "lossless";
-    if high(download_quality) || high(streaming_quality) {
-        HIGH_TIER_AUDIO_BITRATE
-    } else {
-        MAX_AUDIO_BITRATE
+    match download_quality {
+        "high" | "lossless" => HIGH_TIER_AUDIO_BITRATE,
+        "low" | "normal" => MAX_AUDIO_BITRATE,
+        _ => match streaming_quality {
+            "high" | "lossless" => HIGH_TIER_AUDIO_BITRATE,
+            _ => MAX_AUDIO_BITRATE,
+        },
     }
 }
 
@@ -102,6 +108,11 @@ const YT_REFERENCE_LUFS: f32 = -7.0;
 /// responses (`playerConfig.audioConfig`), keyed by video id. Consumed by the
 /// event bridge's normalization hook so online tracks get the same
 /// loudness-match treatment local files get from scan-computed ReplayGain.
+///
+/// Known limitations (accepted for this tier of normalization): the map is
+/// session-scoped, so a restart (or a cache hit that skips the player call)
+/// leaves a track at unity gain until it is re-resolved through the direct
+/// source; and YouTube's reported values vary slightly per client profile.
 /// Tracks resolved through Piped/Invidious/yt-dlp/Saavn carry no loudness
 /// metadata and simply stay at unity gain.
 static STREAM_LOUDNESS: LazyLock<Mutex<HashMap<String, f32>>> =
@@ -896,7 +907,11 @@ impl AudioSource for InnerTubeDirectSource {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-        let mut last_err = String::from("innertube-direct:");
+        // Tier is per-resolve, not per-profile — read it once. Each profile
+        // below then reuses it (an AppSettings::load per attempt would be a
+        // needless re-read).
+        let cap = fast_path_bitrate_cap();
+        let mut last_err = String::from("innertube-direct");
 
         for p in Self::CLIENTS {
             if it_demoted(p.id) {
@@ -967,7 +982,6 @@ impl AudioSource for InnerTubeDirectSource {
             // hook before anything can fail below — the player response is
             // the only place YouTube reports it.
             capture_stream_loudness(&bytes, video_id);
-            let cap = fast_path_bitrate_cap();
             let url = match select_best_m4a_within(&ready, cap) {
                 Some(u) => u,
                 None => {
@@ -1446,11 +1460,15 @@ mod tests {
 
     #[test]
     fn tier_cap_unlocks_256k_only_on_high_tiers() {
+        // Explicit download tiers decide — mirrors yt_dlp_format_selector.
         assert_eq!(tier_cap("high", "low"), HIGH_TIER_AUDIO_BITRATE);
         assert_eq!(tier_cap("lossless", "normal"), HIGH_TIER_AUDIO_BITRATE);
-        assert_eq!(tier_cap("low", "high"), HIGH_TIER_AUDIO_BITRATE);
-        assert_eq!(tier_cap("low", "normal"), MAX_AUDIO_BITRATE);
-        assert_eq!(tier_cap("normal", "low"), MAX_AUDIO_BITRATE);
+        // An explicit download cap is never overridden by the streaming tier.
+        assert_eq!(tier_cap("normal", "high"), MAX_AUDIO_BITRATE);
+        assert_eq!(tier_cap("low", "high"), MAX_AUDIO_BITRATE);
+        // Unrecognized download tier defers to the streaming tier.
+        assert_eq!(tier_cap("", "high"), HIGH_TIER_AUDIO_BITRATE);
+        assert_eq!(tier_cap("", "normal"), MAX_AUDIO_BITRATE);
         // Unknown tiers stay conservative.
         assert_eq!(tier_cap("", ""), MAX_AUDIO_BITRATE);
     }

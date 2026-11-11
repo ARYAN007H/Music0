@@ -240,9 +240,9 @@ The whole-app look is a third attribute on `<html>`, orthogonal to
 Rules of the system:
 
 - **Everything in `m3-expressive.css` is scoped under `html[data-skin="m3e"]`.**
-  The attribute beats the earlier layers on specificity, so no `!important`
-  is needed (three exceptions exist for inline styles: the toast, the command
-  palette card, and modal overrides).
+  The attribute beats the earlier layers on specificity, so `!important`
+  appears only where the skin must defeat literal inline `style=` attributes
+  (the toast and the command palette card in `index.html`).
 - The skin re-values the SAME tokens the feature layers consume — surfaces,
   text, radii (M3 scale 4/8/12/16/28/full), shadows (M3 elevation), easings
   (emphasized family), fonts (Roboto Flex) — so hundreds of existing rules

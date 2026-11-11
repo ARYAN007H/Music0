@@ -16,7 +16,7 @@ try {
 
 const PORT = process.argv[2] || '8145';
 const BASE = `http://127.0.0.1:${PORT}`;
-const PALETTES = ['nebula', 'sakura', 'aurora', 'ocean', 'ember', 'mono'];
+const PALETTES = ['nebula', 'sakura', 'aurora', 'ocean', 'ember', 'mono', 'music'];
 const THEMES = ['light', 'dark'];
 
 function parseColor(cRaw) {
