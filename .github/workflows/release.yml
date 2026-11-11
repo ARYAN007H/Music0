@@ -5,8 +5,19 @@ on:
     tags:
       - 'v*'
   # Manual runs verify platform jobs on a branch (publish skips itself
-  # below) — e.g. before merging cross-platform changes.
+  # below) — e.g. before merging cross-platform changes. The version
+  # inputs are the updater test rig: pose as an old version and watch
+  # the real update flow run against the latest published release.
   workflow_dispatch:
+    inputs:
+      version_code:
+        description: "Override Android versionCode (e.g. 90100 to pose as 0.9.1)"
+        required: false
+        type: string
+      version_name:
+        description: "Override Android versionName (e.g. 0.9.1-native)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -325,6 +336,12 @@ jobs:
 
       - name: Derive Android version from the release tag
         run: |
+          # Explicit dispatch inputs win — that's the updater test rig.
+          if [ -n "${{ inputs.version_code }}" ]; then
+            echo "MUSICO_VERSION_NAME=${{ inputs.version_name }}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_CODE=${{ inputs.version_code }}" >> "$GITHUB_ENV"
+            exit 0
+          fi
           VER="${GITHUB_REF_NAME#v}"
           VER="${VER%%-*}"
           if [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
