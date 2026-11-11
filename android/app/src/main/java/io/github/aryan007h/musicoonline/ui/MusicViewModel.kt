@@ -362,6 +362,44 @@ class MusicViewModel(
 
     // ── Endless browsing: real continuation paging, then a genre chain ──
 
+    /**
+     * The curated style list — the ONLY mood/genre cards the home chain
+     * and Radio grid may surface. YTM's full catalog drags kids/family
+     * content into the feed ("Family" → a wall of CoComelon), plus
+     * ambience moods (Sleep/Workout/Commute/Focus/Gaming/Monsoon) that
+     * ruin the music-app vibe. Everything else in the catalog is dropped;
+     * new YTM cards stay invisible until curated in here.
+     */
+    private val CURATED_STYLES = setOf(
+        // languages
+        "Hindi", "Punjabi", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Bhojpuri", "Gujarati", "Haryanvi", "Marathi",
+        // international hits
+        "Pop", "Indian pop", "Indie & alternative", "K-Pop", "J-Pop", "Latin", "Country & Americana", "Reggae & caribbean", "R&B & soul", "African", "Arabic", "Dance & electronic", "Rock",
+        // classic & roots
+        "Classical", "Carnatic classical", "Hindustani classical", "Decades", "Ghazal/sufi", "Devotional", "Folk & acoustic",
+        // the requested anchors + safe moods
+        "Hip-hop", "Desi hip-hop", "Metal", "Jazz", "Romance", "Party", "Chill", "Feel good", "Sad",
+    )
+
+    /** Case/spacing-insensitive membership ("Desi hip-hop" vs "Desi Hip-Hop"). */
+    private fun styleAllowed(title: String): Boolean {
+        val key = title.trim().lowercase()
+        return CURATED_STYLES.any { it.lowercase() == key }
+    }
+
+    /**
+     * Radio-grid gate: everything EXCEPT kids/family-shaped cards. Sleep,
+     * Workout, Commute, Focus, Gaming — all stay (a Radio page is for
+     * moods); "Family" and any nursery-shaped title is what drags
+     * CoComelon into a music app.
+     */
+    private val KIDS_BLOCKLIST = listOf("family", "kids", "kid ", "children", "nursery", "baby", "cocomelon", "cartoon", "lullaby", "rhyme")
+
+    private fun styleNotKids(title: String): Boolean {
+        val key = " ${title.trim().lowercase()} "
+        return KIDS_BLOCKLIST.none { key.contains(it.trim()) }
+    }
+
     fun loadMoreHome() {
         if (_state.value.moreLoading) return
         viewModelScope.launch {
@@ -417,10 +455,13 @@ class MusicViewModel(
                 _state.update {
                     val existing = it.homeShelves.map { s -> s.title }.toSet()
                     val chartShelves = (charts?.shelves ?: emptyList()).filter { s -> s.title !in existing && s.items.isNotEmpty() }
+                    // Curated only: the full YTM catalog drags Family/kids
+                    // shelves (CoComelon) into the feed.
+                    val curated = (styles?.items ?: emptyList()).filter { s -> styleAllowed(s.title) }
                     it.copy(
                         homeShelves = it.homeShelves + chartShelves,
-                        styleItems = styles?.items ?: emptyList(),
-                        styleQueue = styles?.items?.shuffled()?.filter { s -> s.browseId != null } ?: emptyList(),
+                        styleItems = curated,
+                        styleQueue = curated.shuffled().filter { s -> s.browseId != null },
                         chartsAppended = true,
                         moreLoading = false,
                     )
@@ -802,7 +843,11 @@ class MusicViewModel(
                     MusicoCore.call("online.genres"),
                 )
             }.onFold(
-                onSuccess = { styles -> _state.update { it.copy(radioLoading = false, radioStyles = styles.items) } },
+                onSuccess = { styles ->
+                    // Radio = full mood catalog MINUS kids/family cards —
+                    // Sleep/Workout/Commute stay, CoComelon doesn't.
+                    _state.update { it.copy(radioLoading = false, radioStyles = styles.items.filter { s -> styleNotKids(s.title) }) }
+                },
                 onFailure = { e ->
                     _state.update { it.copy(radioLoading = false) }
                     fail(e.userMessage())

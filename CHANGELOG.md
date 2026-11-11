@@ -12,6 +12,31 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-12
+
+### Fixed (Android native)
+
+### Changed (Android native)
+
+- **The top bar is gone.** No app name, no floating avatar: content owns
+  the screen from the very top (status-bar padding only), and the
+  profile avatar now lives in the bottom pill as the fifth option —
+  opening the profile (Settings/Equalizer remain reachable from there).
+  The update popup still floats over everything, untouched.
+- Same screen budget story on the home feed:
+
+### Fixed (Android native)
+
+- The home feed's endless genre chain surfaced YTM's FULL mood catalog —
+  including the "Family" card, i.e. a wall of CoComelon and nursery
+  rhymes in a music app. The home chain is now limited to a curated
+  style list (languages, Punjabi, international hits, classic/decades,
+  Metal, Jazz, Hip-hop/Desi hip-hop, Pop, K-Pop, J-Pop, Rock, Indie,
+  Romance/Party/Chill moods); Trending and the "Because you like …"
+  recommendations are untouched. The Radio grid keeps every mood —
+  Sleep/Workout/Commute included — except kids/family-shaped cards.
+
+
 ## [0.9.4] - 2026-11-12
 
 ### Fixed (Android native)

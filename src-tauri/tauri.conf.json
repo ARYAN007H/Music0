@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicehash/tauri/v2/crates/tauri-cli/schema.json",
   "productName": "Musico Online",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "identifier": "io.github.aryan007h.Music0",
   "build": {
     "frontendDist": "../frontend",
