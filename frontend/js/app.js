@@ -172,13 +172,14 @@ const App = (() => {
     try { localStorage.setItem('musico-theme', s.theme === 'dark' ? 'dark' : 'light'); } catch (e) {}
     document.querySelectorAll('[data-theme-pill]').forEach((p) =>
       p.classList.toggle('active', p.dataset.themePill === (s.theme === 'dark' ? 'dark' : 'light')));
-    // Design language (skin): "ios" is the default look. An explicit value
+    // Design language (skin): "m3e" is the default. An explicit value
     // (persisted settings) wins; an ABSENT one (mock bridge, first run
     // before settings load) keeps whatever the pre-paint script applied from
     // localStorage instead of clobbering it.
     if (s.skin === 'm3e' || s.skin === 'ios') {
       document.documentElement.setAttribute('data-skin', s.skin);
       if (s.skin === 'm3e') ensureM3eFonts();
+      syncM3eChrome();
       try { localStorage.setItem('musico-skin', s.skin); } catch (e) {}
       document.querySelectorAll('[data-skin-pill]').forEach((p) =>
         p.classList.toggle('active', p.dataset.skinPill === s.skin));
@@ -299,6 +300,40 @@ const App = (() => {
     l.rel = 'stylesheet';
     l.href = 'https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300;8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap';
     document.head.appendChild(l);
+  }
+
+  // ── M3 Expressive chrome (skin='m3e') ────────────────────────────────────
+  // The pill island REPLACES the sidebar + top-bar shell: five floating
+  // destinations over full-bleed content. Items use the same .nav-item
+  // contract as everything else, so the delegated navigation handler routes
+  // them and MusicoRouter history works untouched.
+  const M3E_PILL_VIEWS = [
+    ['browse', 'Home', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>'],
+    ['search', 'Search', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>'],
+    ['genres', 'Browse', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>'],
+    ['library', 'Library', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>'],
+    ['settings', 'Settings', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>'],
+  ];
+
+  function ensureM3ePill() {
+    const pill = document.getElementById('m3e-pill');
+    if (!pill || pill.childElementCount) return;
+    pill.innerHTML = M3E_PILL_VIEWS.map(([view, label, icon]) => `
+      <button class="nav-item" data-view="${view}" aria-label="${label}">
+        ${icon}<span>${label}</span>
+      </button>`).join('');
+  }
+
+  function syncM3eChrome() {
+    const on = document.documentElement.getAttribute('data-skin') === 'm3e';
+    const pill = document.getElementById('m3e-pill');
+    if (!pill) return;
+    if (on) ensureM3ePill();
+    pill.hidden = !on;
+    if (!on) return;
+    const active = window.MusicoStore?.get('activeNav') || state.currentView;
+    pill.querySelectorAll('.nav-item').forEach((n) =>
+      n.classList.toggle('active', n.dataset.view === active));
   }
 
   function persistSettings(patch) {
@@ -456,6 +491,7 @@ const App = (() => {
         const skin = pill.dataset.skinPill === 'm3e' ? 'm3e' : 'ios';
         document.documentElement.setAttribute('data-skin', skin);
         if (skin === 'm3e') ensureM3eFonts();
+        syncM3eChrome();
         try { localStorage.setItem('musico-skin', skin); } catch (e) {}
         persistSettings({ skin });
         showToast(skin === 'm3e'
@@ -1160,6 +1196,7 @@ const App = (() => {
       // 'activeNav' keeps the sidebar's Home item lit, like Apple Music.
       window.MusicoStore?.set('view', viewName);
       window.MusicoStore?.set('activeNav', 'browse'); window.MusicoStore?.set('navSeq', (window.MusicoStore?.get('navSeq') || 0) + 1);
+      syncM3eChrome();
       return;
     }
     window.MusicoStore?.set('activeNav', viewName); window.MusicoStore?.set('navSeq', (window.MusicoStore?.get('navSeq') || 0) + 1);
@@ -1176,6 +1213,7 @@ const App = (() => {
     document.querySelectorAll('#bottom-nav .nav-item').forEach(n => n.classList.remove('active'));
     const activeNav = document.querySelector(`#bottom-nav .nav-item[data-view="${viewName}"]`);
     if (activeNav) activeNav.classList.add('active');
+    syncM3eChrome();
 
     if (viewName === 'playlists') renderStats();
   }

@@ -24,7 +24,8 @@ await page.addInitScript(() => {
 });
 await page.goto(`http://127.0.0.1:${PORT}/index.html`);
 // Real readiness, not a blind sleep: the shell must have rendered nav.
-await page.waitForSelector('#sidebar-root .nav-item', { timeout: 10000 });
+// M3E hides the sidebar — readiness is the pill island (the shell under test).
+await page.waitForSelector('#m3e-pill .nav-item', { timeout: 10000 });
 await page.waitForTimeout(300);
 const results = [];
 const check = (n, c) => results.push(`${c ? 'PASS' : 'FAIL'} ${n}`);
@@ -108,6 +109,36 @@ check('M3E dark token resolves', await page.evaluate(() => {
   document.documentElement.setAttribute('data-theme', 'light');
   return (/^(rgb|color)\(/.test(c)) && c !== 'rgba(0, 0, 0, 0)';
 }));
+
+// ── 4. The shell restructure: sidebar + top bar OUT, pill island IN ──
+check('sidebar hidden under M3E', await page.evaluate(() =>
+  getComputedStyle(document.getElementById('sidebar')).display === 'none'));
+check('top bar hidden under M3E', await page.evaluate(() =>
+  getComputedStyle(document.getElementById('topbar-root')).display === 'none'));
+check('pill island rendered with 5 destinations', await page.evaluate(() => {
+  const pill = document.getElementById('m3e-pill');
+  return pill && !pill.hidden && pill.querySelectorAll('.nav-item').length === 5;
+}));
+check('pill Home is active on load', await page.evaluate(() =>
+  document.querySelector('#m3e-pill .nav-item[data-view="browse"]')?.classList.contains('active')));
+await page.click('#m3e-pill .nav-item[data-view="genres"]');
+await page.waitForTimeout(250);
+check('pill click routes to Browse', await page.evaluate(() =>
+  document.getElementById('view-genres')?.classList.contains('active')));
+check('pill active state follows the route', await page.evaluate(() =>
+  document.querySelector('#m3e-pill .nav-item[data-view="genres"]')?.classList.contains('active')));
+await page.click('#m3e-pill .nav-item[data-view="browse"]');
+await page.waitForTimeout(250);
+await page.evaluate(() => document.querySelector('[data-skin-pill="ios"]')?.click());
+await page.waitForTimeout(350);
+check('iOS skin restores the sidebar', await page.evaluate(() =>
+  getComputedStyle(document.getElementById('sidebar')).display !== 'none'));
+check('iOS skin hides the pill island', await page.evaluate(() =>
+  document.getElementById('m3e-pill').hidden));
+await page.evaluate(() => document.querySelector('[data-skin-pill="m3e"]')?.click());
+await page.waitForTimeout(350);
+check('M3E skin re-hides the sidebar', await page.evaluate(() =>
+  getComputedStyle(document.getElementById('sidebar')).display === 'none'));
 
 console.log(results.join('\n'));
 console.log(`JS errors: ${errors.length ? '\n' + errors.join('\n') : 'none'}`);

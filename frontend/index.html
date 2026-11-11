@@ -15,7 +15,7 @@
     var t = localStorage.getItem('musico-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
     var skin = localStorage.getItem('musico-skin');
-    if (skin === 'm3e' || skin === 'ios') document.documentElement.setAttribute('data-skin', skin);
+    document.documentElement.setAttribute('data-skin', skin === 'ios' ? 'ios' : 'm3e');
     // The M3E skin's webfonts load only when the skin is active — an
     // unconditional @import in the skin CSS would fetch them for every
     // user on every launch, skin or not.
@@ -896,8 +896,8 @@
               <div class="s-card-header">Design Language</div>
               <div class="s-card-desc">The overall look of every surface. Applied instantly — no restart needed.</div>
               <div style="padding: var(--space-4) var(--space-20) var(--space-16); display:flex; gap:var(--space-8); flex-wrap:wrap;">
-                <button class="sort-pill active" data-skin-pill="ios"> iOS (Default)</button>
-                <button class="sort-pill" data-skin-pill="m3e">Material 3 Expressive</button>
+                <button class="sort-pill" data-skin-pill="ios"> iOS Classic</button>
+                <button class="sort-pill active" data-skin-pill="m3e">Material 3 Expressive (Default)</button>
               </div>
             </div>
 
@@ -1021,6 +1021,13 @@
       <span>Settings</span>
     </button>
   </nav>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       M3 EXPRESSIVE PILL ISLAND (skin='m3e' only; built by app.js)
+       Replaces the sidebar + top bar shell: 5 destinations, floating,
+       tonal, blob-active — the desktop edition of the phone's pill.
+       ══════════════════════════════════════════════════════════════════════ -->
+  <nav id="m3e-pill" class="m3e-pill" hidden aria-label="Primary"></nav>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════

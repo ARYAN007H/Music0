@@ -934,3 +934,353 @@ html[data-skin="m3e"] .eq-bars span {
     transform: none;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SHELL RESTRUCTURE — the part that makes M3E a different APP, not a coat of
+   paint: the iOS sidebar + top bar are gone, content runs full-bleed, and a
+   floating 5-destination pill island owns navigation (the desktop edition of
+   the phone's pill island). Everything below is scoped to the skin.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] #sidebar,
+html[data-skin="m3e"] #topbar-root {
+  display: none !important;
+}
+
+/* #app is a sidebar+content grid on the iOS skin; M3E is a single column. */
+html[data-skin="m3e"] #app {
+  display: block;
+}
+
+/* Full-bleed content: no sidebar offset, generous reading width, top
+   breathing room where the top bar used to be. */
+html[data-skin="m3e"] #main-content {
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
+  padding-top: 20px;
+}
+
+/* Room for the floating transport bar + the pill island underneath. */
+html[data-skin="m3e"] #main-content .view.active {
+  padding-bottom: 190px;
+}
+
+/* The transport bar loses its sidebar offset — it spans the app now. */
+html[data-skin="m3e"] #transport-root {
+  left: 16px;
+}
+
+/* ─── The pill island ──────────────────────────────────────────────────────── */
+
+html[data-skin="m3e"] .m3e-pill {
+  display: flex;
+}
+
+.m3e-pill {
+  display: none; /* non-M3E skins: never rendered */
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 96px; /* floats above the transport bar (bottom 12 + ~68 tall) */
+  z-index: 200;
+
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+
+  background: var(--m3-surface-container-highest);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.26), 0 2px 8px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(14px);
+}
+
+.m3e-pill .nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 62px;
+  padding: 7px 14px 6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.m3e-pill .nav-item svg {
+  width: 21px;
+  height: 21px;
+}
+
+.m3e-pill .nav-item span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* M3 navigation-bar active state: the pill-shaped secondary container. */
+.m3e-pill .nav-item.active {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+}
+
+.m3e-pill .nav-item:hover:not(.active) {
+  background: var(--m3-state-hover);
+}
+
+/* Larger screens get a roomier island. */
+@media (min-width: 1100px) {
+  .m3e-pill .nav-item {
+    min-width: 72px;
+    padding: 8px 18px 7px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DOCK STACK v2 — one dock, two tiers. The M3E pill island is the ONLY
+   navigation dock (the compact mobile pill is retired — the native Android
+   app owns that form factor now); the wide transport bar is replaced by a
+   compact centered transport pill floating above it.
+   ┌──────────────────────────────┐
+   │   ⏮  ▶  ⏭   transport pill  │   ← second tier
+   │  Home Search Browse Library ⚙│   ← primary nav island
+   └──────────────────────────────┘
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* The compact mobile pill is retired on M3E — Android owns that dock. */
+html[data-skin="m3e"] #bottom-nav {
+  display: none !important;
+}
+
+/* Transport: from a full-width bar to a centered compact pill (2nd tier). */
+html[data-skin="m3e"] #transport-root {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  bottom: 88px; /* nav island (~56px + 12px inset) + 16px clear gap */
+  width: max-content;
+  max-width: calc(100vw - 32px);
+}
+
+html[data-skin="m3e"] #transport-root .transport-bar,
+html[data-skin="m3e"] #transport-root > div {
+  border-radius: 999px;
+  padding: 10px 18px;
+  gap: 10px;
+  background: var(--m3-surface-container-highest);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.26), 0 2px 8px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(14px);
+  max-width: none;
+}
+
+/* Volume lives in the transport pill on desktop; keep it from stretching. */
+html[data-skin="m3e"] #transport-root .volume-row,
+html[data-skin="m3e"] #transport-root input[type="range"] {
+  width: 96px;
+}
+
+/* Primary nav island: wider, roomier — it is the app's only dock now. */
+html[data-skin="m3e"] .m3e-pill {
+  bottom: 78px; /* transport pill (10 + ~58) + 10px gap */
+}
+
+.m3e-pill .nav-item {
+  min-width: 84px;
+  padding: 9px 20px 8px;
+  gap: 4px;
+}
+
+.m3e-pill .nav-item span {
+  font-size: 12px;
+}
+
+/* ─── Dock stack polish (round 2) ──────────────────────────────────────────────
+   Critique from the r2 screenshots: (1) the two pills sat too close and read
+   as one blob — hierarchy needed; (2) the play button rendered as a black
+   circle in light mode — M3 wants the tonal primary; (3) the volume row
+   stretched weirdly inside the pill; (4) chips and section headers were
+   iOS-inherited, not M3. ───────────────────────────────────────────────────── */
+
+/* (1) Clear vertical hierarchy: 12px of air between the two tiers. */
+html[data-skin="m3e"] .m3e-pill {
+  bottom: 12px;
+}
+
+/* (2) The play button: tonal primary circle (M3's FAB-large behavior). */
+html[data-skin="m3e"] .play-btn-main {
+  background: var(--m3-primary);
+  color: var(--on-accent);
+  border-radius: 999px;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--m3-primary) 45%, transparent);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1), box-shadow 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] .play-btn-main:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--m3-primary) 55%, transparent);
+}
+html[data-skin="m3e"] .play-btn-main:active {
+  transform: scale(0.94);
+}
+
+/* (3) Volume row: fixed track width, aligned right cluster — no stretching. */
+html[data-skin="m3e"] .transport .volume-row {
+  width: 110px;
+  flex: none;
+}
+
+/* (4) M3 filter chips ("Pick your vibe", sort pills): full-round, tonal
+   selected state derived from the accent — replaces the iOS pill look. */
+html[data-skin="m3e"] .sort-pill,
+html[data-skin="m3e"] .chip {
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] .sort-pill.active,
+html[data-skin="m3e"] .chip.active {
+  background: var(--m3-secondary-container);
+  border-color: transparent;
+  color: var(--m3-on-secondary-container);
+}
+
+/* (5) M3 section headers: headline-small with less iOS-weight, more air. */
+html[data-skin="m3e"] .view h2,
+html[data-skin="m3e"] .view h3 {
+  letter-spacing: -0.2px;
+  font-weight: 700;
+}
+
+/* (6) Cards: consistent XL radii + tonal surface so the grid reads M3. */
+html[data-skin="m3e"] .song-card,
+html[data-skin="m3e"] .browse-card,
+html[data-skin="m3e"] .album-card {
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  transition: transform 200ms cubic-bezier(0.2, 0, 0, 1), box-shadow 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] .song-card:hover,
+html[data-skin="m3e"] .browse-card:hover,
+html[data-skin="m3e"] .album-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+}
+
+/* ─── Transport pill internals (round 3): the Preact shell's lcd-* cluster ────
+   The r2 screenshots showed the transport play button still black — the
+   shell.js transport uses .lcd-play/.lcd-btn, not .play-btn-main. ─────── */
+
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-play {
+  background: var(--m3-primary);
+  color: var(--on-accent);
+  border-radius: 999px;
+  border: none;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--m3-primary) 48%, transparent);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1), box-shadow 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-play:hover {
+  transform: scale(1.07);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--m3-primary) 58%, transparent);
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-play:active {
+  transform: scale(0.93);
+}
+
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 999px;
+  transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-btn:hover {
+  background: var(--m3-state-hover);
+  color: var(--text-primary);
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-btn.lcd-on {
+  color: var(--m3-primary);
+  background: var(--m3-state-press);
+}
+
+/* Seek row: M3 slider — accent-filled track portion, slim, round thumb. */
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-seek-row {
+  gap: 10px;
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-seek {
+  accent-color: var(--m3-primary);
+  height: 4px;
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The LCD artwork button + meta: tighter M3 typography. */
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+html[data-skin="m3e"] #transport-root .transport-bar .lcd-artist {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Star / plus: quiet icon buttons. */
+html[data-skin="m3e"] #transport-root .transport-bar .tb-star {
+  color: var(--text-secondary);
+  background: transparent;
+  border-radius: 999px;
+  transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] #transport-root .transport-bar .tb-star:hover {
+  background: var(--m3-state-hover);
+}
+html[data-skin="m3e"] #transport-root .transport-bar .tb-star.on {
+  color: var(--m3-primary);
+}
+
+/* ─── Round-4 polish: hierarchy air + meta room + vibe chips ─────────────────── */
+html[data-skin="m3e"] .m3e-pill {
+  bottom: 12px;
+}
+
+/* Transport pill: cap the width so it reads as a compact companion to the
+   island, and give the track meta room to breathe before truncating. */
+html[data-skin="m3e"] #transport-root .transport-bar {
+  max-width: 720px;
+}
+html[data-skin="m3e"] #transport-root .lcd-meta {
+  min-width: 120px;
+  max-width: 200px;
+}
+
+
+
+/* ─── Round-5: vibe chips go full M3 filter-chip ────────────────────────────── */
+html[data-skin="m3e"] .vibe-chip {
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 7px 16px;
+  transition: background 160ms cubic-bezier(0.2, 0, 0, 1), color 160ms cubic-bezier(0.2, 0, 0, 1),
+    transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+html[data-skin="m3e"] .vibe-chip:hover {
+  background: var(--m3-state-hover);
+  transform: translateY(-1px);
+}
+html[data-skin="m3e"] .vibe-chip:active {
+  transform: scale(0.96);
+}
