@@ -86,8 +86,10 @@ fun MusicoApp(vm: MusicViewModel) {
     val state by vm.state.collectAsState()
     var sheetTrack by remember { mutableStateOf<io.github.aryan007h.musicoonline.core.OnlineTrack?>(null) }
 
-    // Runtime errors are transient toasts, not pinned banners.
-    androidx.compose.runtime.LaunchedEffect(state.error) {
+    // Runtime errors are transient toasts, not pinned banners. Keyed on the
+    // monotonic seq, not the text: identical consecutive messages (e.g. two
+    // "Added to queue") must each get their own 4 s window.
+    androidx.compose.runtime.LaunchedEffect(state.errorSeq) {
         if (state.error != null) {
             kotlinx.coroutines.delay(4000)
             vm.dismissError()

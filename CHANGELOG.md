@@ -29,11 +29,47 @@ Bug-fix round from the first external testers' reports.
   `live_lyrics_durationless_no_foreign_song`.
 - "First one is not playing": a failed resolve skipped to the next track
   SILENTLY — the skip now names the track ("Couldn't play X — skipped to
-  the next song") so dead tracks aren't mistaken for wrong taps.
+  the next song") so dead tracks aren't mistaken for wrong taps. The skip
+  path was also reworked after the pre-merge review: it no longer races
+  live queue state (stale failures can't remove the track the user just
+  asked for), never auto-skips in Airplane Mode (where every track fails
+  and the old chain deleted the entire queue one track per instant), and
+  caps consecutive auto-skips at 3 with one honest message.
 - 15–20 s first-play latency, mitigated: the next two queue tracks are
-  resolved in the background the moment a song starts, so advances hit
-  the stream cache instead of the 10 s fast-path pool; `resolve` also
-  logs its fast-path timing (info) for on-device diagnosis via logcat.
+  resolved in the background the moment a song starts (on the core's
+  generous background budget, never holding the interactive slot — a
+  `{"background":true}` flag on `track.resolve`), so advances hit the
+  stream cache instead of the 10 s fast-path pool; `resolve` also logs
+  its fast-path timing (info) for on-device diagnosis via logcat.
+  Offline page saves ("Save offline") run on the same background budget.
+- Release years no longer poison lyrics matching: a two-row subtitle
+  ending in a year ("… • 2023") parsed as a 33-minute duration, which
+  silently disabled the LRCLIB exact-duration path for that track.
+  Duration extraction now requires an explicit `m:ss` colon shape.
+
+### Hardened (pre-merge security review)
+
+- Updater integrity: the downloaded APK is verified against the GitHub
+  release's published sha256 digest before the installer is offered
+  anything (exact-size fallback on digest-less assets), a size ceiling
+  aborts oversized streams mid-flight, and the download is genuinely
+  cancellable (cooperative suspension between chunks).
+- A release year / bare number can no longer smuggle a bogus duration
+  into the lyrics path (see above); LRCLIB's exact endpoint is also
+  tried with artist+title alone for duration-less tracks, behind the
+  same word-set gate.
+- JNI/init robustness: `initNative` is idempotent and panic-safe (an
+  Activity recreation can no longer trip the logger's init_once and
+  abort the app), an OOM while building a bridge reply throws a real
+  Java exception instead of returning a null ref, `videoId` args are
+  charset-gated, and `settings.save` serializes its read-merge-write
+  cycle so overlapping toggles can't lose a write.
+- Toast timer restarts for identical consecutive messages (keyed on a
+  monotonic error id, not the text); loadMore failures log breadcrumbs
+  instead of vanishing; personalized shelves now carry durations; the
+  mini-player equalizer stops ticking the frame clock while paused; the
+  Android release workflow derives versionCode/versionName from the
+  release tag instead of a five-way manual lockstep.
 ## [0.9.0] - 2026-11-11
 
 The native Android app release: the phone experience moves from the Tauri

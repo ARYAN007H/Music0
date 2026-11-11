@@ -23,6 +23,10 @@ use jni::JNIEnv;
 
 static MOBILE_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
+/// Serializes the settings read-merge-save cycle: two overlapping toggles
+/// from `Dispatchers.IO` must not lose a write (review P2-7).
+static SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn set_env_var(key: &str, value: &str) {
     // Edition 2021: `set_var` is safe; single-threaded init contract anyway.
     std::env::set_var(key, value);
@@ -36,6 +40,12 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_ini
     files_dir: JString,
     cache_dir: JString,
 ) {
+    // Idempotent: a second init (Activity recreation in the same process)
+    // would trip android_logger's init_once and abort the app — and panics
+    // never cross FFI, so the whole body is unwound into a warn log.
+    if MOBILE_INITIALIZED.load(Ordering::Acquire) {
+        return;
+    }
     let Ok(files) = env.get_string(&files_dir) else {
         return;
     };
@@ -44,17 +54,27 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_ini
     };
     let files = String::from(files);
     let cache = String::from(cache);
-    let _ = std::fs::create_dir_all(&files);
-    let _ = std::fs::create_dir_all(&cache);
-    set_env_var("HOME", &files);
-    set_env_var("XDG_DATA_HOME", &files);
-    set_env_var("XDG_CONFIG_HOME", &files);
-    set_env_var("XDG_CACHE_HOME", &cache);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        init_core(&files, &cache);
+        MOBILE_INITIALIZED.store(true, Ordering::Release);
+        log::info!("mobile core: initialized files={files} cache={cache}");
+    }));
+    if result.is_err() {
+        log::warn!("mobile core: init panicked (suppressed — continuing degraded)");
+    }
+}
+
+fn init_core(files: &str, cache: &str) {
+    let _ = std::fs::create_dir_all(files);
+    let _ = std::fs::create_dir_all(cache);
+    set_env_var("HOME", files);
+    set_env_var("XDG_DATA_HOME", files);
+    set_env_var("XDG_CONFIG_HOME", files);
+    set_env_var("XDG_CACHE_HOME", cache);
     // Logcat is the only debugging surface on a device (the files dir is
     // not readable over adb without root) — mirror everything there.
     // RUST_LOG is settable via `adb shell am start --es RUST_LOG debug`-style
     // wrappers only when the launcher passes it; keep Info as the default.
-    let _ = std::env::var("RUST_LOG"); // parsed below when present
     let mut level = log::LevelFilter::Info;
     if let Ok(spec) = std::env::var("RUST_LOG") {
         if spec.contains("debug") {
@@ -66,8 +86,6 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_ini
             .with_max_level(level)
             .with_tag("musico-native"),
     );
-    MOBILE_INITIALIZED.store(true, Ordering::Release);
-    log::info!("mobile core: initialized files={files} cache={cache}");
 }
 
 /// The one IPC entry: `MusicoCore.invoke(cmd, argsJson)`.
@@ -94,10 +112,13 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_inv
     };
     match env.new_string(reply.to_string()) {
         Ok(s) => s,
-        // Only possible on OOM; still must return a valid local ref.
-        Err(_) => env
-            .new_string(r#"{"ok":false,"error":"out of memory"}"#)
-            .unwrap_or_else(|_| unsafe { JString::from_raw(std::ptr::null_mut()) }),
+        // Only possible on OOM: throw a real Java exception instead of
+        // returning a null local ref (which would NPE in Kotlin
+        // unmarshalling with no diagnostics).
+        Err(_) => {
+            let _ = env.throw_new("java/lang/OutOfMemoryError", "musico native: OOM building reply");
+            unsafe { JString::from_raw(std::ptr::null_mut()) }
+        }
     }
 }
 
@@ -140,7 +161,15 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         "track.resolve" => {
             ensure_online()?;
             let track = online_track_from_args(&args)?;
-            let path = crate::online::resolve_track(&track, true)?;
+            // `{"background": true}` opts into the patient multi-attempt
+            // budget — prefetch and offline saves use it so mass work never
+            // starves the user's next tap out of the bounded interactive
+            // slot (review P1-1/P2-9).
+            let background = args
+                .get("background")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let path = crate::online::resolve_track(&track, !background)?;
             Ok(serde_json::json!({
                 "path": path.display().to_string(),
                 "songId": track.song_id(),
@@ -271,6 +300,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 .get("settings")
                 .and_then(|v| v.as_object())
                 .ok_or("missing settings object")?;
+            let _guard = SETTINGS_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let current = serde_json::to_value(crate::config::AppSettings::load())
                 .map_err(|e| format!("settings serialize: {e}"))?;
             let mut merged = current;
@@ -323,18 +355,21 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                                 .unwrap_or(false)
                         })
                 });
-            let (asset_url, asset_size, asset_name) = match asset {
+            let (asset_url, asset_size, asset_name, asset_digest) = match asset {
                 Some(a) => (
                     a["browser_download_url"].as_str().unwrap_or_default().to_string(),
                     a["size"].as_u64().unwrap_or(0),
                     a["name"].as_str().unwrap_or_default().to_string(),
+                    a["digest"].as_str().unwrap_or_default().to_string(),
                 ),
-                None => (String::new(), 0, String::new()),
+                None => (String::new(), 0, String::new(), String::new()),
             };
             let update_available = !latest.is_empty()
                 && !asset_url.is_empty()
                 && version_newer(current, &latest);
 
+            // `digest` ("sha256:…") is what the Kotlin downloader verifies
+            // before handing the APK to the installer (review P1-4).
             Ok(serde_json::json!({
                 "current": current,
                 "latest": latest,
@@ -342,7 +377,10 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 "assetUrl": asset_url,
                 "assetName": asset_name,
                 "assetSizeBytes": asset_size,
-                "notes": reply["body"].as_str().unwrap_or_default().lines().take(12).collect::<Vec<_>>().join("\n"),
+                "assetDigest": asset_digest,
+                "notes": reply["body"].as_str().unwrap_or_default().lines().take(12)
+                    .map(|l| l.chars().take(200).collect::<String>())
+                    .collect::<Vec<_>>().join("\n"),
             }))
         }
 
@@ -441,6 +479,14 @@ fn online_track_from_args(args: &serde_json::Value) -> Result<crate::online::Onl
         .ok_or("missing videoId")?
         .to_string();
     if video_id.is_empty() || video_id.len() > 32 {
+        return Err("invalid videoId".into());
+    }
+    // Charset gate: YT ids are [A-Za-z0-9_-], saavn ids alphanumeric. A
+    // crafted id must not fall through to shell-interpolating resolvers.
+    if !video_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("invalid videoId".into());
     }
     let s = |k: &str| {

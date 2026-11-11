@@ -323,6 +323,21 @@ jobs:
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
 
+      - name: Derive Android version from the release tag
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          VER="${VER%%-*}"
+          if [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            MINOR=$(cut -d. -f2 <<< "$VER")
+            PATCH=$(cut -d. -f3 <<< "$VER")
+            echo "MUSICO_VERSION_NAME=${VER}-native" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_CODE=$((MINOR * 10000 + PATCH * 100))" >> "$GITHUB_ENV"
+          else
+            # workflow_dispatch / branch runs keep the gradle defaults
+            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-0.9.1-native}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-90100}" >> "$GITHUB_ENV"
+          fi
+
       - name: Assemble release APK
         run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-90100}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-0.9.1-native}"
         working-directory: android

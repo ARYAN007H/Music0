@@ -124,6 +124,21 @@ pub fn fetch_synced_lyrics(
         }
     }
 
+    // Rung 1.5: duration unknown — LRCLIB's exact endpoint also works on
+    // artist+title alone. Its best-guess record must still pass the same
+    // word-set gate rung 2 uses (a wrong "best match" — e.g. a foreign
+    // song sharing the title — is rejected) and must not be instrumental;
+    // either failure falls through to search below.
+    if duration_secs.is_none() {
+        if let Some(rec) = api_get(&[("artist_name", artist), ("track_name", title)]) {
+            if !rec.instrumental.unwrap_or(false) && plausibly_same_song(artist, title, &rec) {
+                if let Some(dto) = record_to_dto(&rec) {
+                    return Some(dto);
+                }
+            }
+        }
+    }
+
     // Rung 2: search, filtered to the duration window, nearest first.  The
     // live pool contains radio edits and live takes hours away — a blind
     // first result would put the wrong lyrics over the song.

@@ -22,9 +22,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -32,6 +31,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
+import java.util.concurrent.atomic.AtomicLong
 
 /** Local look-and-feel preferences (SharedPreferences, not the Rust core). */
 enum class LyricBackdrop(val id: String, val label: String) {
@@ -74,6 +74,9 @@ class MusicViewModel(
         val tab: AppTab = AppTab.HOME,
         val overlay: AppOverlay = AppOverlay.NONE,
         val error: String? = null,
+        // Monotonic id paired with [error]: the toast timer keys on this so
+        // identical consecutive messages still restart their 4 s window.
+        val errorSeq: Long = 0,
         val coreVersion: String? = null,
         val nowPlaying: OnlineTrack? = null,
         val isPlaying: Boolean = false,
@@ -164,7 +167,19 @@ class MusicViewModel(
     // Queue bookkeeping (mirrors state.queue / state.queueIndex)
     private var queueTracks: List<OnlineTrack> = emptyList()
     private var queuePosition: Int = -1
-    private val resolveMutex = Mutex()
+
+    // Monotonic play-request token: a stale resolve completion (a slow
+    // failure landing after the user tapped elsewhere) must never touch
+    // queue state — the old mutex-serialized skip path could delete the
+    // track the user had just asked for (review P1-2).
+    private val playGeneration = AtomicLong(0)
+    private var resolveJob: Job? = null
+
+    // Consecutive auto-skips without a successful resolve — caps the chain
+    // so one bad context (Airplane Mode, a region-locked cluster) can't
+    // wipe the whole queue one track per instant (review P1-3).
+    private var consecutiveAutoSkips = 0
+
     private var suggestJob: Job? = null
 
     private val prefs: SharedPreferences by lazy {
@@ -175,7 +190,7 @@ class MusicViewModel(
         viewModelScope.launch {
             runCatching { MusicoCore.ping() }
                 .onSuccess { d -> _state.update { it.copy(coreVersion = d["version"]?.toString()?.trim('"')) } }
-                .onFailure { e -> _state.update { it.copy(error = "Core: ${e.message}") } }
+                .onFailure { e -> fail("Core: ${e.message}") }
         }
         viewModelScope.launch { playback.nowPlaying.collect { t -> _state.update { it.copy(nowPlaying = t) } } }
         viewModelScope.launch { playback.isPlaying.collect { p -> _state.update { it.copy(isPlaying = p) } } }
@@ -269,6 +284,7 @@ class MusicViewModel(
                                         subtitle = t.artist,
                                         thumbnail = t.thumbnail,
                                         videoId = t.videoId,
+                                        durationSecs = t.durationSecs, // radio tracks carry it — feeds the exact lyrics path
                                     )
                                 },
                             )
@@ -335,7 +351,7 @@ class MusicViewModel(
                 )
             }
             if (shelves.isEmpty() && failures.isNotEmpty()) {
-                _state.update { it.copy(error = "Personalization failed — check Airplane Mode") }
+                fail("Personalization failed — check Airplane Mode")
             }
         }
     }
@@ -386,13 +402,15 @@ class MusicViewModel(
                         BrowsePage.serializer(),
                         MusicoCore.call("online.browse", buildJsonObject { put("browseId", "FEmusic_charts") }),
                     )
-                }.getOrNull()
+                }.onFailure { Log.w(TAG, "loadMore: charts failed: ${it.message}") }
+                    .getOrNull()
                 val styles = runCatching {
                     json.decodeFromJsonElement(
                         io.github.aryan007h.musicoonline.core.GenresReply.serializer(),
                         MusicoCore.call("online.genres"),
                     )
-                }.getOrNull()
+                }.onFailure { Log.w(TAG, "loadMore: genres failed: ${it.message}") }
+                    .getOrNull()
 
                 _state.update {
                     val existing = it.homeShelves.map { s -> s.title }.toSet()
@@ -432,7 +450,7 @@ class MusicViewModel(
                         val title = style.title + " · " + shelf.title
                         fresh += shelf.copy(title = title)
                     }
-                }
+                }.onFailure { Log.w(TAG, "loadMore: style \"${style.title}\" failed: ${it.message}") }
             }
             _state.update {
                 val existing = it.homeShelves.map { s -> s.title }.toSet()
@@ -569,7 +587,10 @@ class MusicViewModel(
                     },
                 )
             }.onSuccess { _state.update { it.copy(settingsSaving = false) } }
-                .onFailure { e -> _state.update { it.copy(settingsSaving = false, error = e.userMessage()) } }
+                .onFailure { e ->
+                    _state.update { it.copy(settingsSaving = false) }
+                    fail(e.userMessage())
+                }
             loadCoreSettings()
         }
     }
@@ -591,7 +612,8 @@ class MusicViewModel(
                 val reply = MusicoCore.call("online.cache.clear")
                 reply["freedBytes"]?.toString()?.trim('"')?.toLongOrNull()
             }.onSuccess { freed ->
-                _state.update { it.copy(cacheCleared = freed, cacheBytes = 0L, error = "Cleared cache — ${(freed ?: 0) / (1024 * 1024)} MB freed") }
+                _state.update { it.copy(cacheCleared = freed, cacheBytes = 0L) }
+                fail("Cleared cache — ${(freed ?: 0) / (1024 * 1024)} MB freed")
             }
         }
     }
@@ -717,7 +739,8 @@ class MusicViewModel(
             return
         }
         queueTracks = queueTracks + tracks
-        _state.update { it.copy(queue = queueTracks, error = "Added ${tracks.size} songs to the queue") }
+        _state.update { it.copy(queue = queueTracks) }
+        fail("Added ${tracks.size} songs to the queue")
     }
 
     /** Saves a detail page's tracks offline: sequential resolve → stream cache. */
@@ -734,7 +757,9 @@ class MusicViewModel(
                     }, savingTotal = tracks.size, savingDone = i)
                 }
                 runCatching {
-                    MusicoCore.call("track.resolve", resolveArgs(track))
+                    // Background budget: a 40-track page must not burn
+                    // interactive slots the next tap is waiting on.
+                    MusicoCore.call("track.resolve", resolveArgs(track, background = true))
                 }
             }
             _state.update {
@@ -745,13 +770,13 @@ class MusicViewModel(
                         if (d.browseId == browseId) d.copy(saving = false, saved = tracks.size)
                         else d
                     },
-                    error = "Saved ${tracks.size} songs offline",
                 )
             }
+            fail("Saved ${tracks.size} songs offline")
         }
     }
 
-    private fun resolveArgs(track: OnlineTrack) = buildJsonObject {
+    private fun resolveArgs(track: OnlineTrack, background: Boolean = false) = buildJsonObject {
         put("videoId", track.videoId)
         put("title", track.title)
         put("artist", track.artist)
@@ -760,6 +785,7 @@ class MusicViewModel(
         track.thumbnail?.let { put("thumbnail", it) }
         put("source", track.source)
         track.artistBrowseId?.let { put("artistBrowseId", it) }
+        if (background) put("background", true)
     }
 
     // ── Radio tab: the full mood/genre station grid ──────────────────────
@@ -775,7 +801,10 @@ class MusicViewModel(
                 )
             }.onFold(
                 onSuccess = { styles -> _state.update { it.copy(radioLoading = false, radioStyles = styles.items) } },
-                onFailure = { e -> _state.update { it.copy(radioLoading = false, error = e.userMessage()) } },
+                onFailure = { e ->
+                    _state.update { it.copy(radioLoading = false) }
+                    fail(e.userMessage())
+                },
             )
         }
     }
@@ -848,7 +877,8 @@ class MusicViewModel(
                     pushRecentSearch(query)
                 },
                 onFailure = { e ->
-                    _state.update { it.copy(searching = false, error = e.userMessage()) }
+                    _state.update { it.copy(searching = false) }
+                    fail(e.userMessage())
                 },
             )
         }
@@ -880,7 +910,7 @@ class MusicViewModel(
         if (likedTracks.isNotEmpty()) {
             playQueue(likedTracks.toList(), 0)
         } else {
-            _state.update { it.copy(error = "Like some songs first — tap the heart on any track") }
+            fail("Like some songs first — tap the heart on any track")
         }
     }
 
@@ -930,39 +960,72 @@ class MusicViewModel(
     }
 
     private fun resolveAndPlay(track: OnlineTrack) {
-        viewModelScope.launch {
-            val ok = resolveMutex.withLock {
-                _state.update { it.copy(resolvingId = track.videoId, error = null) }
-                runCatching {
-                    val reply = MusicoCore.call("track.resolve", resolveArgs(track))
-                    json.decodeFromJsonElement(ResolvedTrack.serializer(), reply)
-                }.fold(
-                    onSuccess = { resolved ->
-                        _state.update { it.copy(resolvingId = null) }
-                        playback.playFile(Uri.fromFile(java.io.File(resolved.path)), track)
-                        pushRecentlyPlayed(track)
-                        fetchLyrics(track)
-                        true
-                    },
-                    onFailure = { e ->
-                        _state.update { it.copy(resolvingId = null, error = e.userMessage()) }
-                        false
-                    },
-                )
-            }
-            if (!ok && queueTracks.size > 1) {
-                // Skip a dead resolve (removed video, region-lock) — never strand the queue.
-                skipFailedTrack()
-            }
+        val gen = playGeneration.incrementAndGet()
+        // One interactive resolve at a time — a newer gesture cancels the
+        // older one instead of queueing behind its full budget (the old
+        // global mutex let one failing resolve hold the playhead hostage
+        // with no UI feedback).
+        resolveJob?.cancel()
+        resolveJob = viewModelScope.launch {
+            _state.update { it.copy(resolvingId = track.videoId, error = null) }
+            runCatching {
+                val reply = MusicoCore.call("track.resolve", resolveArgs(track))
+                json.decodeFromJsonElement(ResolvedTrack.serializer(), reply)
+            }.fold(
+                onSuccess = { resolved ->
+                    // Stale success: the user asked for another track while
+                    // this resolve was in flight — discard it (the stream
+                    // cache still keeps the file).
+                    if (!isActive || playGeneration.get() != gen) return@fold
+                    consecutiveAutoSkips = 0
+                    _state.update { it.copy(resolvingId = null) }
+                    playback.playFile(Uri.fromFile(java.io.File(resolved.path)), track)
+                    pushRecentlyPlayed(track)
+                    fetchLyrics(track)
+                    prefetchUpcoming()
+                },
+                onFailure = { e ->
+                    // A cancelled-but-blocking resolve reports as failure;
+                    // only a CURRENT gesture may act on one.
+                    if (e is kotlinx.coroutines.CancellationException) return@fold
+                    if (!isActive || playGeneration.get() != gen) return@fold
+                    _state.update { it.copy(resolvingId = null) }
+                    fail(e.userMessage())
+                    maybeSkipFailed(track, e)
+                },
+            )
         }
+    }
+
+    /**
+     * Auto-skip policy after a failed resolve (review P1-2/P1-3):
+     * - never when the environment makes EVERY track fail (Airplane Mode,
+     *   captive portal) — that would serially delete the whole queue one
+     *   track per instant;
+     * - never for a stale failure — only when the failed track is still
+     *   the one at the playhead;
+     * - capped at [MAX_AUTO_SKIPS] consecutive skips — a queue full of
+     *   dead tracks stops with one honest message instead of vanishing.
+     */
+    private fun maybeSkipFailed(failed: OnlineTrack, error: Throwable) {
+        val message = error.userMessage()
+        if (_state.value.coreSettingsOffline || message.contains("Offline", ignoreCase = true)) return
+        if (queueTracks.size <= 1 || queuePosition !in queueTracks.indices) return
+        if (queueTracks.getOrNull(queuePosition)?.videoId != failed.videoId) return
+        if (consecutiveAutoSkips >= MAX_AUTO_SKIPS) {
+            fail("Several songs in a row couldn't play — auto-skip stopped")
+            return
+        }
+        consecutiveAutoSkips += 1
+        skipFailedTrack(failed)
     }
 
     /**
      * Warms the next queue entries in the background while the current
      * track plays — the single biggest perceived-latency win (the next tap
-     * resolves from cache instead of the 10 s+ fast-path pool). Background
-     * budget is generous (120 s/attempt), failures are silent by design,
-     * and it never holds the interactive resolve lock.
+     * resolves from cache instead of the 10 s+ fast-path pool). Runs on the
+     * core's background budget (`{"background":true}` — 120 s/attempt,
+     * never holding the interactive slot), failures silent by design.
      */
     private var prefetchJob: Job? = null
 
@@ -975,24 +1038,18 @@ class MusicViewModel(
                 if (_state.value.nowPlaying?.videoId != queueTracks.getOrNull(queuePosition)?.videoId) {
                     return@launch // the user moved on — stop warming old queue
                 }
-                runCatching { MusicoCore.call("track.resolve", resolveArgs(track)) }
+                runCatching { MusicoCore.call("track.resolve", resolveArgs(track, background = true)) }
             }
         }
     }
 
-    private fun skipFailedTrack() {
-        val failed = queueTracks.getOrNull(queuePosition)
+    private fun skipFailedTrack(failed: OnlineTrack) {
         val queue = queueTracks
         if (queue.size <= 1 || queuePosition !in queue.indices) return
         queueTracks = queue.filterIndexed { i, _ -> i != queuePosition }
         queuePosition = queuePosition.coerceAtMost(queueTracks.size - 1)
-        _state.update {
-            it.copy(
-                queue = queueTracks,
-                queueIndex = queuePosition,
-                error = "Couldn't play \"${failed?.title?.ifEmpty { "track" }.orEmpty()}\" — skipped to the next song",
-            )
-        }
+        _state.update { it.copy(queue = queueTracks, queueIndex = queuePosition) }
+        fail("Couldn't play \"${failed.title.ifEmpty { "track" }.orEmpty()}\" — skipped to the next song")
         resolveAndPlay(queueTracks[queuePosition])
     }
 
@@ -1020,7 +1077,8 @@ class MusicViewModel(
         }
         val at = queuePosition + 1
         queueTracks = queueTracks.toMutableList().apply { add(at, track) }
-        _state.update { it.copy(queue = queueTracks, error = "Playing next: ${track.title.ifEmpty { "track" }}") }
+        _state.update { it.copy(queue = queueTracks) }
+        fail("Playing next: ${track.title.ifEmpty { "track" }}")
     }
 
     /** Append at the tail — "Add to queue". */
@@ -1030,16 +1088,23 @@ class MusicViewModel(
             return
         }
         queueTracks = queueTracks + track
-        _state.update { it.copy(queue = queueTracks, error = "Added to queue") }
+        _state.update { it.copy(queue = queueTracks) }
+        fail("Added to queue")
     }
 
     /** Resolve now → the stream cache holds the file (offline-ready). */
     fun saveTrackOffline(track: OnlineTrack) {
         viewModelScope.launch {
             _state.update { it.copy(savingTrackId = track.videoId) }
-            runCatching { MusicoCore.call("track.resolve", resolveArgs(track)) }
-                .onSuccess { _state.update { it.copy(savingTrackId = null, error = "Saved offline: ${track.title.ifEmpty { "track" }}") } }
-                .onFailure { e -> _state.update { it.copy(savingTrackId = null, error = e.userMessage()) } }
+            runCatching { MusicoCore.call("track.resolve", resolveArgs(track, background = true)) }
+                .onSuccess {
+                    _state.update { it.copy(savingTrackId = null) }
+                    fail("Saved offline: ${track.title.ifEmpty { "track" }}")
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(savingTrackId = null) }
+                    fail(e.userMessage())
+                }
         }
     }
 
@@ -1146,13 +1211,19 @@ class MusicViewModel(
                 },
                 onFailure = { e ->
                     Log.w(TAG, "update download failed: ${e.message}")
-                    _state.update { it.copy(updateDownloading = false, error = "Update download failed: ${e.message}") }
+                    _state.update { it.copy(updateDownloading = false) }
+                    fail("Update download failed: ${e.message}")
                 },
             )
         }
     }
 
     fun dismissError() = _state.update { it.copy(error = null) }
+
+    /** Every user-visible error routes through here: pairs the text with a
+     *  monotonic id so the toast timer restarts even for identical text. */
+    private fun fail(message: String) =
+        _state.update { it.copy(error = message, errorSeq = it.errorSeq + 1) }
 
     private fun Throwable.userMessage(): String = (this as? CoreException)?.message ?: message ?: "unknown error"
 
@@ -1174,6 +1245,7 @@ class MusicViewModel(
         private const val PREF_NAME = "display_name"
         private const val RECENTS_LIMIT = 40
         private const val SEARCHES_LIMIT = 8
+        private const val MAX_AUTO_SKIPS = 3
     }
 }
 

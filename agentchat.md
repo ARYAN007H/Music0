@@ -610,3 +610,15 @@ off origin/main 2b86b70) → PR into `main`.
   the JNI JSON contract — shapes must be tested through the bridge.
   NEXT: poToken/BotGuard WebView bridge (#113) remains the streaming
   hardening; Tauri android job retirement at parity (#111 phase 3).
+
+## agent-onyx — 2026-11-12
+WORKING: triaging independent pre-merge security review (agent verdict: FIX-FIRST, 0 P0 / 5 P1 / 12 P2)
+DONE:
+- P1-1 prefetchUpcoming was DEAD CODE (never called; changelog claimed it) → wired into resolveAndPlay success; new `{"background":true}` flag on track.resolve routes it to the core's BG budget (mobile.rs)
+- P1-2 stale-resolve race → playGeneration token + resolveJob cancel; failures only act when the failed track is still at the playhead
+- P1-3 offline queue wipe → no auto-skip when offline/every-track-fails + MAX_AUTO_SKIPS=3 cap with honest message
+- P1-4 updater integrity → sha256 digest from GitHub API verified post-download (mobile.rs passes assetDigest), size ceiling mid-stream, real cancellation (ensureActive), ActivityNotFoundException guard
+- P1-5 year-as-duration → parse_duration_colon (colon shape required) at both subtitle-tail sites + test `parse_duration_colon_rejects_bare_numbers`
+- P2 batch: shelf durations passed, EQ bars stop ticking when paused, settings.save mutex, initNative idempotent+catch_unwind, OOM → throw_new, videoId charset gate, loadMore breadcrumbs, notes per-line cap, MusicoApp toast keyed on errorSeq, release.yml derives versionCode/Name from tag, offline saves on BG budget, LRCLIB rung-1.5 (api_get without duration behind word-set gate)
+- Verified: 105 lib tests, android-target check, gradle compileReleaseKotlin all green
+NEXT: commit+push → CI → PR → merge main → tag v0.9.1 → v0.9.2 for the on-phone updater E2E test
