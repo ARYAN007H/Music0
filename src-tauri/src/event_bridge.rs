@@ -605,7 +605,10 @@ mod preresolve_tests {
 }
 
 /// Track-mode / LUFS normalization: gain = 10^((target_db − track_db) / 20).
-/// `SongRecord.replay_gain_db` holds the track's measured RMS in dBFS.
+/// `SongRecord.replay_gain_db` holds the track's measured RMS in dBFS; online
+/// tracks carry YouTube's own measured loudness (captured from the
+/// InnerTube-direct player response — the same `audioConfig` the
+/// Metrolist/InnerTune clients normalize with).
 fn apply_normalization(eng: &Arc<PlaybackEngine>, state: &tauri::State<AppState>, song_id: &str) {
     let (enabled, target_db) = {
         let s = state.settings.lock().unwrap_or_else(|e| e.into_inner());
@@ -621,13 +624,35 @@ fn apply_normalization(eng: &Arc<PlaybackEngine>, state: &tauri::State<AppState>
         let _ = eng.set_norm_gain(1.0);
         return;
     }
-    let Some(rec) = &state.recommender else { return };
-    if let Ok(r) = rec.lock() {
-        if let Ok(Some(record)) = r.get_song_by_id(song_id) {
-            let factor = 10f32.powf((target_db - record.replay_gain_db) / 20.0);
-            let _ = eng.set_norm_gain(factor.clamp(0.1, 4.0));
+    // 1. Local files: scan-computed ReplayGain from the recommender DB.
+    if let Some(rec) = &state.recommender {
+        if let Ok(r) = rec.lock() {
+            if let Ok(Some(record)) = r.get_song_by_id(song_id) {
+                let factor = 10f32.powf((target_db - record.replay_gain_db) / 20.0);
+                let _ = eng.set_norm_gain(factor.clamp(0.1, 4.0));
+                return;
+            }
         }
     }
+    // 2. Online tracks: YouTube's measured loudness for this exact video.
+    //    The gain is clamped to YouTube-client norms (−15..+3 dB) so a bogus
+    //    or absent measurement can never blast a quiet track.
+    if let Some(video_id) = song_id.strip_prefix("yt:") {
+        match crate::online::sources::stream_loudness(video_id) {
+            Some(measured_lufs) => {
+                let gain_db = (target_db - measured_lufs).clamp(-15.0, 3.0);
+                let _ = eng.set_norm_gain(10f32.powf(gain_db / 20.0));
+            }
+            // Resolved via Piped/yt-dlp/Saavn — no loudness metadata exists.
+            // Reset to unity so the previous track's gain never leaks over.
+            None => {
+                let _ = eng.set_norm_gain(1.0);
+            }
+        }
+        return;
+    }
+    // 3. No measurement of any kind — unity, never carry the old gain over.
+    let _ = eng.set_norm_gain(1.0);
 }
 
 fn emit_queue_snapshot(handle: &AppHandle, state: &tauri::State<AppState>) {

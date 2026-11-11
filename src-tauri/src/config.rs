@@ -43,6 +43,12 @@ pub struct AppSettings {
     /// UI theme: "light" | "dark"
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// UI design language (skin): "ios" (Cupertino default) | "m3e"
+    /// (Material 3 Expressive). Orthogonal to theme/palette — the M3E skin
+    /// re-skins every surface while light/dark and the accent palette keep
+    /// working under it.
+    #[serde(default = "default_skin")]
+    pub skin: String,
     /// Keep the music going when the queue runs dry (radio/related picks).
     /// Apple Music calls this Autoplay; default on.
     #[serde(default = "default_true")]
@@ -109,6 +115,7 @@ fn default_norm() -> String { "Off".into() }
 fn default_crossfade_duration() -> f32 { 3.0 }
 fn default_view_mode() -> String { "list".into() }
 fn default_theme() -> String { "light".into() }
+fn default_skin() -> String { "ios".into() }
 fn default_streaming_quality() -> String { "high".into() }
 fn default_download_quality() -> String { "high".into() }
 fn default_sample_rate() -> u32 { 48000 }
@@ -135,6 +142,7 @@ impl Default for AppSettings {
             shuffle_mode: 0,
             repeat_mode: 0,
             theme: default_theme(),
+            skin: default_skin(),
             autoplay: true,
             online_cache_mb: None,
             offline_mode: false,

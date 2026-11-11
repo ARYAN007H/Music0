@@ -32,9 +32,10 @@
 //! Like the rest of `online`, this module is kept in this standalone
 //! repository so the offline player can be built and shipped without it.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -54,11 +55,110 @@ const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 /// Metadata responses are small; anything larger is not the API we asked for.
 const MAX_METADATA_BYTES: u64 = 2 * 1024 * 1024;
 
-/// Highest audio bitrate we accept from an instance. itag 140 (~128 kbps AAC)
-/// is the target; a little headroom keeps variant bitrates usable. Streams
-/// above this are video-derived or mislabeled — slower downloads for the same
-/// audio.
+/// Default highest audio bitrate we accept from an instance. itag 140
+/// (~128 kbps AAC) is the target; a little headroom keeps variant bitrates
+/// usable. Streams above this are video-derived or mislabeled — slower
+/// downloads for the same audio. The `high`/`lossless` tiers raise this to
+/// [`HIGH_TIER_AUDIO_BITRATE`].
 const MAX_AUDIO_BITRATE: u64 = 192_000;
+
+/// Fast-path ceiling unlocked by the `high`/`lossless` quality tiers. This is
+/// the itag-141 class (256 kbps audio-only AAC) — the same rung the yt-dlp
+/// selector already picks on those tiers, so the fast path now keeps pace
+/// instead of silently capping quality at 192k.
+const HIGH_TIER_AUDIO_BITRATE: u64 = 256_000;
+
+/// Effective fast-path bitrate ceiling for the active quality tier.
+/// Mirrors `stream.rs::yt_dlp_format_selector`: the download tier wins when
+/// explicitly set, else the streaming tier. Loads settings directly — the
+/// same pattern, called once per resolve on a worker thread.
+fn fast_path_bitrate_cap() -> u64 {
+    let settings = crate::config::AppSettings::load();
+    tier_cap(&settings.download_quality, &settings.streaming_quality)
+}
+
+/// Pure tier → ceiling mapping (`high`/`lossless` unlock 256k), so the
+/// policy is unit-testable without touching process settings.
+fn tier_cap(download_quality: &str, streaming_quality: &str) -> u64 {
+    let high = |tier: &str| tier == "high" || tier == "lossless";
+    if high(download_quality) || high(streaming_quality) {
+        HIGH_TIER_AUDIO_BITRATE
+    } else {
+        MAX_AUDIO_BITRATE
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stream loudness (YouTube audioConfig → normalization)
+// ---------------------------------------------------------------------------
+
+/// YouTube's own playback loudness reference (LUFS). The InnerTube player
+/// response reports each track's measured loudness against this level; the
+/// normalization hook converts it to a static gain toward the user's target.
+/// (Same reference the Metrolist/InnerTune clients use.)
+const YT_REFERENCE_LUFS: f32 = -7.0;
+
+/// Session-scoped per-track loudness captured from InnerTube-direct player
+/// responses (`playerConfig.audioConfig`), keyed by video id. Consumed by the
+/// event bridge's normalization hook so online tracks get the same
+/// loudness-match treatment local files get from scan-computed ReplayGain.
+/// Tracks resolved through Piped/Invidious/yt-dlp/Saavn carry no loudness
+/// metadata and simply stay at unity gain.
+static STREAM_LOUDNESS: LazyLock<Mutex<HashMap<String, f32>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Loudness map bound — a long session with heavy prefetching is the only way
+/// to approach this; the map clears wholesale when full (same policy as the
+/// search cache).
+const STREAM_LOUDNESS_CAP: usize = 4096;
+
+/// Records a track's measured LUFS. `loudness_db` is YouTube's delta above
+/// the reference level; `perceptual_db`, when present, is the measured LUFS
+/// directly and wins.
+fn store_stream_loudness(video_id: &str, loudness_db: Option<f64>, perceptual_db: Option<f64>) {
+    let measured = match perceptual_db {
+        Some(p) => p as f32,
+        // No perceptual value: reconstruct the measured loudness from the
+        // delta and the reference level.
+        None => match loudness_db {
+            Some(l) => (l as f32) + YT_REFERENCE_LUFS,
+            None => return,
+        },
+    };
+    let mut map = STREAM_LOUDNESS.lock().unwrap_or_else(|e| e.into_inner());
+    if map.len() >= STREAM_LOUDNESS_CAP && !map.contains_key(video_id) {
+        map.clear();
+    }
+    map.insert(video_id.to_string(), measured);
+}
+
+/// The measured LUFS for a previously-resolved track, if it was captured.
+pub fn stream_loudness(video_id: &str) -> Option<f32> {
+    STREAM_LOUDNESS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(video_id)
+        .copied()
+}
+
+/// Pulls `playerConfig.audioConfig.{loudnessDb,perceptualLoudnessDb}` out of a
+/// player response and records it. Best-effort: absent fields (or a shape
+/// change) simply leave the track at unity gain.
+fn capture_stream_loudness(body: &[u8], video_id: &str) {
+    let Ok(val) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return;
+    };
+    let Some(config) = val.pointer("/playerConfig/audioConfig") else {
+        return;
+    };
+    store_stream_loudness(
+        video_id,
+        config.get("loudnessDb").and_then(|v| v.as_f64()),
+        config
+            .get("perceptualLoudnessDb")
+            .and_then(|v| v.as_f64()),
+    );
+}
 
 /// Default Piped API instances (verified alive 2026-11-01; the ecosystem
 /// churns — runtime failover absorbs outages, env overrides below let users
@@ -318,9 +418,9 @@ fn parse_audio_streams(meta: &PipedStreams) -> Vec<PipedAudio> {
 }
 
 /// Selects the best downloadable m4a from a Piped `audioStreams` array:
-/// `audio/mp4` only, bitrate ≤ [`MAX_AUDIO_BITRATE`], highest first. Pure —
-/// exercised against embedded fixtures including junk input.
-fn select_best_m4a(streams: &[PipedAudio]) -> Option<String> {
+/// `audio/mp4` only, bitrate ≤ `cap`, highest first. Pure — exercised against
+/// embedded fixtures including junk input.
+fn select_best_m4a_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
     streams
         .iter()
         .filter(|s| {
@@ -328,10 +428,16 @@ fn select_best_m4a(streams: &[PipedAudio]) -> Option<String> {
                 .as_deref()
                 .is_some_and(|m| m.starts_with("audio/mp4"))
         })
-        .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= MAX_AUDIO_BITRATE))
+        .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
         .filter(|s| s.url.starts_with("https://"))
         .max_by_key(|s| s.bitrate.unwrap_or(0))
         .map(|s| s.url.clone())
+}
+
+/// The default-cap variant — the unit-test target for the fixture suite.
+#[cfg(test)]
+fn select_best_m4a(streams: &[PipedAudio]) -> Option<String> {
+    select_best_m4a_within(streams, MAX_AUDIO_BITRATE)
 }
 
 impl AudioSource for PipedSource {
@@ -357,8 +463,15 @@ impl AudioSource for PipedSource {
             .map_err(|e| format!("piped {}: metadata body: {e}", self.host))?;
         let parsed: PipedStreams = serde_json::from_slice(&bytes)
             .map_err(|e| format!("piped {}: metadata parse: {e}", self.host))?;
-        let url = select_best_m4a(&parse_audio_streams(&parsed))
-            .ok_or_else(|| format!("piped {}: no usable audio/mp4 stream ≤192k", self.host))?;
+        let cap = fast_path_bitrate_cap();
+        let url = select_best_m4a_within(&parse_audio_streams(&parsed), cap)
+            .ok_or_else(|| {
+                format!(
+                    "piped {}: no usable audio/mp4 stream ≤{}k",
+                    self.host,
+                    cap / 1000
+                )
+            })?;
 
         let dl_budget = remaining(deadline)?;
         let resp = client
@@ -783,7 +896,7 @@ impl AudioSource for InnerTubeDirectSource {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-        let mut last_err = String::from("no client profile attempted");
+        let mut last_err = String::from("innertube-direct:");
 
         for p in Self::CLIENTS {
             if it_demoted(p.id) {
@@ -795,7 +908,7 @@ impl AudioSource for InnerTubeDirectSource {
             }
             let visitor = visitor_data(client, deadline);
             if p.needs_visitor && visitor.is_none() {
-                last_err = format!("{}: visitor data unavailable", p.id);
+                last_err = format!("{last_err}; {}: visitor data unavailable", p.id);
                 continue;
             }
             let payload = build_player_payload(p, video_id, visitor.as_deref());
@@ -820,20 +933,20 @@ impl AudioSource for InnerTubeDirectSource {
                 Ok(r) => r,
                 Err(e) => {
                     it_demote(p.id);
-                    last_err = format!("{}: player request: {e}", p.id);
+                    last_err = format!("{last_err}; {}: player request: {e}", p.id);
                     continue;
                 }
             };
             if !meta.status().is_success() {
                 it_demote(p.id);
-                last_err = format!("{}: HTTP {}", p.id, meta.status());
+                last_err = format!("{last_err}; {}: HTTP {}", p.id, meta.status());
                 continue;
             }
             let bytes = match read_capped(meta, MAX_METADATA_BYTES) {
                 Ok(b) => b,
                 Err(e) => {
                     it_demote(p.id);
-                    last_err = format!("{}: body: {e}", p.id);
+                    last_err = format!("{last_err}; {}: body: {e}", p.id);
                     continue;
                 }
             };
@@ -842,7 +955,7 @@ impl AudioSource for InnerTubeDirectSource {
                 other => {
                     it_demote(p.id);
                     last_err = format!(
-                        "{}: playability {}",
+                        "{last_err}; {}: playability {}",
                         p.id,
                         other.unwrap_or("response missing playabilityStatus")
                     );
@@ -850,13 +963,19 @@ impl AudioSource for InnerTubeDirectSource {
                 }
             }
             let ready = playback_ready(parse_innertube_player_streams(&bytes));
-            let url = match select_best_m4a(&ready) {
+            // Capture the track's loudness metadata for the normalization
+            // hook before anything can fail below — the player response is
+            // the only place YouTube reports it.
+            capture_stream_loudness(&bytes, video_id);
+            let cap = fast_path_bitrate_cap();
+            let url = match select_best_m4a_within(&ready, cap) {
                 Some(u) => u,
                 None => {
                     it_demote(p.id);
                     last_err = format!(
-                        "{}: no playback-ready direct audio/mp4 <=192k (cipher-only or n-param streams)",
-                        p.id
+                        "{last_err}; {}: no playback-ready direct audio/mp4 <={}k (cipher-only or n-param streams)",
+                        p.id,
+                        cap / 1000
                     );
                     continue;
                 }
@@ -872,13 +991,13 @@ impl AudioSource for InnerTubeDirectSource {
                 Ok(r) => r,
                 Err(e) => {
                     it_demote(p.id);
-                    last_err = format!("{}: download: {e}", p.id);
+                    last_err = format!("{last_err}; {}: download: {e}", p.id);
                     continue;
                 }
             };
             if !resp.status().is_success() {
                 it_demote(p.id);
-                last_err = format!("{}: download HTTP {}", p.id, resp.status());
+                last_err = format!("{last_err}; {}: download HTTP {}", p.id, resp.status());
                 continue;
             }
             let ctype = resp
@@ -889,7 +1008,7 @@ impl AudioSource for InnerTubeDirectSource {
                 .to_ascii_lowercase();
             if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
                 it_demote(p.id);
-                last_err = format!("{}: content-type `{ctype}` is not audio", p.id);
+                last_err = format!("{last_err}; {}: content-type `{ctype}` is not audio", p.id);
                 continue;
             }
             it_rehab(p.id);
@@ -1323,6 +1442,73 @@ mod tests {
     fn visitor_data_absent_or_empty_is_none() {
         assert_eq!(extract_visitor_data("<html>nope</html>"), None);
         assert_eq!(extract_visitor_data("\"VISITOR_DATA\":\"\""), None);
+    }
+
+    #[test]
+    fn tier_cap_unlocks_256k_only_on_high_tiers() {
+        assert_eq!(tier_cap("high", "low"), HIGH_TIER_AUDIO_BITRATE);
+        assert_eq!(tier_cap("lossless", "normal"), HIGH_TIER_AUDIO_BITRATE);
+        assert_eq!(tier_cap("low", "high"), HIGH_TIER_AUDIO_BITRATE);
+        assert_eq!(tier_cap("low", "normal"), MAX_AUDIO_BITRATE);
+        assert_eq!(tier_cap("normal", "low"), MAX_AUDIO_BITRATE);
+        // Unknown tiers stay conservative.
+        assert_eq!(tier_cap("", ""), MAX_AUDIO_BITRATE);
+    }
+
+    #[test]
+    fn high_tier_selector_accepts_256k_stream() {
+        let streams = vec![
+            pa("https://a/140", Some(128_000)),
+            pa("https://a/256", Some(256_000)),
+        ];
+        assert_eq!(
+            select_best_m4a_within(&streams, HIGH_TIER_AUDIO_BITRATE).as_deref(),
+            Some("https://a/256")
+        );
+        // The default cap still rejects it (video-derived guard).
+        assert_eq!(select_best_m4a(&streams).as_deref(), Some("https://a/140"));
+    }
+
+    #[test]
+    fn stream_loudness_roundtrip() {
+        // Unique ids keep these tests independent of the shared static and of
+        // parallel tests.
+        store_stream_loudness("loud-roundtrip-perceptual", Some(2.0), Some(-13.5));
+        assert_eq!(stream_loudness("loud-roundtrip-perceptual"), Some(-13.5));
+
+        // Without a perceptual value the measured loudness is reconstructed
+        // from the delta above the YouTube reference level (-7 LUFS).
+        store_stream_loudness("loud-roundtrip-delta", Some(-2.5), None);
+        assert_eq!(stream_loudness("loud-roundtrip-delta"), Some(-9.5));
+
+        // Nothing captured → None (Piped/yt-dlp/Saavn resolves).
+        assert_eq!(stream_loudness("loud-roundtrip-unknown"), None);
+    }
+
+    #[test]
+    fn capture_stream_loudness_reads_audio_config() {
+        let body = br#"{
+            "playabilityStatus": {"status": "OK"},
+            "playerConfig": {
+                "audioConfig": {
+                    "loudnessDb": 1.25,
+                    "perceptualLoudnessDb": -11.75
+                }
+            }
+        }"#;
+        capture_stream_loudness(body, "loud-capture-perceptual");
+        assert_eq!(stream_loudness("loud-capture-perceptual"), Some(-11.75));
+
+        // Delta-only shape (no perceptual field).
+        let body = br#"{
+            "playerConfig": {"audioConfig": {"loudnessDb": 0.5}}
+        }"#;
+        capture_stream_loudness(body, "loud-capture-delta");
+        assert_eq!(stream_loudness("loud-capture-delta"), Some(-6.5));
+
+        // Missing audioConfig or a shape change leaves nothing behind.
+        capture_stream_loudness(br#"{"playabilityStatus":{}}"#, "loud-capture-absent");
+        assert_eq!(stream_loudness("loud-capture-absent"), None);
     }
 
     #[test]
