@@ -325,7 +325,16 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
         "app.update.check" => {
             const RELEASES_API: &str = "https://api.github.com/repos/ARYAN007H/Music0/releases/latest";
-            let current = env!("CARGO_PKG_VERSION"); // e.g. "0.9.1" — matches the app version at build time
+            // Updater test rig: a dispatch build may POSE as an older
+            // version (compile-time override) so the whole update flow can
+            // run against the latest published release. Release builds
+            // never set the env and use the crate version. Kept separate
+            // from versionCode so posing never trips Android's downgrade
+            // protection.
+            let current = match option_env!("MUSICO_VERSION_OVERRIDE") {
+                Some(v) if !v.trim().is_empty() => v.trim(),
+                _ => env!("CARGO_PKG_VERSION"),
+            };
             let client = reqwest::blocking::Client::builder()
                 .user_agent(format!("Music0-Android/{current}"))
                 .connect_timeout(std::time::Duration::from_secs(5))

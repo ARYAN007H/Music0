@@ -295,9 +295,13 @@ jobs:
       - name: Build Rust core (libmusico_online_lib.so)
         # Same cdylib the Tauri shell loads — the native app reaches it via
         # the mobile JNI bridge (#111). --lib: the desktop bin is not part
-        # of the phone artifact.
+        # of the phone artifact. MUSICO_VERSION_OVERRIDE is the updater test
+        # rig: a dispatch posing as an older version compiles that string
+        # into app.update.check (never set for real releases).
         run: cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release --lib
         working-directory: src-tauri
+        env:
+          MUSICO_VERSION_OVERRIDE: ${{ inputs.version_name || '' }}
 
       - name: Ensure libc++_shared.so is packed
         # Same hunt as the Tauri android job: NDK r30 dropped the well-known
