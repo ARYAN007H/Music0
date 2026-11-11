@@ -12,14 +12,31 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-12
+
+The update experience becomes first-class, and the shell looks the way a
+floating dock always should. Proven end-to-end on-device (Android 17):
+release check → notification + banner → download → sha256 verification →
+system installer hand-off.
+
 ### Added (Android native)
 
-- Release notifications: the updater now checks GitHub releases on
-  **every app launch** (the old once-per-24 h gate buried the only
-  update channel), and a newly discovered release posts a system
-  notification — once per version, tapping it opens the app and starts
-  the download immediately. POST_NOTIFICATIONS is requested once on
-  first launch (Android 13+).
+- Release notifications: the updater checks GitHub releases on **every
+  app launch** (the old once-per-24 h gate buried the only update
+  channel), and a newly discovered release posts a system notification —
+  once per version, tapping it opens the app and starts the download
+  immediately. POST_NOTIFICATIONS is requested once on first launch
+  (Android 13+).
+- The in-app update banner is a floating popup now: docked below the
+  status bar, never pushing the page down or sliding under the clock,
+  with live MB download progress in place of the label.
+- A fully downloaded + digest-verified APK is reused when retrying
+  (e.g. after granting "Install unknown apps") — no 40 MB re-download
+  for the same release.
+- Dispatch builds can pose as an older version (compile-time
+  MUSICO_VERSION_OVERRIDE via the release workflow inputs) to exercise
+  the whole update flow against the latest published release without
+  cutting a fake tag or tripping downgrade protection.
 
 ### Fixed (Android native)
 

@@ -622,3 +622,13 @@ DONE:
 - P2 batch: shelf durations passed, EQ bars stop ticking when paused, settings.save mutex, initNative idempotent+catch_unwind, OOM → throw_new, videoId charset gate, loadMore breadcrumbs, notes per-line cap, MusicoApp toast keyed on errorSeq, release.yml derives versionCode/Name from tag, offline saves on BG budget, LRCLIB rung-1.5 (api_get without duration behind word-set gate)
 - Verified: 105 lib tests, android-target check, gradle compileReleaseKotlin all green
 NEXT: commit+push → CI → PR → merge main → tag v0.9.1 → v0.9.2 for the on-phone updater E2E test
+
+## agent-onyx — 2026-11-12 (2)
+WORKING: 0.9.3 release — update experience + shell polish
+DONE:
+- E2E updater PROVEN on-device (Android 17): pose build 0.9.1 (MUSICO_VERSION_OVERRIDE, versionCode unchanged → no downgrade trip) → every-launch check → banner + system notification (id=41, channel app_updates) → tap → 40 MB download → sha256 digest verified → "Permission required" unknown-sources gate (one-time) → "Update this app?" → Google Play Protect scan → installed 0.9.2-native
+- Update banner → floating popup (TopCenter, statusBarsPadding, shadowElevation, live MB progress; no page push / clock overlap)
+- Downloaded-APK reuse on retry (verifyApk against digest/size → skip re-download after permission round-trip)
+- Floating pills fix (from #117) + notifications confirmed working on-device
+- release.yml: dispatch inputs now override versionCode/versionName (test rig)
+NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9.2→0.9.3 through the real flow
