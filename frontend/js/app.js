@@ -172,6 +172,13 @@ const App = (() => {
     try { localStorage.setItem('musico-theme', s.theme === 'dark' ? 'dark' : 'light'); } catch (e) {}
     document.querySelectorAll('[data-theme-pill]').forEach((p) =>
       p.classList.toggle('active', p.dataset.themePill === (s.theme === 'dark' ? 'dark' : 'light')));
+    // Design language (skin): "ios" is the default look — an unset/unknown
+    // value must render as iOS, not break the attribute off.
+    const skin = s.skin === 'm3e' ? 'm3e' : 'ios';
+    document.documentElement.setAttribute('data-skin', skin);
+    try { localStorage.setItem('musico-skin', skin); } catch (e) {}
+    document.querySelectorAll('[data-skin-pill]').forEach((p) =>
+      p.classList.toggle('active', p.dataset.skinPill === skin));
     if (s.palette) {
       document.documentElement.setAttribute('data-palette', s.palette);
       document.querySelectorAll('.swatch').forEach((sw) =>
@@ -422,6 +429,22 @@ const App = (() => {
         document.documentElement.setAttribute('data-theme', theme);
         try { localStorage.setItem('musico-theme', theme); } catch (e) {}
         persistSettings({ theme });
+      });
+    });
+
+    // Design language (skin) pills — the whole-app look, applied live: the
+    // attribute flips every token in m3-expressive.css at once.
+    document.querySelectorAll('[data-skin-pill]').forEach((pill) => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('[data-skin-pill]').forEach((p) => p.classList.remove('active'));
+        pill.classList.add('active');
+        const skin = pill.dataset.skinPill === 'm3e' ? 'm3e' : 'ios';
+        document.documentElement.setAttribute('data-skin', skin);
+        try { localStorage.setItem('musico-skin', skin); } catch (e) {}
+        persistSettings({ skin });
+        showToast(skin === 'm3e'
+          ? 'Material 3 Expressive design language applied'
+          : 'iOS design language applied');
       });
     });
 

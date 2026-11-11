@@ -390,10 +390,11 @@ pub(crate) fn try_cross_source_resolve(track: &OnlineTrack) -> Option<PathBuf> {
                 let ct = norm_title(&c.title);
                 let ca = c.artist.to_lowercase();
                 let title_ok = !ct.is_empty() && (ct.contains(&req_title) || req_title.contains(&ct));
-                let artist_ok = req_artist.is_empty()
-                    || req_artist
-                        .split_whitespace()
-                        .any(|tok| tok.len() >= 2 && ca.contains(tok));
+            let artist_ok = req_artist.is_empty()
+                || req_artist
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|tok| tok.chars().all(char::is_alphanumeric))
+                    .any(|tok| tok.len() >= 2 && ca.contains(tok));
                 title_ok && artist_ok
             })
             .filter(|c| duration_plausible(track.duration_secs, c.duration_secs))
