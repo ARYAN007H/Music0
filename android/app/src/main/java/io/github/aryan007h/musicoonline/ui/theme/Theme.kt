@@ -1,9 +1,5 @@
 package io.github.aryan007h.musicoonline.ui.theme
 
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -18,32 +14,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ── Motion: one shared spring vocabulary — Material 3 Expressive reads as
-//    "playful but physical" when every animation uses the same family. ─────
-
-object MusicoMotion {
-    /** The expressive spring: bouncy enough to feel alive, settles fast. */
-    fun <T> expressive() = spring<T>(
-        dampingRatio = Spring.DampingRatioMediumBouncy,
-        stiffness = Spring.StiffnessMediumLow,
-    )
-
-    /** Snappier variant for small elements (icons, chips). */
-    fun <T> snappy() = spring<T>(
-        dampingRatio = Spring.DampingRatioLowBouncy,
-        stiffness = Spring.StiffnessMedium,
-    )
-
-    /** Gentle default for fades and containers. */
-    fun <T> gentle() = spring<T>(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessLow,
-    )
-
-    /** Emphasized easing from the M3 spec, for tweens where springs overshoot. */
-    val emphasizedEasing: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
-    const val tweenMs = 350
-}
+// ── Motion lives in Motion.kt (the one MusicoMotion vocabulary). ──────────
 
 // ── Shapes: big radii everywhere; cards nearly pill out. ─────────────────
 

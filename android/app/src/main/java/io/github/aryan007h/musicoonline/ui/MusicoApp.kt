@@ -855,7 +855,7 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
                         PillItem(
                             dest = dest,
                             selected = current == dest.tab,
-                            onClick = onSelect,
+                            onClick = { onSelect(dest.tab) },
                             onBounds = { rect -> itemBounds[dest.tab] = rect },
                         )
                     }

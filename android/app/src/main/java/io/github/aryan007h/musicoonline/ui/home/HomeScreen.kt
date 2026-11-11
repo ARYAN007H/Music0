@@ -270,7 +270,7 @@ private fun HeroCarousel(
                     val s = 1f - 0.06f * abs
                     scaleX = s
                     scaleY = s
-                    alpha = 1f - 0.35f * (abs(offset) - 1f).coerceIn(0f, 1f)
+                    alpha = 1f - 0.35f * (kotlin.math.abs(offset) - 1f).coerceIn(0f, 1f)
                 },
             )
         }

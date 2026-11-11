@@ -17,6 +17,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -99,7 +104,7 @@ fun Artwork(
     cornerRadius: Dp = Musico.extras.cardRadius,
     placeholderIcon: ImageVector = Icons.Filled.MusicNote,
 ) {
-    val request = androidx.coil.request.ImageRequest.Builder(LocalContext.current)
+    val request = coil.request.ImageRequest.Builder(LocalContext.current)
         .data(url)
         .crossfade(220)
         .build()
@@ -340,10 +345,12 @@ fun LikeButton(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
+        // Read the composable palette value OUTSIDE the draw lambda.
+        val ringColor = Musico.extras.coral
         if (ring.value > 0.01f && ring.value < 0.99f) {
             Canvas(Modifier.size(size * 2.2f)) {
                 drawCircle(
-                    color = Musico.extras.coral,
+                    color = ringColor,
                     radius = this.size.minDimension / 2f * ring.value,
                     alpha = (1f - ring.value) * 0.55f,
                     style = Stroke(width = 2.dp.toPx() * (1f - ring.value * 0.6f)),
@@ -361,7 +368,7 @@ fun LikeButton(
                     scaleY = burst.value
                 }
                 .clickable {
-                    view.tick()
+                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
                     onToggle()
                 },
         )
