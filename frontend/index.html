@@ -16,6 +16,16 @@
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
     var skin = localStorage.getItem('musico-skin');
     if (skin === 'm3e' || skin === 'ios') document.documentElement.setAttribute('data-skin', skin);
+    // The M3E skin's webfonts load only when the skin is active — an
+    // unconditional @import in the skin CSS would fetch them for every
+    // user on every launch, skin or not.
+    if (skin === 'm3e') {
+      var l = document.createElement('link');
+      l.id = 'm3e-fonts';
+      l.rel = 'stylesheet';
+      l.href = 'https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300;8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap';
+      document.head.appendChild(l);
+    }
   } catch (e) {}
 </script>
 

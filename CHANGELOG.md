@@ -12,6 +12,34 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+### Added (Desktop)
+
+- **Material 3 Expressive design language** — a second, whole-app skin alongside
+  the default Cupertino look. Settings → Themes → Design Language flips every
+  surface live (no restart): tonal surfaces derived from the active accent
+  palette via `color-mix()` (dynamic color), the M3 shape scale (4/8/12/16/28/
+  full), pill navigation indicators, M3 switches and filter chips, expressive
+  motion (emphasized easings, springy hover lifts, shape-morphing presses) —
+  all transform/opacity only, with a `prefers-reduced-motion` fallback. The
+  skin rides in as `html[data-skin="m3e"]` in a new final CSS layer
+  (`m3-expressive.css`); the iOS look is untouched. Persisted in settings
+  (`skin`) and localStorage; the WCAG contrast gate now covers both skins
+  across every palette × theme (144 pairs, all ≥ 4.5:1).
+
+### Improved (Desktop)
+
+- **Online tracks now loudness-normalize.** The InnerTube-direct player
+  response's `audioConfig` loudness (the same `loudnessDb`/`perceptualLoudnessDb`
+  the Metrolist/InnerTune clients use, referenced to −7 LUFS) is captured per
+  track and applied as a static gain toward the user's LUFS target, clamped to
+  −15..+3 dB. Local files keep scan-computed ReplayGain; tracks resolved via
+  Piped/yt-dlp/Saavn reset to unity instead of inheriting the previous track's
+  gain (a quiet leak the old code had).
+- **Fast-path audio quality follows the quality tiers.** `high`/`lossless`
+  unlock the itag-141 class (256 kbps AAC) in the Piped/InnerTube-direct fast
+  path — previously hard-capped at 192 kbps while yt-dlp already fetched 256k
+  on those tiers.
+
 ## [0.9.4] - 2026-11-12
 
 ### Fixed (Android native)

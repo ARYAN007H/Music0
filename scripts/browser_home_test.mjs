@@ -1,4 +1,11 @@
-import { chromium } from 'playwright';
+// playwright when available; playwright-core + the system chrome
+// (channel: 'chrome') is enough and downloads nothing.
+let chromium;
+try {
+  ({ chromium } = await import('playwright'));
+} catch {
+  ({ chromium } = await import('playwright-core'));
+}
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const page = await browser.newPage();
 const errors = [];
