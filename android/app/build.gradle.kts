@@ -8,8 +8,8 @@ plugins {
 // versionCode/versionName: CI overrides versionCode per release
 // (-PmusicoVersionCode / -PmusicoVersionName); defaults keep local
 // `gradle assembleDebug` working without inputs.
-val musicoVersionCode: Int = (project.findProperty("musicoVersionCode") as String?)?.toInt() ?: 90100
-val musicoVersionName: String = project.findProperty("musicoVersionName") as String? ?: "0.9.1-native"
+val musicoVersionCode: Int = (project.findProperty("musicoVersionCode") as String?)?.toInt() ?: 90200
+val musicoVersionName: String = project.findProperty("musicoVersionName") as String? ?: "0.9.2-native"
 
 android {
     namespace = "io.github.aryan007h.musicoonline"
