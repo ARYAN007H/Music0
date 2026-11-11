@@ -155,16 +155,22 @@ fun EqualizerBars(
             verticalAlignment = Alignment.Bottom,
         ) {
             repeat(barCount) { i ->
-                val transition = rememberInfiniteTransition(label = "eq$i")
-                val bounce by transition.animateFloat(
-                    initialValue = 0.25f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 420 + i * 120, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                    label = "bar$i",
-                )
+                // The infinite transition only exists while playing — a
+                // paused mini player must not tick the frame clock forever.
+                val bounce = if (playing) {
+                    val transition = rememberInfiniteTransition(label = "eq$i")
+                    transition.animateFloat(
+                        initialValue = 0.25f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 420 + i * 120, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "bar$i",
+                    ).value
+                } else {
+                    0.45f
+                }
                 val targetHeight = if (playing) 4.dp + 10.dp * bounce else 3.dp
                 val height by animateDpAsState(
                     targetValue = targetHeight,

@@ -91,6 +91,62 @@ mod live_tests {
         println!("radio: {} related tracks", radio.len());
     }
 
+    /// Live reproduction of the "lyrics are a mix of english and chinese"
+    /// bug: Backbone (Hardy Sandhu) with NO duration — the pre-gate code
+    /// handed the shortest same-titled song worldwide to the lyric stage.
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_lyrics_durationless_no_foreign_song() {
+        // Shelf-built track: duration unknown.
+        let dto = crate::online::fetch_synced_lyrics("Hardy Sandhu", "Backbone", None);
+        if let Some(d) = dto {
+            let text = d
+                .synced
+                .first()
+                .map(|l| l.text.clone())
+                .or(d.plain.clone())
+                .unwrap_or_default();
+            println!("durationless match first line: {text}");
+            // Chinese characters would mean a foreign song won.
+            let foreign = text.chars().any(|c| ('\u{4E00}'..='\u{9FFF}').contains(&c));
+            assert!(!foreign, "foreign-language lyrics leaked into a Hindi song");
+        } else {
+            println!("durationless: no plausible match — falls back to YTM plain (correct)");
+        }
+        // With the real duration, the exact path still works.
+        let dto = crate::online::fetch_synced_lyrics("Hardy Sandhu", "Backbone", Some(199));
+        println!("with duration: {}", if dto.is_some() { "matched" } else { "none" });
+    }
+
+    /// Live updater check: the real GitHub releases endpoint, the real
+    /// asset-selection and version comparison the in-app updater runs.
+    #[test]
+    #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
+    fn live_update_check() {
+        // Mirrors mobile.rs's dispatch arm (the command lives behind the
+        // android-gated module; the logic under test is this same chain).
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("Music0-Android/0.9.1")
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .expect("client");
+        let reply: serde_json::Value = client
+            .get("https://api.github.com/repos/ARYAN007H/Music0/releases/latest")
+            .send()
+            .expect("fetch")
+            .error_for_status()
+            .expect("status")
+            .json()
+            .expect("json");
+        let tag = reply["tag_name"].as_str().expect("tag_name");
+        let asset = reply["assets"].as_array().expect("assets").iter().find(|a| {
+            a["name"].as_str().map(|n| n.starts_with("musico-online-native") && n.ends_with(".apk")).unwrap_or(false)
+        });
+        assert!(tag.starts_with('v'), "tag {tag} not v-prefixed");
+        assert!(asset.is_some(), "no musico-online-native APK asset on the latest release");
+        println!("latest={tag} asset_url={}", asset.unwrap()["browser_download_url"]);
+    }
+
     /// Live end-to-end personalization pipeline — exactly what the Kotlin
     /// onboarding drives: artist search → radio seed → related tracks, and
     /// language style-card match → genre browse. Verifies the app's

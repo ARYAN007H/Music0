@@ -359,15 +359,23 @@ fn resolve_with(
     // ~10 s budget BEFORE the budgets below start; any failure falls
     // through, leaving the yt-dlp loop (and its semantics from PR #52)
     // untouched as the last resort.
+    let resolve_started = std::time::Instant::now();
     match super::sources::try_fast_path(video_id) {
         Ok(path) => {
+            log::info!(
+                "resolve {video_id}: fast path served in {:.2}s",
+                resolve_started.elapsed().as_secs_f32()
+            );
             prune_cache(cache_cap_bytes());
             return Ok(path);
         }
         Err(e) => {
             // Info, not debug: on-device (Android) this is the one line that
             // explains the toast — per-instance reasons stay at debug.
-            log::info!("fast path exhausted for {video_id}: {e} — falling back to yt-dlp");
+            log::info!(
+                "fast path exhausted for {video_id} after {:.2}s: {e} — falling back to yt-dlp",
+                resolve_started.elapsed().as_secs_f32()
+            );
         }
     }
 

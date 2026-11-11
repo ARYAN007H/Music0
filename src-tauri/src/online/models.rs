@@ -139,6 +139,11 @@ pub struct ShelfItem {
     /// Radio/playlist id for playback contexts (RD…/VL…).
     #[serde(default)]
     pub playlist_id: Option<String>,
+    /// Known duration (seconds) when the wire carried one — list rows on
+    /// detail pages do. Feeds the LRCLIB exact-duration match; shelf cards
+    /// (two-row renderers) don't carry durations on the wire.
+    #[serde(default)]
+    pub duration_secs: Option<u32>,
 }
 
 impl ShelfItem {
@@ -149,7 +154,7 @@ impl ShelfItem {
             title: self.title.clone(),
             artist: self.subtitle.clone(),
             album: String::new(),
-            duration_secs: None,
+            duration_secs: self.duration_secs,
             thumbnail: self.thumbnail.clone(),
             cached: false,
             source: String::new(),

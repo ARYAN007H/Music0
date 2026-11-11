@@ -86,8 +86,10 @@ fun MusicoApp(vm: MusicViewModel) {
     val state by vm.state.collectAsState()
     var sheetTrack by remember { mutableStateOf<io.github.aryan007h.musicoonline.core.OnlineTrack?>(null) }
 
-    // Runtime errors are transient toasts, not pinned banners.
-    androidx.compose.runtime.LaunchedEffect(state.error) {
+    // Runtime errors are transient toasts, not pinned banners. Keyed on the
+    // monotonic seq, not the text: identical consecutive messages (e.g. two
+    // "Added to queue") must each get their own 4 s window.
+    androidx.compose.runtime.LaunchedEffect(state.errorSeq) {
         if (state.error != null) {
             kotlinx.coroutines.delay(4000)
             vm.dismissError()
@@ -101,6 +103,41 @@ fun MusicoApp(vm: MusicViewModel) {
                 .background(MaterialTheme.colorScheme.background),
         ) {
         Column(Modifier.fillMaxSize()) {
+            // Update-available banner (dismissable; once per download)
+            AnimatedVisibility(
+                visible = state.updateInfo?.updateAvailable == true &&
+                    !state.updateDismissed && state.overlay == AppOverlay.NONE,
+                enter = slideInVertically(tween(220)) { -it } + fadeIn(tween(220)),
+                exit = slideOutVertically(tween(180)) { -it } + fadeOut(tween(160)),
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MusicoShapes.chip,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .clickable(onClick = vm::downloadAndInstallUpdate),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Music0 ${state.updateInfo?.latest} available — tap to update",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "Dismiss",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                            modifier = Modifier.clickable(onClick = vm::dismissUpdateBanner),
+                        )
+                    }
+                }
+            }
             TopBar(
                 displayName = state.displayName,
                 coreError = state.error,
@@ -244,6 +281,13 @@ fun MusicoApp(vm: MusicViewModel) {
                     onAutoplayChange = { v -> vm.saveCoreSetting("autoplay", toCoreBool(v)) },
                     onSkipSilenceChange = vm::setSkipSilence,
                     onSpeedChange = vm::setPlaybackSpeed,
+                    updateInfo = state.updateInfo,
+                    updateChecking = state.updateChecking,
+                    updateDownloading = state.updateDownloading,
+                    updateDownloadedMb = state.updateDownloadedMb,
+                    updateTotalMb = state.updateTotalMb,
+                    onCheckUpdates = vm::checkForUpdate,
+                    onUpdateNow = vm::downloadAndInstallUpdate,
                     onQualityChange = vm::setStreamingQuality,
                     onCacheCapChange = vm::setCacheCap,
                     onClearCache = vm::clearStreamCache,

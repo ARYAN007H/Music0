@@ -113,8 +113,9 @@ fn parse_list_item(renderer: &serde_json::Value) -> Option<OnlineTrack> {
             artist = first_part.to_string();
         }
         // The last time-like part is the duration; whatever sits between the
-        // artist and the duration is the album.
-        let has_duration = parts.last().and_then(|p| parse_duration(p));
+        // artist and the duration is the album. Colon-shape only: a trailing
+        // year ("… • 2023") is not a duration.
+        let has_duration = parts.last().and_then(|p| parse_duration_colon(p));
         if let Some(secs) = has_duration {
             duration_secs = Some(secs);
         }
@@ -238,6 +239,19 @@ pub(crate) fn parse_duration(s: &str) -> Option<u32> {
     (total > 0).then_some(total)
 }
 
+/// Like [`parse_duration`], but requires an explicit `m:ss` colon shape —
+/// bare numbers are years or counts, not durations ("2023" must not become
+/// 33:43 of duration; a poisoned `duration_secs` silently disables the
+/// LRCLIB exact-match path). Use wherever a subtitle run is only
+/// *possibly* a duration, never where the field is known to be one.
+pub(crate) fn parse_duration_colon(s: &str) -> Option<u32> {
+    if s.contains(':') {
+        parse_duration(s)
+    } else {
+        None
+    }
+}
+
 /// Parses `playlistPanelVideoRenderer` items out of a `next` (radio) response.
 pub(crate) fn parse_radio_response(json: &serde_json::Value) -> Vec<OnlineTrack> {
     let mut renderers = Vec::new();
@@ -327,6 +341,19 @@ mod tests {
         assert_eq!(parse_duration("0:59"), Some(59));
         assert_eq!(parse_duration("854M plays"), None);
         assert_eq!(parse_duration(""), None);
+    }
+
+    #[test]
+    fn parse_duration_colon_rejects_bare_numbers() {
+        // A release year must never poison duration_secs (review P1-5):
+        // "2023" would parse as 33:43 and silently disable the LRCLIB
+        // exact-duration match for that track.
+        assert_eq!(parse_duration_colon("3:45"), Some(225));
+        assert_eq!(parse_duration_colon("1:02:03"), Some(3723));
+        assert_eq!(parse_duration_colon("2023"), None);
+        assert_eq!(parse_duration_colon("5"), None);
+        assert_eq!(parse_duration_colon("854M plays"), None);
+        assert_eq!(parse_duration_colon(""), None);
     }
 
     #[test]
@@ -741,6 +768,7 @@ pub(crate) fn parse_genre_page(json: &serde_json::Value) -> Vec<ShelfItem> {
             browse_id,
             params,
             playlist_id: None,
+            duration_secs: None,
         });
     }
     out
@@ -831,6 +859,7 @@ fn parse_shelf(container: &serde_json::Value) -> Option<Shelf> {
                 browse_id,
                 params,
                 playlist_id: None,
+                duration_secs: track.duration_secs,
             });
         }
     }
@@ -879,6 +908,20 @@ fn parse_two_row_item(renderer: &serde_json::Value) -> ShelfItem {
         .and_then(|u| u.as_str())
         .map(|u| upscale_thumbnail(u));
 
+    // Two-row subtitles sometimes end with the duration ("3:45 · 5M views"
+    // shapes) — grab it when the LAST run parses as m:ss so lyrics matching
+    // gets the exact-duration path. Absent on many card shapes; optional.
+    // Colon-shape only: an album card whose subtitle ends in a release year
+    // must not feed a bogus 2023 s duration into the lyrics match.
+    let duration_secs = renderer
+        .pointer("/subtitle/runs")
+        .and_then(|v| v.as_array())
+        .and_then(|runs| runs.last())
+        .and_then(|r| r.get("text"))
+        .and_then(|t| t.as_str())
+        .map(str::trim)
+        .and_then(parse_duration_colon);
+
     ShelfItem {
         kind: ItemKind::from_ids(browse_id.as_deref(), video_id.as_deref()),
         title,
@@ -888,6 +931,7 @@ fn parse_two_row_item(renderer: &serde_json::Value) -> ShelfItem {
         browse_id,
         params,
         playlist_id,
+        duration_secs,
     }
 }
 

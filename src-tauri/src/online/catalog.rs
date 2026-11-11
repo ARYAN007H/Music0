@@ -354,6 +354,7 @@ mod tests {
             browse_id: Some("FEmusic_moods_and_genres_category".into()),
             params: Some("ggSUChAK".into()),
             playlist_id: None,
+            duration_secs: None,
         }];
         genres_cache_put(&items);
         let got = match genres_cache_get() {
@@ -379,6 +380,7 @@ mod tests {
                 browse_id: None,
                 params: None,
                 playlist_id: None,
+                duration_secs: None,
             }],
         }
     }
@@ -413,6 +415,7 @@ mod tests {
                     browse_id: None,
                     params: None,
                     playlist_id: None,
+                    duration_secs: None,
                 })
                 .collect(),
         };
