@@ -335,7 +335,7 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 && !asset_url.is_empty()
                 && version_newer(current, &latest);
 
-            serde_json::json!({
+            Ok(serde_json::json!({
                 "current": current,
                 "latest": latest,
                 "updateAvailable": update_available,
@@ -343,7 +343,7 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 "assetName": asset_name,
                 "assetSizeBytes": asset_size,
                 "notes": reply["body"].as_str().unwrap_or_default().lines().take(12).collect::<Vec<_>>().join("\n"),
-            })
+            }))
         }
 
         // ── Stream cache management ───────────────────────────────────────
