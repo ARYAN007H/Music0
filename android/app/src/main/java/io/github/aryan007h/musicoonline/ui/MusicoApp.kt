@@ -145,6 +145,7 @@ fun MusicoApp(vm: MusicViewModel) {
     BackHandler(
         enabled = state.overlay == AppOverlay.SETTINGS || state.overlay == AppOverlay.PROFILE,
     ) { vm.closeOverlay() }
+    BackHandler(enabled = state.overlay == AppOverlay.PROFILE) { vm.closeOverlay() }
     BackHandler(enabled = state.overlay == AppOverlay.EQ) { vm.openOverlay(AppOverlay.SETTINGS) }
     BackHandler(enabled = state.overlay == AppOverlay.DETAIL) { vm.popDetail() }
     BackHandler(enabled = sheetTrack != null) { sheetTrack = null }
@@ -192,13 +193,14 @@ fun MusicoApp(vm: MusicViewModel) {
                     }
                     .clip(RoundedCornerShape(shellRadius)),
             ) {
-                Column(Modifier.fillMaxSize()) {
-                    TopBar(
-                        displayName = state.displayName,
-                        onOpenProfile = { vm.openOverlay(AppOverlay.PROFILE) },
-                        onOpenSettings = { vm.openOverlay(AppOverlay.SETTINGS) },
-                    )
-
+                // No top bar: the app name is gone and the profile lives
+                // in the pill — content owns the screen, held below the
+                // status bar only. The update popup floats OVER this.
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding(),
+                ) {
                     // Tabs glide directionally: the feed the user is leaving
                     // eases out opposite the one arriving — ColorOS-style
                     // depth without a full 3D effect.
@@ -313,6 +315,9 @@ fun MusicoApp(vm: MusicViewModel) {
                     PillNavBar(
                         current = state.tab,
                         onSelect = { tab -> view.tick(); vm.selectTab(tab) },
+                        profileActive = state.overlay == AppOverlay.PROFILE,
+                        onProfile = { view.tick(); vm.openOverlay(AppOverlay.PROFILE) },
+                        displayName = state.displayName,
                     )
                 }
             }
@@ -610,64 +615,6 @@ internal fun toCoreBool(v: Boolean) =
 
 // ── Top bar: brand + avatar with context menu ─────────────────────────────
 
-@Composable
-private fun TopBar(
-    displayName: String,
-    onOpenProfile: () -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Column(Modifier.statusBarsPadding()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Music0",
-                style = Musico.type.display,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            Box {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .pressable(onClick = { menuOpen = true }, pressedScale = 0.88f),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            displayName.trim().take(1).uppercase().ifEmpty { "M" },
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    shape = MusicoShapes.card,
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Profile") },
-                        leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenProfile() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Settings") },
-                        leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                        onClick = { menuOpen = false; onOpenSettings() },
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ── Mini player: morphs the now-playing state into a tap-away pill ────────
 
 @Composable
 private fun MiniPlayer(
@@ -787,7 +734,13 @@ private data class PillDest(
 )
 
 @Composable
-private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
+private fun PillNavBar(
+    current: AppTab,
+    onSelect: (AppTab) -> Unit,
+    profileActive: Boolean,
+    onProfile: () -> Unit,
+    displayName: String,
+) {
     val destinations = remember {
         listOf(
             PillDest(AppTab.HOME, Icons.Filled.Home, "Home"),
@@ -799,7 +752,8 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
     // Live bounds of every item, reported from layout. The blob's leading
     // and trailing edges each spring to their target — the stretch between
     // them is what makes the selection read as fluid, not teleported.
-    val itemBounds = remember { mutableStateMapOf<AppTab, Rect>() }
+    val itemBounds = remember { mutableStateMapOf<Any, Rect>() }
+    val profileKey = "profile"
     val density = LocalDensity.current
 
     Box(
@@ -816,7 +770,7 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
             modifier = Modifier.padding(horizontal = 14.dp),
         ) {
             Box(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                val sel = itemBounds[current]
+                val sel = if (profileActive) itemBounds[profileKey] else itemBounds[current]
                 if (sel != null) {
                     val blobLeft by animateDpAsState(
                         targetValue = with(density) { sel.left.toDp() },
@@ -858,6 +812,39 @@ private fun PillNavBar(current: AppTab, onSelect: (AppTab) -> Unit) {
                             onClick = { onSelect(dest.tab) },
                             onBounds = { rect -> itemBounds[dest.tab] = rect },
                         )
+                    }
+                    Spacer(Modifier.width(2.dp))
+                    // The profile avatar as the 5th option — the top bar's
+                    // only remaining job, now living where the thumb is.
+                    Box(
+                        Modifier
+                            .onGloballyPositioned { coords -> itemBounds[profileKey] = coords.boundsInParent() }
+                            .clip(MusicoShapes.chip)
+                            .pressable(onClick = onProfile, pressedScale = 0.9f)
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (profileActive) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer
+                            },
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    displayName.trim().take(1).uppercase().ifEmpty { "M" },
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                    color = if (profileActive) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }

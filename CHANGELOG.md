@@ -16,6 +16,17 @@ containing a hyphen is published as a GitHub prerelease.
 
 ### Fixed (Android native)
 
+### Changed (Android native)
+
+- **The top bar is gone.** No app name, no floating avatar: content owns
+  the screen from the very top (status-bar padding only), and the
+  profile avatar now lives in the bottom pill as the fifth option —
+  opening the profile (Settings/Equalizer remain reachable from there).
+  The update popup still floats over everything, untouched.
+- Same screen budget story on the home feed:
+
+### Fixed (Android native)
+
 - The home feed's endless genre chain surfaced YTM's FULL mood catalog —
   including the "Family" card, i.e. a wall of CoComelon and nursery
   rhymes in a music app. The home chain is now limited to a curated
