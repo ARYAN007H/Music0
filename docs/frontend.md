@@ -224,9 +224,41 @@ change; the two version streams serve different purposes.
   - `Cmd/Ctrl+K` command palette
   - `Escape` close overlays/fullscreen player
 - The contrast gate (`scripts/contrast_gate.mjs`) checks 4.5:1 text contrast
-  across every palette and theme. Run it after token or surface changes.
+  across every palette and theme **and both skins**. Run it after token or
+  surface changes.
 
-## 9. Common pitfalls
+## 9. Design languages (skins)
+
+The whole-app look is a third attribute on `<html>`, orthogonal to
+`data-theme` (light/dark) and `data-palette` (accent):
+
+| Skin | Attribute | Layer |
+|---|---|---|
+| iOS (default) | `data-skin="ios"` (or absent) | `tokens.css` + feature layers, untouched |
+| Material 3 Expressive | `data-skin="m3e"` | `m3-expressive.css`, loaded LAST |
+
+Rules of the system:
+
+- **Everything in `m3-expressive.css` is scoped under `html[data-skin="m3e"]`.**
+  The attribute beats the earlier layers on specificity, so no `!important`
+  is needed (three exceptions exist for inline styles: the toast, the command
+  palette card, and modal overrides).
+- The skin re-values the SAME tokens the feature layers consume — surfaces,
+  text, radii (M3 scale 4/8/12/16/28/full), shadows (M3 elevation), easings
+  (emphasized family), fonts (Roboto Flex) — so hundreds of existing rules
+  reshape for free. Tonal containers derive from the active palette via
+  `color-mix()`; the accent palettes stay orthogonal.
+- Motion is transform/opacity only (compositor-friendly), springy
+  (`cubic-bezier(0.34, 1.56, 0.64, 1)`), and honors `prefers-reduced-motion`.
+- Persistence: settings key `skin` (Rust `AppSettings`, serde default `ios`)
+  + `localStorage['musico-skin']`, applied pre-paint by the script in
+  `index.html` `<head>`. `applySettings` only overrides when the persisted
+  value is a known skin — an absent value (mock bridge) never clobbers the
+  localStorage choice.
+- The zero-dependency twin of the gate for machines without playwright:
+  `node scripts/contrast_harness.mjs` (chrome CLI + static server, same math).
+
+## 10. Common pitfalls
 
 | Symptom | Likely cause |
 |---|---|
@@ -238,7 +270,7 @@ change; the two version streams serve different purposes.
 | Layout breaks only on macOS/Windows | `is-mac` / `is-windows` pre-paint classes or `native.css` ordering |
 | Contrast gate fails one palette | Hard-coded color instead of a token |
 
-## 10. Where to go next
+## 11. Where to go next
 
 - [testing.md](testing.md#4-browser-suites) — run and extend the browser suites.
 - [ipc.md](ipc.md) — command names, arguments, and event payloads.

@@ -1,0 +1,919 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   MUSICO — Material 3 Expressive skin
+   ══════════════════════════════════════════════════════════════════════════════
+   A whole-app design language that rides in purely through CSS: every rule is
+   scoped under html[data-skin="m3e"], so the default Cupertino look (the
+   earlier layers) is untouched and flipping the attribute re-skins the app
+   instantly — no reload, no restart.
+
+   The skin speaks through the SAME token names the feature layers consume
+   (tokens.css): surfaces, text, radii, shadows, easings are all re-valued, so
+   hundreds of rules reshape themselves for free. Only genuinely M3-specific
+   additions (tonal containers, state layers, shape-morphing presses, the
+   expressive motion curve) are new tokens/classes here.
+
+   Faithful to the Material 3 Expressive system:
+   · Color — tonal containers derived from the active palette via color-mix()
+     (the "dynamic color" behavior: the accent palette stays orthogonal).
+   · Shape — the M3 corner scale (4/8/12/16/28/full) with generous extra-large
+     radii on hero surfaces and shape-morphing presses.
+   · Motion — the emphasized curves (cubic-bezier(0.2,0,0,1) family), springy
+     hover lifts, and non-obstructive entrances. Transform/opacity only.
+   · Type — Roboto Flex (loaded lazily; binaries only fetch when the skin is
+     active), M3 type-scale weights and tracking.
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300;8..144,400;8..144,500;8..144,600;8..144,700&family=Roboto+Mono:wght@400;500&display=swap');
+
+/* ─── Skin tokens (light) ────────────────────────────────────────────────────── */
+
+html[data-skin="m3e"] {
+  /* Tonal surface system — every role derives from the active palette, so the
+     7 palettes each produce their own true M3 scheme (dynamic color). */
+  --surface-base:      color-mix(in srgb, var(--accent) 5%, #edeaf3);
+  --surface:           color-mix(in srgb, var(--accent) 4%, #faf9fc);
+  --surface-raised:    color-mix(in srgb, var(--accent) 6%, #ffffff);
+  --surface-inset:     color-mix(in srgb, var(--accent) 8%, #e9e6f0);
+  --surface-deep:      color-mix(in srgb, var(--accent) 12%, #dcd8e6);
+
+  /* Neutrals on-surface / on-surface-variant, tinted a hair toward the seed. */
+  --text-primary:      color-mix(in srgb, var(--accent) 10%, #1c1b20);
+  --text-secondary:    color-mix(in srgb, var(--accent) 9%,  #48454f);
+  --text-muted:        color-mix(in srgb, var(--accent) 7%,  #5a5764);
+  --text-disabled:     color-mix(in srgb, var(--accent) 5%,  #9d99a8);
+
+  /* Outline / outline-variant replace the iOS hairlines. */
+  --divider:           color-mix(in srgb, var(--accent) 14%, #c6c2d0);
+  --border-subtle:     color-mix(in srgb, var(--accent) 10%, #d8d4e0);
+
+  /* M3 tonal containers the components key off. */
+  --m3-primary:        var(--accent);
+  --on-accent:         #ffffff;
+  --m3-on-primary-container: color-mix(in srgb, var(--accent) 55%, #16121f);
+  --m3-secondary-container:  color-mix(in srgb, var(--accent) 20%, #ffffff);
+  --m3-on-secondary-container: color-mix(in srgb, var(--accent) 60%, #1f1a2a);
+  --m3-surface-container-highest: color-mix(in srgb, var(--accent) 10%, #e4e1ec);
+  --m3-state-hover:    color-mix(in srgb, var(--accent) 8%,  transparent);
+  --m3-state-press:    color-mix(in srgb, var(--accent) 14%, transparent);
+
+  /* Legacy inline styles in index.html reference this; undefined in the iOS
+     skin (they fall back there), resolved to the M3 elevated surface here. */
+  --bg-elevated:       color-mix(in srgb, var(--accent) 6%, #ffffff);
+
+  /* Neumorphic presets become M3 elevation (key + ambient light shadows). */
+  --shadow-dark:       rgba(30, 22, 48, 0.16);
+  --shadow-light:      rgba(255, 255, 255, 0.9);
+  --neu-raised:        0 1px 2px rgba(25, 18, 40, 0.14), 0 1px 3px 1px rgba(25, 18, 40, 0.07);
+  --neu-raised-sm:     0 1px 2px rgba(25, 18, 40, 0.10);
+  --neu-raised-lg:     0 8px 22px rgba(25, 18, 40, 0.14), 0 2px 6px rgba(25, 18, 40, 0.08);
+  --neu-inset:         none;
+  --neu-inset-sm:      none;
+  --neu-inset-lg:      none;
+  --shadow-inset:      none;
+
+  /* M3 shape scale: extra-small 4 · small 8 · medium 12 · large 16 ·
+     extra-large 28 · full. */
+  --radius-xs:         4px;
+  --radius-sm:         8px;
+  --radius-md:         12px;
+  --radius-lg:         16px;
+  --radius-xl:         28px;
+  --radius-pill:       999px;
+
+  /* Expressive motion: emphasized family + longer, springier feel. */
+  --ease-out:          cubic-bezier(0.05, 0.7, 0.1, 1);   /* emphasized-decelerate */
+  --ease-emphasized:   cubic-bezier(0.2, 0, 0, 1);        /* emphasized (symmetric) */
+  --ease-spring:       cubic-bezier(0.34, 1.56, 0.64, 1); /* springy overshoot */
+  --duration-fast:     150ms;
+  --duration-normal:   300ms;
+  --duration-slow:     450ms;
+
+  /* Type: Roboto Flex + M3 tracking (titles tighten, labels space out). */
+  --font-display:      'Roboto Flex', 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:         'Roboto Mono', 'DM Mono', 'SF Mono', monospace;
+}
+
+/* ─── Skin tokens (dark) — M3 dark scheme: elevated tonal surfaces ──────────── */
+
+html[data-skin="m3e"][data-theme="dark"] {
+  --surface-base:      color-mix(in srgb, var(--accent) 6%, #121016);
+  --surface:           color-mix(in srgb, var(--accent) 5%, #17141d);
+  --surface-raised:    color-mix(in srgb, var(--accent) 7%, #1e1a25);
+  --surface-inset:     color-mix(in srgb, var(--accent) 9%, #241f2c);
+  --surface-deep:      color-mix(in srgb, var(--accent) 12%, #2b2534);
+
+  --text-primary:      color-mix(in srgb, var(--accent) 8%, #e8e4ee);
+  --text-secondary:    color-mix(in srgb, var(--accent) 7%, #a9a3b4);
+  --text-muted:        color-mix(in srgb, var(--accent) 6%, #948ea1);
+  --text-disabled:     color-mix(in srgb, var(--accent) 4%, #57515f);
+
+  --divider:           color-mix(in srgb, var(--accent) 18%, #3c3644);
+  --border-subtle:     color-mix(in srgb, var(--accent) 14%, #332e3c);
+
+  --m3-on-primary-container: color-mix(in srgb, var(--accent) 30%, #efeaff);
+  --m3-secondary-container:  color-mix(in srgb, var(--accent) 42%, #211d29);
+  --m3-on-secondary-container: color-mix(in srgb, var(--accent) 28%, #f0ecf8);
+  --m3-surface-container-highest: color-mix(in srgb, var(--accent) 11%, #2e2837);
+  --m3-state-hover:    color-mix(in srgb, var(--accent) 10%, transparent);
+  --m3-state-press:    color-mix(in srgb, var(--accent) 18%, transparent);
+
+  --bg-elevated:       color-mix(in srgb, var(--accent) 7%, #1e1a25);
+
+  --shadow-dark:       rgba(0, 0, 0, 0.55);
+  --shadow-light:      rgba(255, 255, 255, 0.05);
+  --neu-raised:        0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px 1px rgba(0, 0, 0, 0.22);
+  --neu-raised-sm:     0 1px 2px rgba(0, 0, 0, 0.35);
+  --neu-raised-lg:     0 10px 26px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   APP SHELL
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar becomes an M3 navigation rail: no hairline, the active destination
+   carries the pill indicator in secondary-container. */
+html[data-skin="m3e"] #sidebar {
+  border-right: none;
+}
+
+html[data-skin="m3e"] .side-nav .nav-item {
+  border-radius: var(--radius-pill);
+  min-height: 40px;
+  padding: var(--space-8) var(--space-16);
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              color var(--duration-fast) var(--ease-emphasized),
+              transform var(--duration-fast) var(--ease-spring);
+}
+
+html[data-skin="m3e"] .side-nav .nav-item svg {
+  color: var(--text-secondary);
+  transition: color var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .side-nav .nav-item:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .side-nav .nav-item:active {
+  transform: scale(0.98);
+}
+
+html[data-skin="m3e"] .side-nav .nav-item.active,
+html[data-skin="m3e"] .side-nav .nav-item.active:hover {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+}
+
+html[data-skin="m3e"] .side-nav .nav-item.active svg {
+  color: var(--m3-on-secondary-container);
+}
+
+/* Group labels: M3 label-medium. */
+html[data-skin="m3e"] .nav-group-label {
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+html[data-skin="m3e"] .brand-name {
+  letter-spacing: 0.04em;
+}
+
+/* Bottom nav pill (compact shell): floating M3 bar. */
+html[data-skin="m3e"] .bottom-nav-pill {
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  box-shadow: var(--neu-raised-lg);
+  border: none;
+}
+
+html[data-skin="m3e"] .nav-item.active {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+  box-shadow: none;
+}
+
+html[data-skin="m3e"] .bottom-nav-pill .nav-item.active {
+  border-radius: var(--radius-md);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   TOPBAR — the transport LCD becomes a floating tonal pill
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] .topbar {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-bottom: none;
+}
+
+html[data-skin="m3e"] .topbar-lcd {
+  border-radius: var(--radius-xl);
+  background: var(--surface-raised);
+  box-shadow: var(--neu-raised-sm);
+  padding: 8px 14px;
+  transition: box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .topbar-lcd:hover {
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .lcd-art {
+  border-radius: var(--radius-md);
+}
+
+html[data-skin="m3e"] .lcd-btn {
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              color var(--duration-fast) var(--ease-emphasized),
+              transform var(--duration-fast) var(--ease-spring);
+}
+
+html[data-skin="m3e"] .lcd-btn:hover:not(:disabled) {
+  background: var(--m3-state-hover);
+  color: var(--text-primary);
+  filter: none;
+}
+
+html[data-skin="m3e"] .lcd-btn:active:not(:disabled) {
+  transform: scale(0.90);
+}
+
+/* The play button: filled primary, white glyph (M3 on-primary). */
+html[data-skin="m3e"] .lcd-play,
+html[data-skin="m3e"] .lcd-play:hover:not(:disabled) {
+  background: var(--m3-primary);
+  color: var(--on-accent);
+  filter: none;
+}
+
+html[data-skin="m3e"] .lcd-play:hover:not(:disabled) {
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .lcd-on {
+  color: var(--m3-on-secondary-container);
+  background: var(--m3-secondary-container);
+}
+
+/* Sliders in the LCD: M3 track + accent progress fill. */
+html[data-skin="m3e"] .lcd-seek,
+html[data-skin="m3e"] .lcd-vol {
+  height: 6px;
+  background: var(--m3-surface-container-highest);
+}
+
+html[data-skin="m3e"] .lcd-seek::-webkit-slider-thumb,
+html[data-skin="m3e"] .lcd-vol::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--m3-primary);
+  background: var(--surface);
+  box-shadow: none;
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+html[data-skin="m3e"] .lcd-seek:hover::-webkit-slider-thumb,
+html[data-skin="m3e"] .lcd-vol:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+html[data-skin="m3e"] .lcd-seek::-moz-range-thumb,
+html[data-skin="m3e"] .lcd-vol::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 3px solid var(--m3-primary);
+  background: var(--surface);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CHIPS · PILLS · BUTTONS — M3 filter chips with shape-morphing presses
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] .sort-pill {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--divider);
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 7px 16px;
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              color var(--duration-fast) var(--ease-emphasized),
+              border-color var(--duration-fast) var(--ease-emphasized),
+              border-radius var(--duration-normal) var(--ease-emphasized),
+              transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .sort-pill:hover {
+  background: var(--m3-state-hover);
+  border-color: var(--text-muted);
+}
+
+/* The M3E press: the pill "squishes" — radius pulls in while it scales down,
+   then springs back. Subtle (0.97) so it reads as tactile, not bouncy. */
+html[data-skin="m3e"] .sort-pill:active {
+  transform: scale(0.96);
+  border-radius: var(--radius-lg);
+}
+
+html[data-skin="m3e"] .sort-pill.active {
+  background: var(--m3-secondary-container);
+  border-color: transparent;
+  color: var(--m3-on-secondary-container);
+  font-weight: 600;
+}
+
+/* Filled button (search submit + friends): primary pill, white label. */
+html[data-skin="m3e"] .browse-search-btn {
+  border-radius: var(--radius-pill);
+  background: var(--m3-primary);
+  color: var(--on-accent);
+  font-weight: 600;
+  border: none;
+  transition: box-shadow var(--duration-normal) var(--ease-emphasized),
+              transform var(--duration-fast) var(--ease-spring),
+              filter var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .browse-search-btn:hover {
+  box-shadow: var(--neu-raised);
+  filter: brightness(1.05);
+}
+
+html[data-skin="m3e"] .browse-search-btn:active {
+  transform: scale(0.96);
+}
+
+html[data-skin="m3e"] .s-action-btn {
+  border-radius: var(--radius-pill);
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+  font-weight: 600;
+  border: none;
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .s-action-btn:hover {
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .s-action-btn:active {
+  transform: scale(0.97);
+}
+
+/* Universal focus ring (M3 state): a soft accent halo, never a harsh outline. */
+html[data-skin="m3e"] button:focus-visible,
+html[data-skin="m3e"] [role="switch"]:focus-visible,
+html[data-skin="m3e"] [role="radio"]:focus-visible,
+html[data-skin="m3e"] input:focus-visible {
+  outline: 3px solid var(--m3-state-press);
+  outline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SEARCH — a filled M3 search bar
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] .browse-search {
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  border: none;
+  box-shadow: none;
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .browse-search:focus-within {
+  background: var(--surface-raised);
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .browse-suggest {
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--neu-raised-lg);
+  border: none;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   CARDS · SHELVES · HEROES — extra-large radii + springy hover lift
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] .s-card {
+  border-radius: var(--radius-xl);
+  border: none;
+  background: var(--surface-raised);
+  box-shadow: var(--neu-raised-sm);
+  transition: box-shadow var(--duration-normal) var(--ease-emphasized),
+              transform var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .s-card:hover {
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .s-card-header {
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+html[data-skin="m3e"] .shelf-card,
+html[data-skin="m3e"] .made-card,
+html[data-skin="m3e"] .radio-card {
+  border-radius: var(--radius-lg);
+  transition: transform var(--duration-normal) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .shelf-card:hover,
+html[data-skin="m3e"] .made-card:hover,
+html[data-skin="m3e"] .radio-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .shelf-card:active,
+html[data-skin="m3e"] .made-card:active,
+html[data-skin="m3e"] .radio-card:active {
+  transform: translateY(-1px) scale(0.99);
+}
+
+html[data-skin="m3e"] .shelf-art,
+html[data-skin="m3e"] .am-hero-art,
+html[data-skin="m3e"] .made-art {
+  border-radius: var(--radius-md);
+}
+
+html[data-skin="m3e"] .am-hero {
+  border-radius: var(--radius-xl);
+}
+
+html[data-skin="m3e"] .am-hero-play {
+  border-radius: var(--radius-pill);
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .am-hero-play:hover {
+  transform: scale(1.04);
+  box-shadow: var(--neu-raised);
+}
+
+html[data-skin="m3e"] .am-hero-play:active {
+  transform: scale(0.97);
+}
+
+/* Album cards: rounded art, lift on hover. */
+html[data-skin="m3e"] .album-card {
+  background: transparent;
+  border-radius: var(--radius-lg);
+  transition: transform var(--duration-normal) var(--ease-spring);
+}
+
+html[data-skin="m3e"] .album-card:hover {
+  transform: translateY(-3px);
+}
+
+html[data-skin="m3e"] .album-card-art {
+  border-radius: var(--radius-lg);
+}
+
+/* Detail page hero art. */
+html[data-skin="m3e"] .detail-art {
+  border-radius: var(--radius-lg);
+}
+
+/* Browse result rows: rounded state-layer hover. */
+html[data-skin="m3e"] .browse-row {
+  border-radius: var(--radius-lg);
+  transition: background var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .browse-row:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .browse-thumb {
+  border-radius: var(--radius-md);
+}
+
+html[data-skin="m3e"] .browse-chip {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--divider);
+  background: transparent;
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              border-color var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .browse-chip:hover {
+  background: var(--m3-state-hover);
+  border-color: var(--text-muted);
+}
+
+html[data-skin="m3e"] .browse-chip.active {
+  background: var(--m3-secondary-container);
+  border-color: transparent;
+  color: var(--m3-on-secondary-container);
+}
+
+html[data-skin="m3e"] .browse-load-more {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--divider);
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              transform var(--duration-fast) var(--ease-spring);
+}
+
+html[data-skin="m3e"] .browse-load-more:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .browse-load-more:active {
+  transform: scale(0.97);
+}
+
+/* Library song rows: rounded hover. */
+html[data-skin="m3e"] .song-row {
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .song-row:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .song-art {
+  border-radius: var(--radius-sm);
+}
+
+html[data-skin="m3e"] .view-toggle-btn {
+  border-radius: var(--radius-pill);
+}
+
+html[data-skin="m3e"] .view-toggle-btn.active {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+  box-shadow: none;
+}
+
+html[data-skin="m3e"] .sort-bar .search-bar,
+html[data-skin="m3e"] .search-bar {
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  border: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   NOW PLAYING — transport, seek slider, lyrics
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* The main play button: a large emphasized FAB — pill, primary, springy. */
+html[data-skin="m3e"] .play-btn-main {
+  border-radius: var(--radius-pill);
+  background: var(--m3-primary);
+  color: var(--on-accent);
+  box-shadow: var(--neu-raised);
+  transition: transform var(--duration-normal) var(--ease-spring),
+              box-shadow var(--duration-normal) var(--ease-emphasized),
+              border-radius var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .play-btn-main:hover {
+  transform: scale(1.05);
+  box-shadow: var(--neu-raised-lg);
+}
+
+html[data-skin="m3e"] .play-btn-main:active {
+  transform: scale(0.94);
+}
+
+/* Circular transport actions: tonal, springy. */
+html[data-skin="m3e"] .action-btn,
+html[data-skin="m3e"] .transport-btn {
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              transform var(--duration-fast) var(--ease-spring);
+}
+
+html[data-skin="m3e"] .action-btn:hover,
+html[data-skin="m3e"] .transport-btn:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .action-btn:active,
+html[data-skin="m3e"] .transport-btn:active {
+  transform: scale(0.90);
+}
+
+html[data-skin="m3e"] .action-btn.active {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+  box-shadow: none;
+}
+
+/* Seek slider: M3 thick-track handle dot; fill keeps the accent. */
+html[data-skin="m3e"] .seek-container {
+  border-radius: var(--radius-pill);
+}
+
+html[data-skin="m3e"] .seek-fill {
+  border-radius: var(--radius-pill);
+  transition: width 80ms linear;
+}
+
+html[data-skin="m3e"] .seek-fill::after {
+  border-radius: var(--radius-pill);
+}
+
+html[data-skin="m3e"] .seek-thumb {
+  border-radius: 50%;
+  background: var(--m3-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--m3-primary) 22%, transparent);
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-fast) var(--ease-emphasized);
+}
+
+/* Preserve the base translateY(-50%) centering — the transform here must
+   carry it or the thumb jumps on hover. */
+html[data-skin="m3e"] .seek-container:hover .seek-thumb {
+  transform: translateY(-50%) scale(1.2);
+}
+
+html[data-skin="m3e"] .np-art {
+  border-radius: var(--radius-lg);
+}
+
+/* Lyrics: active line gets the tonal highlight chip. */
+html[data-skin="m3e"] .lyric-line.active {
+  border-radius: var(--radius-md);
+  background: var(--m3-state-hover);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   QUEUE · PANELS · MENUS
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] .queue-item {
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .queue-item:hover {
+  background: var(--m3-state-hover);
+}
+
+/* "Playing Next" slide-in sheet: a big M3 side sheet. */
+html[data-skin="m3e"] .queue-panel {
+  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+  background: var(--surface-raised);
+  border-left: none;
+  box-shadow: var(--neu-raised-lg);
+}
+
+html[data-skin="m3e"] .qp-row {
+  border-radius: var(--radius-md);
+  transition: background var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .qp-row:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .qp-art {
+  border-radius: var(--radius-sm);
+}
+
+/* Context menu: M3 menu — elevated rounded surface, inset items. */
+html[data-skin="m3e"] .ctx-menu {
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  border: none;
+  box-shadow: var(--neu-raised-lg);
+  padding: 8px;
+  overflow: hidden;
+  animation: m3e-menu-in var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .ctx-item {
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .ctx-item:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .ctx-item:active {
+  background: var(--m3-state-press);
+}
+
+html[data-skin="m3e"] .ctx-sep {
+  margin: 6px 12px;
+}
+
+/* Modals + the Sonic Command Palette (whose card is an inline-styled div —
+   the skin asserts over the inline styles). */
+html[data-skin="m3e"] .modal-card {
+  border-radius: var(--radius-xl);
+  border: none;
+  box-shadow: var(--neu-raised-lg);
+  animation: m3e-modal-in var(--duration-slow) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] #cmd-palette-modal > div {
+  border-radius: var(--radius-xl) !important;
+  border: none !important;
+  box-shadow: var(--neu-raised-lg) !important;
+  animation: m3e-modal-in var(--duration-slow) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] #musico-toast {
+  /* Inline styles on the element win the cascade; the skin re-asserts its
+     shape here. */
+  border-radius: var(--radius-md) !important;
+  border: none !important;
+  background: color-mix(in srgb, var(--m3-surface-container-highest) 96%, transparent) !important;
+  box-shadow: var(--neu-raised-lg) !important;
+  animation: m3e-toast-in var(--duration-normal) var(--ease-emphasized);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SETTINGS — switches, tabs, sliders
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* The M3 switch: track 52×32, thumb grows + colors on. */
+html[data-skin="m3e"] .s-toggle {
+  width: 52px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--m3-surface-container-highest);
+  box-shadow: inset 0 0 0 2px var(--divider);
+  transition: background var(--duration-normal) var(--ease-emphasized),
+              box-shadow var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .s-toggle::after {
+  top: 6px;
+  left: 6px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-muted);
+  box-shadow: none;
+  transition: transform var(--duration-normal) var(--ease-spring),
+              width var(--duration-fast) var(--ease-emphasized),
+              background var(--duration-normal) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .s-toggle:active::after {
+  width: 22px;
+}
+
+html[data-skin="m3e"] .s-toggle.on {
+  background: var(--m3-primary);
+  box-shadow: none;
+}
+
+html[data-skin="m3e"] .s-toggle.on::after {
+  transform: translateX(24px);
+  width: 16px;
+  background: var(--on-accent);
+}
+
+html[data-skin="m3e"] .s-toggle.on:active::after {
+  transform: translateX(18px);
+  width: 22px;
+}
+
+/* Settings tabs: M3 primary tabs — pill indicator under the active one. */
+html[data-skin="m3e"] .settings-tab {
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  transition: background var(--duration-fast) var(--ease-emphasized),
+              color var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .settings-tab:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .settings-tab.active {
+  background: var(--m3-secondary-container);
+  color: var(--m3-on-secondary-container);
+}
+
+/* EQ + settings range inputs. */
+html[data-skin="m3e"] .eq-slider,
+html[data-skin="m3e"] input[type="range"] {
+  accent-color: var(--m3-primary);
+}
+
+html[data-skin="m3e"] .eq-band {
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .eq-band:hover {
+  background: var(--m3-state-hover);
+}
+
+html[data-skin="m3e"] .s-icon {
+  border-radius: var(--radius-sm);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   MOTION — expressive, non-obstructive
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* View entrance: a touch deeper than the iOS fade, same idea. */
+html[data-skin="m3e"] .view.active {
+  animation: m3e-view-in var(--duration-slow) var(--ease-emphasized);
+}
+
+@keyframes m3e-view-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes m3e-menu-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes m3e-modal-in {
+  from { opacity: 0; transform: scale(0.94) translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes m3e-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+/* Scrollbars: M3 thin rounded handle. */
+html[data-skin="m3e"] ::-webkit-scrollbar { width: 8px; height: 8px; }
+html[data-skin="m3e"] ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+html[data-skin="m3e"] ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+/* Palette swatches: M3 circles; the selected one gets the accent ring. */
+html[data-skin="m3e"] .swatch {
+  border-radius: 50%;
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-fast) var(--ease-emphasized);
+}
+
+html[data-skin="m3e"] .swatch:hover {
+  transform: scale(1.08);
+}
+
+html[data-skin="m3e"] .swatch:active {
+  transform: scale(0.96);
+}
+
+html[data-skin="m3e"] .swatch-color {
+  border-radius: 50%;
+}
+
+html[data-skin="m3e"] .swatch.selected {
+  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 4px var(--m3-primary);
+}
+
+/* A–Z rail letters: rounded hover targets. */
+html[data-skin="m3e"] .az-rail button,
+html[data-skin="m3e"] .az-letter {
+  border-radius: var(--radius-xs);
+}
+
+/* Equalizer bars dance only while playing (existing behavior) — keep their
+   rhythm but round them for the language. */
+html[data-skin="m3e"] .eq-bars span {
+  border-radius: var(--radius-pill);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   REDUCED MOTION — the skin's flourishes drop to opacity-only fades
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="m3e"] .view.active,
+  html[data-skin="m3e"] .ctx-menu,
+  html[data-skin="m3e"] .modal-card,
+  html[data-skin="m3e"] #cmd-palette-modal > div,
+  html[data-skin="m3e"] #musico-toast {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+  html[data-skin="m3e"] .shelf-card:hover,
+  html[data-skin="m3e"] .made-card:hover,
+  html[data-skin="m3e"] .radio-card:hover,
+  html[data-skin="m3e"] .album-card:hover,
+  html[data-skin="m3e"] .am-hero-play:hover,
+  html[data-skin="m3e"] .play-btn-main:hover {
+    transform: none;
+  }
+}

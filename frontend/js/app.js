@@ -172,13 +172,16 @@ const App = (() => {
     try { localStorage.setItem('musico-theme', s.theme === 'dark' ? 'dark' : 'light'); } catch (e) {}
     document.querySelectorAll('[data-theme-pill]').forEach((p) =>
       p.classList.toggle('active', p.dataset.themePill === (s.theme === 'dark' ? 'dark' : 'light')));
-    // Design language (skin): "ios" is the default look — an unset/unknown
-    // value must render as iOS, not break the attribute off.
-    const skin = s.skin === 'm3e' ? 'm3e' : 'ios';
-    document.documentElement.setAttribute('data-skin', skin);
-    try { localStorage.setItem('musico-skin', skin); } catch (e) {}
-    document.querySelectorAll('[data-skin-pill]').forEach((p) =>
-      p.classList.toggle('active', p.dataset.skinPill === skin));
+    // Design language (skin): "ios" is the default look. An explicit value
+    // (persisted settings) wins; an ABSENT one (mock bridge, first run
+    // before settings load) keeps whatever the pre-paint script applied from
+    // localStorage instead of clobbering it.
+    if (s.skin === 'm3e' || s.skin === 'ios') {
+      document.documentElement.setAttribute('data-skin', s.skin);
+      try { localStorage.setItem('musico-skin', s.skin); } catch (e) {}
+      document.querySelectorAll('[data-skin-pill]').forEach((p) =>
+        p.classList.toggle('active', p.dataset.skinPill === s.skin));
+    }
     if (s.palette) {
       document.documentElement.setAttribute('data-palette', s.palette);
       document.querySelectorAll('.swatch').forEach((sw) =>
@@ -1819,7 +1822,7 @@ const App = (() => {
     row.tabIndex = 0;
     row.setAttribute('aria-label', `Play ${track.title} by ${track.artist}`);
     const art = track.thumbnail
-      ? `<img class="sug-thumb" src="${escapeAttr(track.thumbnail)}" alt="" loading="lazy"/>`
+      ? `<img class="sug-thumb" src="${escapeAttr(track.thumbnail)}" alt="" loading="lazy" decoding="async"/>`
       : `<div class="sug-thumb sug-thumb-fallback"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg></div>`;
     row.innerHTML = `
       ${art}
