@@ -284,6 +284,68 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             serde_json::to_value(settings).map_err(|e| format!("settings serialize: {e}"))
         }
 
+        // ── In-app updater ────────────────────────────────────────────────
+        // The native app is sideloaded from GitHub releases; it checks the
+        // latest release over the shared reqwest stack and (if newer) points
+        // the Kotlin side at the native APK asset for download. Kotlin owns
+        // the download+install hand-off (progress callbacks + system
+        // installer intent) — this command is check-only.
+
+        "app.update.check" => {
+            const RELEASES_API: &str = "https://api.github.com/repos/ARYAN007H/Music0/releases/latest";
+            let current = env!("CARGO_PKG_VERSION"); // e.g. "0.9.1" — matches the app version at build time
+            let client = reqwest::blocking::Client::builder()
+                .user_agent(format!("Music0-Android/{current}"))
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .map_err(|e| format!("updater client: {e}"))?;
+            let reply: serde_json::Value = client
+                .get(RELEASES_API)
+                .send()
+                .map_err(|e| format!("release check: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("release check: {e}"))?
+                .json()
+                .map_err(|e| format!("release parse: {e}"))?;
+
+            let latest_tag = reply["tag_name"].as_str().unwrap_or_default().trim();
+            let latest = latest_tag.trim_start_matches('v').to_string();
+            // The native asset — NOT the retired Tauri APK.
+            let asset = reply["assets"]
+                .as_array()
+                .and_then(|assets| {
+                    assets
+                        .iter()
+                        .find(|a| {
+                            a["name"].as_str()
+                                .map(|n| n.starts_with("musico-online-native") && n.ends_with(".apk"))
+                                .unwrap_or(false)
+                        })
+                });
+            let (asset_url, asset_size, asset_name) = match asset {
+                Some(a) => (
+                    a["browser_download_url"].as_str().unwrap_or_default().to_string(),
+                    a["size"].as_u64().unwrap_or(0),
+                    a["name"].as_str().unwrap_or_default().to_string(),
+                ),
+                None => (String::new(), 0, String::new()),
+            };
+            let update_available = !latest.is_empty()
+                && !asset_url.is_empty()
+                && version_newer(current, &latest);
+
+            serde_json::json!({
+                "current": current,
+                "latest": latest,
+                "updateAvailable": update_available,
+                "assetUrl": asset_url,
+                "assetName": asset_name,
+                "assetSizeBytes": asset_size,
+                "notes": reply["body"].as_str().unwrap_or_default().lines().take(12).collect::<Vec<_>>().join("\n"),
+            })
+        }
+
         // ── Stream cache management ───────────────────────────────────────
 
         "online.cache.usage" => {
@@ -312,6 +374,19 @@ fn ensure_online() -> Result<(), String> {
         return Err("Offline — turn Airplane Mode off to reach YouTube Music".into());
     }
     Ok(())
+}
+
+/// Triple-wise semver comparison for `a > b` ("0.9.1" > "0.9.0"). Suffixes
+/// like `-native` are stripped on both sides; missing components are 0.
+fn version_newer(current: &str, latest: &str) -> bool {
+    fn triple(v: &str) -> (u32, u32, u32) {
+        let core = v.trim().trim_start_matches('v').split(['-', '+']).next().unwrap_or("");
+        let mut it = core.split('.');
+        let n = |s: Option<&str>| s.and_then(|x| x.trim().parse::<u32>().ok()).unwrap_or(0);
+        let (a, b, c) = (it.next(), it.next(), it.next());
+        (n(a), n(b), n(c))
+    }
+    triple(latest) > triple(current)
 }
 
 /// The "no lyrics exist" reply the Kotlin side treats as an empty pane.

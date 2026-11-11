@@ -31,7 +31,11 @@ import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -91,6 +95,13 @@ fun SettingsScreen(
     onClearCache: () -> Unit,
     onRefreshCache: () -> Unit,
     onOpenEq: () -> Unit,
+    updateInfo: io.github.aryan007h.musicoonline.updater.UpdateInfo?,
+    updateChecking: Boolean,
+    updateDownloading: Boolean,
+    updateDownloadedMb: Long,
+    updateTotalMb: Long,
+    onCheckUpdates: () -> Unit,
+    onUpdateNow: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onRefreshCache() }
 
@@ -288,6 +299,103 @@ fun SettingsScreen(
                     Column(Modifier.weight(1f)) {
                         Text("Clear cache", style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
                         Text("Frees every cached stream", style = Musico.type.caption, color = Musico.extras.inkDim)
+                    }
+                }
+            }
+        }
+
+        // ── App updates ──────────────────────────────────────────────────
+        item(key = "group-updates") {
+            SettingsGroup(title = "App Updates") {
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingIcon(Icons.Filled.SystemUpdateAlt)
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Current version", style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
+                        Text(
+                            updateInfo?.current ?: "checking…",
+                            style = Musico.type.caption,
+                            color = Musico.extras.inkDim,
+                        )
+                    }
+                }
+                when {
+                    updateDownloading -> Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { if (updateTotalMb > 0) updateDownloadedMb.toFloat() / updateTotalMb else 0f },
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 3.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.size(14.dp))
+                        Text(
+                            "Downloading $updateDownloadedMb / $updateTotalMb MB",
+                            style = Musico.type.body,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                    updateInfo?.updateAvailable == true -> {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(MusicoShapes.chip)
+                                .clickable(onClick = onUpdateNow)
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SettingIcon(Icons.Filled.CloudDownload)
+                            Spacer(Modifier.size(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Update to ${updateInfo.latest}",
+                                    style = Musico.type.title,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    "${updateInfo.assetSizeBytes / (1024 * 1024)} MB — taps straight into the installer",
+                                    style = Musico.type.caption,
+                                    color = Musico.extras.inkDim,
+                                )
+                            }
+                        }
+                        if (updateInfo.notes.isNotBlank()) {
+                            Text(
+                                updateInfo.notes,
+                                style = Musico.type.caption,
+                                color = Musico.extras.inkDim,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    else -> Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(MusicoShapes.chip)
+                            .clickable(enabled = !updateChecking, onClick = onCheckUpdates)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SettingIcon(Icons.Filled.Sync)
+                        Spacer(Modifier.size(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (updateChecking) "Checking…" else "Check for updates",
+                                style = Musico.type.title,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+                            Text(
+                                if (updateInfo?.updateAvailable == false) "You're up to date" else "Checks GitHub releases",
+                                style = Musico.type.caption,
+                                color = Musico.extras.inkDim,
+                            )
+                        }
                     }
                 }
             }

@@ -132,6 +132,13 @@ class MusicViewModel(
         // Player niceties (local prefs)
         val skipSilence: Boolean = false,
         val playbackSpeed: Float = 1f,
+        // In-app updater
+        val updateInfo: io.github.aryan007h.musicoonline.updater.UpdateInfo? = null,
+        val updateChecking: Boolean = false,
+        val updateDownloading: Boolean = false,
+        val updateDownloadedMb: Long = 0,
+        val updateTotalMb: Long = 0,
+        val updateDismissed: Boolean = false,
         // Detail pages (album / playlist / artist / genre) — a nav stack
         val details: List<DetailPageState> = emptyList(),
         // Save-offline progress
@@ -194,6 +201,7 @@ class MusicViewModel(
         }
         // Player niceties apply the moment the controller binds.
         io.github.aryan007h.musicoonline.player.PlaybackPrefs.setSkipSilence(_state.value.skipSilence)
+        maybeAutoCheckUpdate()
         viewModelScope.launch {
             playback.setSkipSilence(_state.value.skipSilence)
             playback.setSpeed(_state.value.playbackSpeed)
@@ -1088,6 +1096,62 @@ class MusicViewModel(
         _state.value.nowPlaying?.let { fetchLyrics(it) }
     }
 
+    // ── In-app updater ───────────────────────────────────────────────────
+
+    private fun maybeAutoCheckUpdate() {
+        val last = prefs.getLong(PREF_LAST_UPDATE_CHECK, 0)
+        if (System.currentTimeMillis() - last < 24 * 60 * 60 * 1000) return
+        checkForUpdate()
+    }
+
+    fun checkForUpdate() {
+        if (_state.value.updateChecking || _state.value.updateDownloading) return
+        viewModelScope.launch {
+            _state.update { it.copy(updateChecking = true) }
+            runCatching {
+                io.github.aryan007h.musicoonline.updater.UpdateManager.check()
+            }.onFold(
+                onSuccess = { info ->
+                    prefs.edit().putLong(PREF_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+                    _state.update {
+                        it.copy(updateChecking = false, updateInfo = info, updateDismissed = false)
+                    }
+                },
+                onFailure = { e ->
+                    Log.w(TAG, "update check failed: ${e.message}")
+                    _state.update { it.copy(updateChecking = false) }
+                },
+            )
+        }
+    }
+
+    fun dismissUpdateBanner() = _state.update { it.copy(updateDismissed = true) }
+
+    /** Download → prompt the system installer. Progress mirrors into state. */
+    fun downloadAndInstallUpdate() {
+        val info = _state.value.updateInfo ?: return
+        if (_state.value.updateDownloading) return
+        viewModelScope.launch {
+            _state.update { it.copy(updateDownloading = true) }
+            runCatching {
+                io.github.aryan007h.musicoonline.updater.UpdateManager.download(appContext, info) { done, total ->
+                    _state.update {
+                        it.copy(updateDownloadedMb = done / (1024 * 1024), updateTotalMb = total / (1024 * 1024))
+                    }
+                }
+            }.onFold(
+                onSuccess = { apk ->
+                    _state.update { it.copy(updateDownloading = false) }
+                    io.github.aryan007h.musicoonline.updater.UpdateManager.promptInstall(appContext, apk)
+                },
+                onFailure = { e ->
+                    Log.w(TAG, "update download failed: ${e.message}")
+                    _state.update { it.copy(updateDownloading = false, error = "Update download failed: ${e.message}") }
+                },
+            )
+        }
+    }
+
     fun dismissError() = _state.update { it.copy(error = null) }
 
     private fun Throwable.userMessage(): String = (this as? CoreException)?.message ?: message ?: "unknown error"
@@ -1106,6 +1170,7 @@ class MusicViewModel(
         private const val PREF_SKIP_SILENCE = "skip_silence"
         private const val PREF_SPEED = "playback_speed"
         private const val PREF_PERSONAL_SHELVES = "personalized_shelves"
+        private const val PREF_LAST_UPDATE_CHECK = "last_update_check"
         private const val PREF_NAME = "display_name"
         private const val RECENTS_LIMIT = 40
         private const val SEARCHES_LIMIT = 8
