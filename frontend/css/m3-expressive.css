@@ -1036,8 +1036,8 @@ html[data-skin="m3e"] .m3e-pill {
 /* Larger screens get a roomier island. */
 @media (min-width: 1100px) {
   .m3e-pill .nav-item {
-    min-width: 72px;
-    padding: 8px 18px 7px;
+    min-width: 112px;
+    padding: 9px 26px 8px;
   }
 }
 
@@ -1079,11 +1079,6 @@ html[data-skin="m3e"] #transport-root > div {
   max-width: none;
 }
 
-/* Volume lives in the transport pill on desktop; keep it from stretching. */
-html[data-skin="m3e"] #transport-root .volume-row,
-html[data-skin="m3e"] #transport-root input[type="range"] {
-  width: 96px;
-}
 
 /* Primary nav island: wider, roomier — it is the app's only dock now. */
 html[data-skin="m3e"] .m3e-pill {
@@ -1091,13 +1086,13 @@ html[data-skin="m3e"] .m3e-pill {
 }
 
 .m3e-pill .nav-item {
-  min-width: 84px;
-  padding: 9px 20px 8px;
+  min-width: 112px;
+  padding: 9px 24px 8px;
   gap: 4px;
 }
 
 .m3e-pill .nav-item span {
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
 /* ─── Dock stack polish (round 2) ──────────────────────────────────────────────
@@ -1257,11 +1252,26 @@ html[data-skin="m3e"] .m3e-pill {
 /* Transport pill: cap the width so it reads as a compact companion to the
    island, and give the track meta room to breathe before truncating. */
 html[data-skin="m3e"] #transport-root .transport-bar {
-  max-width: 720px;
+  max-width: 520px;
+  padding: 8px 12px;
+  gap: 6px;
 }
 html[data-skin="m3e"] #transport-root .lcd-meta {
-  min-width: 120px;
-  max-width: 200px;
+  min-width: 90px;
+  max-width: 124px;
+}
+
+/* Compact by subtraction: the artwork button already opens the full
+   player (fullscreen button redundant) and right-click covers "add" —
+   both hide under M3E. */
+html[data-skin="m3e"] #transport-root .action-btn#btn-fullscreen,
+html[data-skin="m3e"] #transport-root .action-btn#btn-queue-current {
+  display: none;
+}
+html[data-skin="m3e"] #transport-root .transport .volume-row,
+html[data-skin="m3e"] #transport-root input[type="range"].lcd-seek,
+html[data-skin="m3e"] #transport-root .transport .volume-row input {
+  width: 78px;
 }
 
 
