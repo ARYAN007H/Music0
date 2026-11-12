@@ -86,7 +86,11 @@ pub fn browse_continuation(continuation: &str) -> Result<BrowsePage, String> {
     let mut body = serde_json::json!({ "context": innertube_context() });
     body["continuation"] = serde_json::Value::String(continuation.trim().to_string());
     let json = innertube_post(BROWSE_URL, body)?;
-    Ok(parse_browse_page(&json))
+    // Home-chain continuation pages: same editorial taste filter as the
+    // first page, so blocked content can't sneak back in on scroll.
+    let mut page = parse_browse_page(&json);
+    page.shelves = filter_shelves(std::mem::take(&mut page.shelves));
+    Ok(page)
 }
 
 fn fetch_browse(browse_id: &str, params: Option<&str>) -> Result<BrowsePage, String> {
@@ -144,8 +148,54 @@ fn is_sparse(page: &BrowsePage) -> bool {
     page.shelves.len() < 2 || total_items < 8
 }
 
+/// Editorial-content taste filter (Aryan, 2026-11-12): kids/family content
+/// and religious/devotional music never surface on the home feed — YTM's
+/// editorial kept putting bhakti tracks and nursery compilations in front of
+/// a music player's first screen. One implementation serves BOTH platforms
+/// (desktop webview + native Android call the same `home_feed`). Keyword
+/// matching is deliberately over-eager: false positives cost one shelf row,
+/// a leaked CoComelon costs the whole aesthetic.
+const EDITORIAL_BLOCKLIST: &[&str] = &[
+    // kids / family
+    "kids", "children", "nursery", "rhyme", "cocomelon", "baby ", "baby's", "cartoon", "family",
+    "chotohe", "kidz",
+    // religious / devotional
+    "devotional", "bhakti", "bhajan", "aarti", "mantra", "mandir", "temple", "bhagwan",
+    "gurbani", "shabad", "kirtan", "gospel", "worship", "nasheed", "ramayan", "ramayan ",
+    "hanuman", "ganesh", "ganesha", "durga", "sherawali", "shera wali", "mata ka",
+    "jai mata", "om jai", "shiv ", "shiva ", "krishna", "radha krishna", "govinda", "gopal",
+    // moods that organize the home feed by ambience — they live in Radio
+    "sleep", "workout", "commute", "focus", "gaming", "monsoon",
+];
+
+/// Whole-phrase extras that must match even with inner spaces normalized.
+fn editorial_blocked(title: &str) -> bool {
+    let t = format!(" {} ", title.trim().to_lowercase());
+    EDITORIAL_BLOCKLIST
+        .iter()
+        .any(|k| t.contains(&format!(" {k}")) || t.contains(&format!("{k} ")) || t.contains(k))
+}
+
+/// Filters one shelf's ITEMS by title (the hero slot is a shelf item —
+/// "Shera Wali Chali Aao" rode in exactly there), then drops shelves whose
+/// own title or surviving content is blocked.
+fn filter_shelves(shelves: Vec<crate::online::models::Shelf>) -> Vec<crate::online::models::Shelf> {
+    shelves
+        .into_iter()
+        .filter(|s| !editorial_blocked(&s.title))
+        .map(|mut s| {
+            s.items.retain(|i| !editorial_blocked(&i.title));
+            s
+        })
+        .filter(|s| !s.items.is_empty())
+        .collect()
+}
+
 pub fn home_feed() -> Result<BrowsePage, String> {
-    match browse("FEmusic_home", None) {
+    match browse("FEmusic_home", None).map(|mut p| {
+        p.shelves = filter_shelves(std::mem::take(&mut p.shelves));
+        p
+    }) {
         Ok(page) if !is_sparse(&page) => Ok(page),
         // Sparse OR failed home: charts are the guaranteed-content fallback,
         // so a drifted/failed home parse must not dead-end a first run
@@ -204,13 +254,16 @@ pub fn genres() -> Result<Vec<ShelfItem>, String> {
         }
         CacheHit::Miss => {}
     }
-    let items = fetch_genres()?;
+    let mut items = fetch_genres()?;
     if items.is_empty() {
         // Don't cache an empty parse: shape drift or a transient failure must
         // not blank the Browse tab for the whole TTL.
         log::warn!("InnerTube genres parsed 0 categories — API shape may have changed");
         return Ok(items);
     }
+    // Content-taste gate: the Devotional card (and any kids/family-shaped
+    // card) never reaches Browse/Radio. Cache what survives.
+    items.retain(|i| !editorial_blocked(&i.title));
     genres_cache_put(&items);
     Ok(items)
 }
@@ -454,6 +507,46 @@ mod tests {
     /// Live check for #58: Home must open on real content.  Opt-in:
     ///   MUSICO_LIVE_TESTS=1 cargo test -p musico-online live_home -- --ignored --nocapture
     #[test]
+    #[test]
+    fn editorial_filter_blocks_kids_and_devotional() {
+        use super::{editorial_blocked, filter_shelves};
+        use crate::online::models::{ItemKind, Shelf, ShelfItem};
+
+        let mk = |t: &str| ShelfItem {
+            kind: ItemKind::Song,
+            title: t.to_string(),
+            subtitle: String::new(),
+            thumbnail: None,
+            video_id: Some("id".into()),
+            browse_id: None,
+            params: None,
+            playlist_id: None,
+            duration_secs: None,
+        };
+
+        // The exact offenders from the bug report + the card classes.
+        assert!(editorial_blocked("Shera Wali Chali Aao"));
+        assert!(editorial_blocked("Wheels on the Bus - CoComelon"));
+        assert!(editorial_blocked("Devotional"));
+        assert!(editorial_blocked("Morning Bhakti Playlist"));
+        assert!(editorial_blocked("Commute"));
+        // Clean content stays.
+        assert!(!editorial_blocked("Midnight City"));
+        assert!(!editorial_blocked("Guzarish"));
+        assert!(!editorial_blocked("Trending community playlists"));
+
+        // Item-level: a clean shelf with one blocked hero loses the item,
+        // not the shelf — unless nothing survives.
+        let shelves = vec![
+            Shelf { title: "Trending songs".into(), items: vec![mk("Midnight City"), mk("Shera Wali Chali Aao")] },
+            Shelf { title: "Kids rhymes".into(), items: vec![mk("Wheels on the Bus")] },
+        ];
+        let out = filter_shelves(shelves);
+        assert_eq!(out.len(), 1, "blocked shelf dropped, clean shelf kept");
+        assert_eq!(out[0].items.len(), 1, "blocked item dropped from clean shelf");
+        assert_eq!(out[0].items[0].title, "Midnight City");
+    }
+
     #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]
     fn live_home_feed_never_empty() {
         let page = home_feed().expect("home feed");

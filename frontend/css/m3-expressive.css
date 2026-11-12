@@ -963,7 +963,7 @@ html[data-skin="m3e"] #main-content {
 
 /* Room for the floating transport bar + the pill island underneath. */
 html[data-skin="m3e"] #main-content .view.active {
-  padding-bottom: 190px;
+  padding-bottom: 215px;
 }
 
 /* The transport bar loses its sidebar offset — it spans the app now. */
@@ -1175,8 +1175,8 @@ html[data-skin="m3e"] .album-card:hover {
    shell.js transport uses .lcd-play/.lcd-btn, not .play-btn-main. ─────── */
 
 html[data-skin="m3e"] #transport-root .transport-bar .lcd-play {
-  background: var(--m3-primary);
-  color: var(--on-accent);
+  background: var(--m3-primary) !important;
+  color: var(--on-accent) !important;
   border-radius: 999px;
   border: none;
   box-shadow: 0 3px 12px color-mix(in srgb, var(--m3-primary) 48%, transparent);
@@ -1252,9 +1252,54 @@ html[data-skin="m3e"] .m3e-pill {
 /* Transport pill: cap the width so it reads as a compact companion to the
    island, and give the track meta room to breathe before truncating. */
 html[data-skin="m3e"] #transport-root .transport-bar {
-  max-width: 520px;
-  padding: 8px 12px;
+  flex-wrap: wrap;
+  max-width: 560px;
+  padding: 8px 14px 6px;
+  gap: 4px 8px;
+}
+
+/* Row 1: art + meta + like ... volume + queue. Row 2: controls + seek.
+   The bar wraps BY LAYOUT, not by accident — no more overlapping clusters. */
+html[data-skin="m3e"] #transport-root .transport-left {
+  order: 1;
+  min-width: 0;
+  gap: 8px;
+}
+html[data-skin="m3e"] #transport-root .transport-right {
+  order: 2;
+  margin-left: auto;
   gap: 6px;
+}
+html[data-skin="m3e"] #transport-root .transport-center {
+  order: 3;
+  flex: 1 1 100%;
+  gap: 8px;
+}
+html[data-skin="m3e"] #transport-root .lcd-meta {
+  min-width: 0;
+  max-width: 190px;
+}
+html[data-skin="m3e"] #transport-root .lcd-seek-row {
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+}
+html[data-skin="m3e"] #transport-root .lcd-art,
+html[data-skin="m3e"] #transport-root .lcd-art-empty {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+html[data-skin="m3e"] #transport-root .transport .lcd-btn {
+  width: 34px;
+  height: 34px;
+}
+html[data-skin="m3e"] #transport-root .transport .lcd-play {
+  width: 44px;
+  height: 44px;
+}
+html[data-skin="m3e"] #transport-root .transport-btns {
+  gap: 4px;
 }
 html[data-skin="m3e"] #transport-root .lcd-meta {
   min-width: 90px;
