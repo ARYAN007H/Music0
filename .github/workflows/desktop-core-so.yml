@@ -6,6 +6,12 @@ name: Desktop core .so
 # dev path that doesn't require a local cargo build.
 on:
   workflow_dispatch:
+  # Runs as a PR check for the gemini/* branches so the desktop cdylib
+  # artifact is available while testing a round (workflow_dispatch alone
+  # can't fire for a file that isn't on the default branch yet).
+  pull_request:
+    branches:
+      - 'gemini/**'
 
 permissions:
   contents: read
