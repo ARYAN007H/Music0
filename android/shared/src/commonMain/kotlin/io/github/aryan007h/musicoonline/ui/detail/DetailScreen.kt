@@ -16,9 +16,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -66,6 +66,7 @@ import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.components.ShelfCard
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.rememberArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -122,7 +123,8 @@ fun DetailScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding(),
+                .musicoTopInset()
+                .navigationBarsPadding(),
         ) {
             // Sticky bar that gains a frosted tint + full title opacity on scroll
             Row(
@@ -334,7 +336,7 @@ private fun DetailBody(
         if (tracks.isNotEmpty()) {
             item(key = "tracks-header") {
                 Text(
-                    "${tracks.size} SONGS",
+                    "${tracks.size} SONG${if (tracks.size == 1) "" else "S"}",
                     style = Musico.type.section,
                     fontSize = 11.sp,
                     color = Musico.extras.inkDim,

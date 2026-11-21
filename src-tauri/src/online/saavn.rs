@@ -286,6 +286,15 @@ fn badge_cached(mut track: OnlineTrack) -> OnlineTrack {
     track
 }
 
+/// Fetches human-readable display metadata for a JioSaavn song id (used for
+/// one-time online enrichment of legacy cached files missing metadata).
+pub(crate) fn fetch_track_metadata(saavn_id: &str) -> Option<OnlineTrack> {
+    if !valid_saavn_id(saavn_id) {
+        return None;
+    }
+    song_details(saavn_id).ok().and_then(song_to_track)
+}
+
 // ---------------------------------------------------------------------------
 // Resolve — dispatched from stream::resolve_track for `source == "saavn"`
 // ---------------------------------------------------------------------------
@@ -343,6 +352,130 @@ pub(crate) fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<Pa
         }
     }
     Err(last_err)
+}
+
+/// Outcome of a cross-source JioSaavn lookup for streaming playback: either an
+/// instant local cache hit or an open CDN HTTP body ready to pump over loopback.
+pub(crate) enum CrossSourceStream {
+    Cached(PathBuf),
+    Opened(OnlineTrack, super::sources::OpenedAudioStream),
+}
+
+/// Opens a direct JioSaavn CDN audio response for stream-while-download without
+/// buffering the entire body into RAM first.
+pub(crate) fn open_saavn_stream(
+    track: &OnlineTrack,
+    interactive: bool,
+) -> Result<super::sources::OpenedAudioStream, String> {
+    if !valid_saavn_id(&track.video_id) {
+        return Err("saavn stream: invalid track id".into());
+    }
+    let song = song_details(&track.video_id)?;
+    let enc = song
+        .more_info
+        .as_ref()
+        .and_then(|m| m.encrypted_media_url.as_deref())
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .ok_or("saavn stream: no encrypted media url")?;
+    let base = decrypt_media_url(enc).ok_or("saavn stream: media url decrypt failed")?;
+    let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
+    let settings = crate::config::AppSettings::load();
+    let pref_quality = if interactive {
+        settings.streaming_quality
+    } else {
+        settings.download_quality
+    };
+    let mut last_err = String::from("saavn stream: no candidates");
+    for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
+        let resp = match API_CLIENT
+            .get(&url)
+            .timeout(Duration::from_secs(180))
+            .send()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("saavn stream: {e}");
+                continue;
+            }
+        };
+        if !resp.status().is_success() {
+            last_err = format!("saavn stream: HTTP {}", resp.status());
+            continue;
+        }
+        let ctype = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("audio/mp4")
+            .to_ascii_lowercase();
+        if !ctype.starts_with("audio/") {
+            last_err = format!("saavn stream: content-type `{ctype}` is not audio");
+            continue;
+        }
+        let content_length = resp.content_length();
+        if let Some(len) = content_length {
+            if len > MAX_AUDIO_BYTES {
+                last_err = format!("saavn stream: {len} B exceeds the cap");
+                continue;
+            }
+        }
+        return Ok(super::sources::OpenedAudioStream {
+            reader: Box::new(resp),
+            content_length,
+            content_type: ctype,
+            source_name: SOURCE.to_string(),
+        });
+    }
+    Err(last_err)
+}
+
+/// Streaming variant of [`try_cross_source_resolve`]: returns either an already
+/// cached JioSaavn file or an open CDN stream ready for the loopback range server.
+pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossSourceStream> {
+    if track.title.trim().is_empty() {
+        return None;
+    }
+    let req_title = norm_title(&track.title);
+    let req_artist = track.artist.to_lowercase();
+    if req_title.is_empty() {
+        return None;
+    }
+    let title = track.title.trim();
+    let mut queries = vec![format!("{} {}", title, track.artist)];
+    if let Some(pos) = title.rfind(" - ") {
+        let tail = title[pos + 3..].trim();
+        if !tail.is_empty() && tail != title {
+            queries.push(format!("{} {}", tail, track.artist));
+        }
+    }
+    for query in queries {
+        let candidates = search_songs(&query, 6);
+        let matched = candidates
+            .into_iter()
+            .filter(|c| {
+                let ct = norm_title(&c.title);
+                let ca = c.artist.to_lowercase();
+                let title_ok = !ct.is_empty() && (ct.contains(&req_title) || req_title.contains(&ct));
+                let artist_ok = req_artist.is_empty()
+                    || req_artist
+                        .split(|c: char| !c.is_alphanumeric())
+                        .filter(|tok| tok.chars().all(char::is_alphanumeric))
+                        .any(|tok| tok.len() >= 2 && ca.contains(tok));
+                title_ok && artist_ok
+            })
+            .filter(|c| duration_plausible(track.duration_secs, c.duration_secs))
+            .min_by_key(|c| duration_drift(track.duration_secs, c.duration_secs));
+        if let Some(matched) = matched {
+            if let Some(hit) = stream::cached_file(&matched.song_id()) {
+                return Some(CrossSourceStream::Cached(hit));
+            }
+            if let Ok(opened) = open_saavn_stream(&matched, true) {
+                return Some(CrossSourceStream::Opened(matched, opened));
+            }
+        }
+    }
+    None
 }
 
 /// Phase 1 Cross-Source Instant Resolver: attempts to find an exact title + artist + duration
@@ -581,6 +714,7 @@ fn land_audio(track: &OnlineTrack, bytes: &[u8]) -> Result<PathBuf, String> {
     let part = dir.join(stream::cache_file_name(&track.song_id(), "part"));
     std::fs::write(&part, bytes).map_err(|e| format!("saavn cache write: {e}"))?;
     std::fs::rename(&part, &final_path).map_err(|e| format!("saavn cache rename: {e}"))?;
+    stream::write_track_sidecar(&final_path, track);
     stream::prune_cache_to_cap();
     Ok(final_path)
 }

@@ -57,6 +57,7 @@ import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -122,7 +123,9 @@ fun LibraryScreen(
         )
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .musicoTopInset(),
             contentPadding = PaddingValues(bottom = 148.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -210,7 +213,7 @@ fun LibraryScreen(
                         if (filter != LibraryFilter.DOWNLOADS) {
                             PinnedHeroTile(
                                 title = "Liked Songs",
-                                meta = "${likedIds.size} song${if (likedIds.size == 1) "" else "s"}",
+                                meta = formatSongCount(likedIds.size),
                                 icon = Icons.Filled.Favorite,
                                 gradient = listOf(Color(0xFF3B2A80), Color(0xFF7C5CFF), Color(0xFF53F2C4)),
                                 canPlay = likedTracks.isNotEmpty(),
@@ -222,14 +225,9 @@ fun LibraryScreen(
                             )
                         }
                         if (filter != LibraryFilter.LIKED) {
-                            val dlMeta = if (downloads.isEmpty()) {
-                                "No cached tracks"
-                            } else {
-                                "${downloads.size} · ${formatBytesHuman(downloadsTotalBytes)}"
-                            }
                             PinnedHeroTile(
                                 title = "Downloads",
-                                meta = dlMeta,
+                                meta = formatDownloadsSummary(downloads.size, downloadsTotalBytes),
                                 icon = Icons.Filled.DownloadDone,
                                 gradient = listOf(Color(0xFF0E4B44), Color(0xFF1A8F7D), Color(0xFF53F2C4)),
                                 canPlay = downloads.isNotEmpty(),
@@ -669,7 +667,7 @@ private fun SmartMixCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${mix.tracks.size} tracks",
+                    formatTrackCount(mix.tracks.size),
                     style = Musico.type.tabularCaption,
                     color = Musico.extras.mint,
                 )

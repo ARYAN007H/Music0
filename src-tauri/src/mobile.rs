@@ -70,6 +70,7 @@ static INDEX_TX: OnceLock<Mutex<mpsc::Sender<IndexJob>>> = OnceLock::new();
 const TREE_TRACK_META: &str = "mobile:track_meta";
 const TREE_VID_TO_SONG: &str = "mobile:vid_to_song";
 const TREE_SONG_TO_VID: &str = "mobile:song_to_vid";
+const TREE_ENRICH_ATTEMPTED: &str = "mobile:enrich_attempted";
 
 fn set_env_var(key: &str, value: &str) {
     // Edition 2021: `set_var` is safe; single-threaded init contract anyway.
@@ -281,6 +282,9 @@ fn init_core(files: &str, cache: &str) {
         }
         let _ = builder.try_init();
     }
+    // Apply persisted stream-cache cap before any downloads/prunes happen.
+    let saved_cap_mb = crate::config::AppSettings::load().online_cache_mb.unwrap_or(0);
+    crate::online::stream::set_cache_cap_override_mb(u64::from(saved_cap_mb));
     // Warm the recommender DB early so first Library/Home calls are instant.
     if let Err(e) = recommender() {
         log::warn!("mobile core: recommender bootstrap deferred: {e}");
@@ -354,6 +358,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         // Offline-first stream resolution: if the track is already cached on
         // disk, return it immediately even in Airplane Mode, and queue
         // background acoustic feature extraction for the recommender.
+        // When `allowStream` is true (interactive mobile playback), opens a
+        // local loopback HTTP/1.1 range stream over `.part` so audio starts in
+        // ~1–2 s instead of waiting for the full download.
         "track.resolve" => {
             let track = online_track_from_args(&args)?;
             let _ = with_recommender(|rec| {
@@ -362,18 +369,38 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             });
             let cached = crate::online::cached_file_for(&track.song_id())
                 .or_else(|| crate::online::cached_file_for(&track.video_id));
-            let path = if let Some(hit) = cached {
-                hit
+            let path_str = if let Some(hit) = cached {
+                crate::online::write_track_sidecar(&hit, &track);
+                let s = hit.display().to_string();
+                enqueue_background_index(&track, &s);
+                s
             } else {
                 ensure_online()?;
                 let background = args
                     .get("background")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                crate::online::resolve_track(&track, !background)?
+                let allow_stream = args
+                    .get("allowStream")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if !background && allow_stream {
+                    let index_track = track.clone();
+                    let resolved = crate::online::resolve_track_streaming(&track, move |final_path| {
+                        let p = final_path.display().to_string();
+                        enqueue_background_index(&index_track, &p);
+                    })?;
+                    if !resolved.starts_with("http://") && !resolved.starts_with("https://") {
+                        enqueue_background_index(&track, &resolved);
+                    }
+                    resolved
+                } else {
+                    let path = crate::online::resolve_track(&track, !background)?;
+                    let s = path.display().to_string();
+                    enqueue_background_index(&track, &s);
+                    s
+                }
             };
-            let path_str = path.display().to_string();
-            enqueue_background_index(&track, &path_str);
             Ok(serde_json::json!({
                 "path": path_str,
                 "songId": track.song_id(),
@@ -610,7 +637,8 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         }),
 
         // Returns every audio file currently sitting in the offline stream cache,
-        // enriched with display metadata so Offline Downloads works in Airplane Mode.
+        // enriched with display metadata (sled → sidecar `.meta.json` → playlists
+        // → offline stem fallback) so Offline Downloads works in Airplane Mode.
         "library.downloads.list" => with_recommender(|rec| {
             let cached = crate::online::list_cached_files();
             let mut playlist_meta: HashMap<String, crate::online::OnlineTrack> = HashMap::new();
@@ -627,7 +655,17 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 total_bytes = total_bytes.saturating_add(size_bytes);
                 let (video_id, source) = parse_cache_stem(&stem);
                 let mut track = load_track_meta(rec, &video_id)
-                    .or_else(|| playlist_meta.get(&video_id).cloned())
+                    .or_else(|| {
+                        let sidecar = crate::online::read_track_sidecar(&path)?;
+                        remember_track_meta(rec, &sidecar);
+                        Some(sidecar)
+                    })
+                    .or_else(|| {
+                        let pl = playlist_meta.get(&video_id).cloned()?;
+                        remember_track_meta(rec, &pl);
+                        crate::online::write_track_sidecar(&path, &pl);
+                        Some(pl)
+                    })
                     .unwrap_or_else(|| crate::online::OnlineTrack {
                         video_id: video_id.clone(),
                         title: video_id.clone(),
@@ -651,6 +689,64 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 "totalBytes": total_bytes,
             }))
         }),
+
+        // One-time rate-limited online enrichment for legacy cached audio files
+        // that lack sled and sidecar metadata (T12). Skips offline mode strictly.
+        "library.downloads.enrich" => {
+            ensure_online()?;
+            const MAX_ENRICH_PER_PASS: usize = 15;
+            let cached = crate::online::list_cached_files();
+            let pending: Vec<(String, String, std::path::PathBuf)> = with_recommender(|rec| {
+                let attempted = rec
+                    .db()
+                    .open_tree(TREE_ENRICH_ATTEMPTED)
+                    .map_err(|e| e.to_string())?;
+                let mut out = Vec::new();
+                for (stem, path, _) in cached {
+                    let (video_id, source) = parse_cache_stem(&stem);
+                    if load_track_meta(rec, &video_id).is_some() {
+                        continue;
+                    }
+                    if let Some(sidecar) = crate::online::read_track_sidecar(&path) {
+                        remember_track_meta(rec, &sidecar);
+                        continue;
+                    }
+                    if attempted.contains_key(video_id.as_bytes()).unwrap_or(false) {
+                        continue;
+                    }
+                    out.push((video_id, source, path));
+                }
+                Ok(out)
+            })?;
+
+            let total_pending = pending.len();
+            let mut enriched = 0usize;
+            for (idx, (video_id, source, path)) in pending.into_iter().take(MAX_ENRICH_PER_PASS).enumerate() {
+                if idx > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                if crate::config::AppSettings::load().offline_mode {
+                    break;
+                }
+                let fetched = crate::online::fetch_track_metadata(&video_id, &source);
+                let _ = with_recommender(|rec| {
+                    if let Ok(attempted) = rec.db().open_tree(TREE_ENRICH_ATTEMPTED) {
+                        let _ = attempted.insert(video_id.as_bytes(), b"1");
+                    }
+                    if let Some(ref meta) = fetched {
+                        remember_track_meta(rec, meta);
+                        crate::online::write_track_sidecar(&path, meta);
+                        enriched += 1;
+                    }
+                    Ok(())
+                });
+            }
+            let remaining = total_pending.saturating_sub(MAX_ENRICH_PER_PASS);
+            Ok(serde_json::json!({
+                "enriched": enriched,
+                "remaining": remaining,
+            }))
+        }
 
         // One-time idempotent migration from legacy SharedPreferences likes/recents.
         "library.migrate_legacy" => with_recommender(|rec| {
@@ -1077,6 +1173,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             let settings: crate::config::AppSettings =
                 serde_json::from_value(merged).map_err(|e| format!("invalid settings: {e}"))?;
             settings.save()?;
+            crate::online::stream::set_cache_cap_override_mb(u64::from(
+                settings.online_cache_mb.unwrap_or(0),
+            ));
             log::info!("mobile core: settings saved");
             serde_json::to_value(settings).map_err(|e| format!("settings serialize: {e}"))
         }
@@ -1265,6 +1364,7 @@ fn desktop_set_eq(args: &serde_json::Value) -> Result<serde_json::Value, String>
             gains[i] = v.as_f64().unwrap_or(0.0).clamp(-12.0, 12.0) as f32;
         }
     }
+    log::info!("mobile core: desktop EQ enabled={enabled} gains={gains:?}");
     desktop_simple_cmd(|e| e.set_eq(enabled, gains))
 }
 
@@ -1633,5 +1733,54 @@ mod tests {
         assert!(version_newer("0.9.5", "1.0.0"));
         assert!(!version_newer("1.0.0", "0.9.9"));
         assert!(!version_newer("0.9.5", "0.9.5"));
+    }
+
+    #[test]
+    fn downloads_list_uses_sidecar_and_falls_back_to_stem_offline() {
+        ensure_test_core();
+        let _tc = crate::online::stream::test_support::TestCache::acquire();
+        let dir = crate::online::stream::cache_dir();
+        std::fs::create_dir_all(&dir).expect("cache dir");
+
+        let with_sidecar = dir.join("sidecar01.m4a");
+        let legacy_stem = dir.join("sj342ms.m4a");
+        std::fs::write(&with_sidecar, vec![0x11u8; 16 * 1024]).expect("write audio 1");
+        std::fs::write(&legacy_stem, vec![0x22u8; 16 * 1024]).expect("write audio 2");
+
+        crate::online::write_track_sidecar(
+            &with_sidecar,
+            &crate::online::OnlineTrack {
+                video_id: "sidecar01".into(),
+                title: "Neon Horizon".into(),
+                artist: "Pulsewave".into(),
+                album: String::new(),
+                duration_secs: Some(198),
+                thumbnail: None,
+                cached: true,
+                source: String::new(),
+                artist_browse_id: None,
+            },
+        );
+
+        let reply = dispatch("library.downloads.list", "{}").expect("downloads list");
+        let list = reply["downloads"].as_array().expect("downloads array");
+
+        let enriched_row = list
+            .iter()
+            .find(|r| r["track"]["video_id"] == "sidecar01")
+            .expect("sidecar row present");
+        assert_eq!(enriched_row["track"]["title"], "Neon Horizon");
+        assert_eq!(enriched_row["track"]["artist"], "Pulsewave");
+
+        let legacy_row = list
+            .iter()
+            .find(|r| r["track"]["video_id"] == "sj342ms")
+            .expect("legacy stem row present");
+        assert_eq!(legacy_row["track"]["title"], "sj342ms");
+        assert_eq!(legacy_row["track"]["artist"], "Offline track");
+
+        let _ = std::fs::remove_file(&with_sidecar);
+        let _ = std::fs::remove_file(with_sidecar.with_extension("meta.json"));
+        let _ = std::fs::remove_file(&legacy_stem);
     }
 }

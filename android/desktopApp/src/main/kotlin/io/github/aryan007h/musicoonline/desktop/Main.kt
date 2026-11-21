@@ -32,8 +32,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +51,7 @@ import io.github.aryan007h.musicoonline.platform.DesktopPlatformHost
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformPrefs
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformUpdater
 import io.github.aryan007h.musicoonline.platform.DesktopPlayback
+import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
 import io.github.aryan007h.musicoonline.ui.AppOverlay
 import io.github.aryan007h.musicoonline.ui.AppTab
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
@@ -71,7 +74,11 @@ fun main() = application {
     MusicoCore.init(dataDir.absolutePath, cacheDir.absolutePath)
 
     val playback = remember { DesktopPlayback() }
-    val prefs = remember { DesktopPlatformPrefs(File(dataDir, "ui_prefs.json")) }
+    val prefs = remember {
+        DesktopPlatformPrefs(File(dataDir, "ui_prefs.json")).also {
+            PlatformEqualizer.init(it)
+        }
+    }
     val updater = remember { DesktopPlatformUpdater() }
     val vm = remember { MusicViewModel(playback = playback, prefs = prefs, updater = updater) }
 
@@ -100,12 +107,28 @@ fun main() = application {
         },
         state = windowState,
         title = windowTitle,
+        // Tunnel phase: ONLY global Search jump shortcuts (Ctrl+K / Ctrl+F) so focused
+        // OutlinedTextFields (Search, Rename, Onboarding) keep Ctrl+Arrows, Space, Escape, etc.
         onPreviewKeyEvent = { event ->
             if (event.type != KeyEventType.KeyDown) return@Window false
             val mod = event.isCtrlPressed || event.isMetaPressed
             when {
+                mod && (event.key == Key.K || event.key == Key.F) -> {
+                    vm.closeOverlay()
+                    vm.selectTab(AppTab.SEARCH)
+                    true
+                }
+                else -> false
+            }
+        },
+        // Bubble phase: fires only when no focused text input / dialog consumed the key.
+        onKeyEvent = { event ->
+            if (event.type != KeyEventType.KeyDown) return@Window false
+            val current = vm.state.value
+            val mod = event.isCtrlPressed || event.isMetaPressed
+            when {
                 event.key == Key.Escape -> {
-                    when (state.overlay) {
+                    when (current.overlay) {
                         AppOverlay.DETAIL -> { vm.popDetail(); true }
                         AppOverlay.COLLECTION -> { vm.closeCollection(); true }
                         AppOverlay.PLAYER, AppOverlay.SETTINGS, AppOverlay.PROFILE, AppOverlay.EQ -> {
@@ -114,23 +137,20 @@ fun main() = application {
                         else -> false
                     }
                 }
-                mod && (event.key == Key.K || event.key == Key.F) -> {
-                    vm.closeOverlay()
-                    vm.selectTab(AppTab.SEARCH)
-                    true
-                }
                 mod && event.key == Key.One -> { vm.closeOverlay(); vm.selectTab(AppTab.HOME); true }
                 mod && event.key == Key.Two -> { vm.closeOverlay(); vm.selectTab(AppTab.RADIO); true }
                 mod && event.key == Key.Three -> { vm.closeOverlay(); vm.selectTab(AppTab.LIBRARY); true }
                 mod && event.key == Key.Four -> { vm.closeOverlay(); vm.selectTab(AppTab.SEARCH); true }
                 mod && event.key == Key.L -> {
-                    if (state.overlay == AppOverlay.PLAYER) vm.closeOverlay()
-                    else if (state.nowPlaying != null) vm.openPlayer(initialPage = 1)
+                    if (current.overlay == AppOverlay.PLAYER) vm.closeOverlay()
+                    else if (current.nowPlaying != null) vm.openPlayer(initialPage = 1)
                     true
                 }
-                mod && event.key == Key.Spacebar -> {
-                    vm.onTogglePlayback()
-                    true
+                (mod || (!event.isAltPressed && !event.isShiftPressed)) && event.key == Key.Spacebar -> {
+                    if (current.nowPlaying != null) {
+                        vm.onTogglePlayback()
+                        true
+                    } else false
                 }
                 mod && event.key == Key.DirectionRight -> {
                     vm.next()
@@ -141,11 +161,11 @@ fun main() = application {
                     true
                 }
                 mod && event.key == Key.DirectionUp -> {
-                    vm.setVolume((state.volume + 0.08f).coerceIn(0f, 1f))
+                    vm.setVolume((current.volume + 0.08f).coerceIn(0f, 1f))
                     true
                 }
                 mod && event.key == Key.DirectionDown -> {
-                    vm.setVolume((state.volume - 0.08f).coerceIn(0f, 1f))
+                    vm.setVolume((current.volume - 0.08f).coerceIn(0f, 1f))
                     true
                 }
                 else -> false
@@ -153,7 +173,7 @@ fun main() = application {
         },
     ) {
         LaunchedEffect(Unit) {
-            window.minimumSize = Dimension(860, 620)
+            window.minimumSize = Dimension(520, 560)
         }
 
         var toastMessage by remember { mutableStateOf<String?>(null) }

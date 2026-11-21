@@ -273,3 +273,69 @@ impl Equalizer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stereo_sine(freq_hz: f32, sample_rate: u32, frames: usize) -> Vec<f32> {
+        let mut out = Vec::with_capacity(frames * 2);
+        for n in 0..frames {
+            let s = (2.0 * std::f32::consts::PI * freq_hz * (n as f32) / (sample_rate as f32)).sin()
+                * 0.25;
+            out.push(s);
+            out.push(s);
+        }
+        out
+    }
+
+    fn rms_tail(samples: &[f32], skip_samples: usize) -> f32 {
+        let slice = &samples[skip_samples.min(samples.len())..];
+        let sum_sq: f64 = slice.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
+        (sum_sq / slice.len().max(1) as f64).sqrt() as f32
+    }
+
+    #[test]
+    fn eq_disabled_passes_samples_unchanged() {
+        let mut eq = Equalizer::new(48_000, 2);
+        eq.set_gains([12.0, 12.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        eq.set_enabled(false);
+        let original = stereo_sine(62.0, 48_000, 2048);
+        let mut buf = original.clone();
+        eq.process_interleaved(&mut buf);
+        assert_eq!(buf, original);
+    }
+
+    #[test]
+    fn eq_bass_boost_measurably_shapes_low_freq_output() {
+        let sr = 48_000;
+        let frames = 9600; // 200 ms so biquad settles completely
+
+        let mut eq_low = Equalizer::new(sr, 2);
+        eq_low.set_enabled(true);
+        eq_low.set_gains([0.0, 12.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+
+        let low_in = stereo_sine(62.0, sr, frames);
+        let mut low_out = low_in.clone();
+        eq_low.process_interleaved(&mut low_out);
+        let low_gain_db = 20.0 * (rms_tail(&low_out, 4096) / rms_tail(&low_in, 4096)).log10();
+        assert!(
+            low_gain_db > 8.0,
+            "expected +12 dB at 62 Hz to boost RMS by > +8 dB, got {low_gain_db:.2} dB"
+        );
+
+        let mut eq_high = Equalizer::new(sr, 2);
+        eq_high.set_enabled(true);
+        eq_high.set_gains([0.0, 12.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+
+        let high_in = stereo_sine(4000.0, sr, frames);
+        let mut high_out = high_in.clone();
+        eq_high.process_interleaved(&mut high_out);
+        let high_gain_db = 20.0 * (rms_tail(&high_out, 4096) / rms_tail(&high_in, 4096)).log10();
+        assert!(
+            high_gain_db.abs() < 1.0,
+            "expected 4 kHz to stay within +/-1 dB, got {high_gain_db:.2} dB"
+        );
+    }
+}
+
+

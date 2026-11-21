@@ -77,7 +77,7 @@ fun PlaylistMosaicArtwork(
     val distinct = remember(thumbnails) {
         thumbnails.filterNotNull().filter { it.isNotBlank() }.distinct()
     }
-    val shape = RoundedCornerShape(cornerRadius)
+    val shape = RoundedCornerShape(cornerRadius.coerceAtLeast(0.dp))
     Box(
         modifier = modifier
             .aspectRatio(1f)
@@ -397,3 +397,14 @@ fun formatDurationSummary(tracks: List<OnlineTrack>): String? {
         else -> "${totalSecs}s"
     }
 }
+
+fun formatTrackCount(count: Int): String = "$count ${if (count == 1) "track" else "tracks"}"
+
+fun formatSongCount(count: Int): String = "$count ${if (count == 1) "song" else "songs"}"
+
+fun formatDownloadsSummary(count: Int, totalBytes: Long): String = when {
+    count <= 0 -> "No cached tracks"
+    totalBytes > 0L -> "${formatSongCount(count)} · ${formatBytesHuman(totalBytes)}"
+    else -> formatSongCount(count)
+}
+

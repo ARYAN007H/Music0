@@ -116,7 +116,11 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
     }
 
     private fun buildMediaItem(filePath: String, track: OnlineTrack): MediaItem {
-        val uri = Uri.fromFile(File(filePath))
+        val uri = if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+            Uri.parse(filePath)
+        } else {
+            Uri.fromFile(File(filePath))
+        }
         val metaBuilder = MediaMetadata.Builder()
             .setTitle(track.title.ifEmpty { "Music0" })
             .setArtist(track.artist.ifEmpty { null })

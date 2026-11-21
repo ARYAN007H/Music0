@@ -51,7 +51,10 @@ const METADATA_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// Upper bound on one downloaded track — a 5-minute 128 kbps m4a is ~5 MB;
 /// anything beyond this cap is not audio we asked for.
-const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+pub(crate) const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+/// Generous body-read timeout for background stream-while-download transfers
+/// (metadata/connect still use the tight fast-path budgets).
+const STREAM_BODY_TIMEOUT: Duration = Duration::from_secs(180);
 /// Metadata responses are small; anything larger is not the API we asked for.
 const MAX_METADATA_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -357,7 +360,15 @@ fn valid_video_id(video_id: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// One open audio stream, ready to be streamed to disk by [`try_sources`].
-type SourceBody = Box<dyn Read + Send>;
+pub(crate) type SourceBody = Box<dyn Read + Send>;
+
+/// Open audio stream with HTTP response metadata needed by the local range server.
+pub(crate) struct OpenedAudioStream {
+    pub reader: SourceBody,
+    pub content_length: Option<u64>,
+    pub content_type: String,
+    pub source_name: String,
+}
 
 /// A single stream source (one instance). `open` must respect `deadline` for
 /// its network phases; the download itself is deadline-checked chunk-by-chunk
@@ -367,6 +378,18 @@ pub(crate) trait AudioSource: Send + Sync {
     fn name(&self) -> &str;
     /// Returns a reader over raw audio (m4a) bytes, or a failure reason.
     fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String>;
+
+    /// Opens the stream for progressive stream-while-download playback, preserving
+    /// `Content-Length` / `Content-Type` and using a generous body-read timeout.
+    fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
+        let reader = self.open(video_id, deadline)?;
+        Ok(OpenedAudioStream {
+            reader,
+            content_length: None,
+            content_type: "audio/mp4".into(),
+            source_name: self.name().to_string(),
+        })
+    }
 }
 
 /// Remaining time until `deadline` (errors once expired).
@@ -440,12 +463,13 @@ fn select_best_m4a(streams: &[PipedAudio]) -> Option<String> {
     select_best_m4a_within(streams, MAX_AUDIO_BITRATE)
 }
 
-impl AudioSource for PipedSource {
-    fn name(&self) -> &str {
-        &self.host
-    }
-
-    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+impl PipedSource {
+    fn open_inner(
+        &self,
+        video_id: &str,
+        deadline: Instant,
+        body_timeout: Option<Duration>,
+    ) -> Result<OpenedAudioStream, String> {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
@@ -473,7 +497,7 @@ impl AudioSource for PipedSource {
                 )
             })?;
 
-        let dl_budget = remaining(deadline)?;
+        let dl_budget = body_timeout.unwrap_or(remaining(deadline)?);
         let resp = client
             .get(url)
             .timeout(dl_budget)
@@ -493,7 +517,28 @@ impl AudioSource for PipedSource {
         if !ctype.starts_with("audio/") {
             return Err(format!("piped {}: download content-type `{ctype}` is not audio", self.host));
         }
-        Ok(Box::new(resp))
+        let content_length = resp.content_length();
+        let content_type = ctype.split(';').next().unwrap_or("audio/mp4").trim().to_string();
+        Ok(OpenedAudioStream {
+            reader: Box::new(resp),
+            content_length,
+            content_type: if content_type.is_empty() { "audio/mp4".into() } else { content_type },
+            source_name: self.host.clone(),
+        })
+    }
+}
+
+impl AudioSource for PipedSource {
+    fn name(&self) -> &str {
+        &self.host
+    }
+
+    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+        self.open_inner(video_id, deadline, None).map(|o| o.reader)
+    }
+
+    fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
+        self.open_inner(video_id, deadline, Some(STREAM_BODY_TIMEOUT))
     }
 }
 
@@ -504,16 +549,17 @@ struct InvidiousSource {
     host: String,
 }
 
-impl AudioSource for InvidiousSource {
-    fn name(&self) -> &str {
-        &self.host
-    }
-
-    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+impl InvidiousSource {
+    fn open_inner(
+        &self,
+        video_id: &str,
+        deadline: Instant,
+        body_timeout: Option<Duration>,
+    ) -> Result<OpenedAudioStream, String> {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-        let budget = remaining(deadline)?;
+        let budget = body_timeout.unwrap_or(remaining(deadline)?);
 
         let resp = client
             .get(format!(
@@ -539,7 +585,28 @@ impl AudioSource for InvidiousSource {
                 self.host
             ));
         }
-        Ok(Box::new(resp))
+        let content_length = resp.content_length();
+        let content_type = ctype.split(';').next().unwrap_or("audio/mp4").trim().to_string();
+        Ok(OpenedAudioStream {
+            reader: Box::new(resp),
+            content_length,
+            content_type: if content_type.is_empty() { "audio/mp4".into() } else { content_type },
+            source_name: self.host.clone(),
+        })
+    }
+}
+
+impl AudioSource for InvidiousSource {
+    fn name(&self) -> &str {
+        &self.host
+    }
+
+    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+        self.open_inner(video_id, deadline, None).map(|o| o.reader)
+    }
+
+    fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
+        self.open_inner(video_id, deadline, Some(STREAM_BODY_TIMEOUT))
     }
 }
 
@@ -885,14 +952,13 @@ fn parse_innertube_player_streams(body: &[u8]) -> Vec<PipedAudio> {
 impl InnerTubeDirectSource {
     const NAME: &'static str = "innertube-direct";
     const CLIENTS: &'static [ItClientProfile] = IT_CLIENTS;
-}
 
-impl AudioSource for InnerTubeDirectSource {
-    fn name(&self) -> &str {
-        Self::NAME
-    }
-
-    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+    fn open_inner(
+        &self,
+        video_id: &str,
+        deadline: Instant,
+        body_timeout: Option<Duration>,
+    ) -> Result<OpenedAudioStream, String> {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
@@ -981,7 +1047,7 @@ impl AudioSource for InnerTubeDirectSource {
                 }
             };
 
-            let dl_budget = remaining(deadline)?;
+            let dl_budget = body_timeout.unwrap_or(remaining(deadline)?);
             let resp = match client
                 .get(url)
                 .header(reqwest::header::USER_AGENT, p.user_agent)
@@ -1011,11 +1077,36 @@ impl AudioSource for InnerTubeDirectSource {
                 last_err = format!("{last_err}; {}: content-type `{ctype}` is not audio", p.id);
                 continue;
             }
+            let content_length = resp.content_length();
+            let content_type = if ctype.starts_with("audio/") {
+                ctype.split(';').next().unwrap_or("audio/mp4").trim().to_string()
+            } else {
+                "audio/mp4".into()
+            };
             it_rehab(p.id);
             log::info!("innertube-direct: {} serving {video_id}", p.id);
-            return Ok(Box::new(resp));
+            return Ok(OpenedAudioStream {
+                reader: Box::new(resp),
+                content_length,
+                content_type,
+                source_name: Self::NAME.into(),
+            });
         }
         Err(last_err)
+    }
+}
+
+impl AudioSource for InnerTubeDirectSource {
+    fn name(&self) -> &str {
+        Self::NAME
+    }
+
+    fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
+        self.open_inner(video_id, deadline, None).map(|o| o.reader)
+    }
+
+    fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
+        self.open_inner(video_id, deadline, Some(STREAM_BODY_TIMEOUT))
     }
 }
 
@@ -1101,6 +1192,179 @@ pub(crate) fn try_sources(
 /// Production entry: the default pool against the shared fast-path budget.
 pub(crate) fn try_fast_path(video_id: &str) -> Result<PathBuf, String> {
     try_sources(&default_pool(), video_id, FAST_PATH_BUDGET)
+}
+
+/// Opens the first working upstream audio stream in pool order without waiting
+/// for the full body download — feeds [`super::stream_server`] for mobile
+/// stream-while-download playback.
+pub(crate) fn try_sources_open_stream(
+    sources: &[Box<dyn AudioSource>],
+    video_id: &str,
+    budget: Duration,
+) -> Result<OpenedAudioStream, String> {
+    if !valid_video_id(video_id) {
+        return Err(format!("invalid video id `{video_id}`"));
+    }
+    let deadline = Instant::now() + budget;
+    let mut last_err = String::from("no sources configured");
+    for source in sources {
+        if remaining(deadline).is_err() {
+            last_err =
+                format!("{last_err}; fast-path deadline exhausted before all sources were tried");
+            break;
+        }
+        let attempt_start = Instant::now();
+        match source.open_stream(video_id, deadline) {
+            Ok(opened) => {
+                record_instance_outcome(source.name(), true, attempt_start.elapsed());
+                return Ok(opened);
+            }
+            Err(e) => {
+                record_instance_outcome(source.name(), false, attempt_start.elapsed());
+                log::debug!("fast path stream: {} unavailable: {e}", source.name());
+                last_err = e;
+            }
+        }
+    }
+    Err(last_err)
+}
+
+/// Production streaming open: tries the default source pool and returns the
+/// first open audio stream for progressive loopback playback.
+pub(crate) fn try_fast_path_open_stream(video_id: &str) -> Result<OpenedAudioStream, String> {
+    try_sources_open_stream(&default_pool(), video_id, FAST_PATH_BUDGET)
+}
+
+/// Parses `videoDetails` from an InnerTube `/player` response into an
+/// [`super::models::OnlineTrack`] for one-time enrichment of legacy cache stems.
+pub(crate) fn parse_video_details_meta(
+    bytes: &[u8],
+    video_id: &str,
+) -> Option<super::models::OnlineTrack> {
+    let val: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let details = val.get("videoDetails")?;
+    let title = details.get("title")?.as_str()?.trim().to_string();
+    if title.is_empty() || title == video_id {
+        return None;
+    }
+    let raw_author = details
+        .get("author")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .trim();
+    let artist = raw_author
+        .strip_suffix(" - Topic")
+        .unwrap_or(raw_author)
+        .trim()
+        .to_string();
+    let duration_secs = details
+        .get("lengthSeconds")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        })
+        .filter(|&d| d > 0)
+        .map(|d| d as u32);
+    let thumbnail = details
+        .pointer("/thumbnail/thumbnails")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.last())
+        .and_then(|t| t.get("url"))
+        .and_then(|u| u.as_str())
+        .map(str::to_string);
+    Some(super::models::OnlineTrack {
+        video_id: video_id.to_string(),
+        title,
+        artist,
+        album: String::new(),
+        duration_secs,
+        thumbnail,
+        cached: true,
+        source: String::new(),
+        artist_browse_id: details
+            .get("channelId")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    })
+}
+
+/// Best-effort single-request metadata enrichment for a legacy YouTube video id
+/// whose audio file predates sidecar/sled persistence. Tries InnerTube `/player`
+/// `videoDetails` first, falling back to YouTube oEmbed.
+pub(crate) fn fetch_video_metadata(video_id: &str) -> Option<super::models::OnlineTrack> {
+    if video_id.is_empty()
+        || video_id.len() > 64
+        || !video_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return None;
+    }
+    let client = SOURCE_CLIENT.as_ref()?;
+    let budget = Duration::from_secs(5);
+
+    if let Some(p) = IT_CLIENTS.last() {
+        let payload = build_player_payload(p, video_id, None);
+        if let Ok(resp) = client
+            .post("https://music.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .header(reqwest::header::USER_AGENT, p.user_agent)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("X-YouTube-Client-Name", p.client_id)
+            .header("X-YouTube-Client-Version", p.client_version)
+            .header(reqwest::header::ORIGIN, "https://music.youtube.com")
+            .timeout(budget)
+            .json(&payload)
+            .send()
+        {
+            if resp.status().is_success() {
+                if let Ok(bytes) = read_capped(resp, MAX_METADATA_BYTES) {
+                    if let Some(track) = parse_video_details_meta(&bytes, video_id) {
+                        return Some(track);
+                    }
+                }
+            }
+        }
+    }
+
+    // Lightweight oEmbed fallback (returns title, author_name, thumbnail_url).
+    let oembed_url = format!(
+        "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+    );
+    let resp = client.get(&oembed_url).timeout(budget).send().ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let bytes = read_capped(resp, 128 * 1024).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let title = v.get("title")?.as_str()?.trim().to_string();
+    if title.is_empty() || title == video_id {
+        return None;
+    }
+    let raw_author = v
+        .get("author_name")
+        .and_then(|a| a.as_str())
+        .unwrap_or_default()
+        .trim();
+    let artist = raw_author
+        .strip_suffix(" - Topic")
+        .unwrap_or(raw_author)
+        .trim()
+        .to_string();
+    let thumbnail = v
+        .get("thumbnail_url")
+        .and_then(|t| t.as_str())
+        .map(str::to_string);
+    Some(super::models::OnlineTrack {
+        video_id: video_id.to_string(),
+        title,
+        artist,
+        album: String::new(),
+        duration_secs: None,
+        thumbnail,
+        cached: true,
+        source: String::new(),
+        artist_browse_id: None,
+    })
 }
 
 /// Streams `body` into `part`, then atomically renames onto `final_path`.
@@ -1617,5 +1881,34 @@ mod tests {
             Ok(path) => println!("INVIDIOUS resolve: {:?} → {}", t0.elapsed(), path.display()),
             Err(e) => panic!("invidious fast path failed (instance ecosystem down?): {e}"),
         }
+    }
+
+    #[test]
+    fn parse_video_details_meta_extracts_title_artist_and_duration() {
+        let body = br#"{
+            "videoDetails": {
+                "videoId": "sj342ms",
+                "title": "Midnight City",
+                "author": "M83 - Topic",
+                "lengthSeconds": "243",
+                "channelId": "UC123",
+                "thumbnail": {
+                    "thumbnails": [
+                        {"url": "https://i.ytimg.com/vi/sj342ms/default.jpg"},
+                        {"url": "https://i.ytimg.com/vi/sj342ms/hqdefault.jpg"}
+                    ]
+                }
+            }
+        }"#;
+        let meta = parse_video_details_meta(body, "sj342ms").expect("parses videoDetails");
+        assert_eq!(meta.video_id, "sj342ms");
+        assert_eq!(meta.title, "Midnight City");
+        assert_eq!(meta.artist, "M83");
+        assert_eq!(meta.duration_secs, Some(243));
+        assert_eq!(
+            meta.thumbnail.as_deref(),
+            Some("https://i.ytimg.com/vi/sj342ms/hqdefault.jpg")
+        );
+        assert_eq!(meta.artist_browse_id.as_deref(), Some("UC123"));
     }
 }

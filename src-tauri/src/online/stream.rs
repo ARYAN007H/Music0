@@ -220,14 +220,57 @@ pub(crate) fn cached_file(video_id: &str) -> Option<PathBuf> {
     found
 }
 
+fn is_non_audio_sidecar(name: &str) -> bool {
+    name.ends_with(".part")
+        || name.ends_with(".ytdl")
+        || name.ends_with(".meta.json")
+        || name.ends_with(".tmp")
+}
+
+/// Companion metadata file (`{stem}.meta.json`) stored beside each downloaded
+/// audio file so Offline Downloads retains titles/artists across DB resets.
+pub(crate) fn sidecar_meta_path(audio_path: &Path) -> PathBuf {
+    audio_path.with_extension("meta.json")
+}
+
+/// Persists track display metadata next to a cached audio file (best-effort).
+pub fn write_track_sidecar(audio_path: &Path, track: &OnlineTrack) {
+    if track.video_id.trim().is_empty()
+        || track.title.trim().is_empty()
+        || track.title.trim() == track.video_id.trim()
+    {
+        return;
+    }
+    let sidecar = sidecar_meta_path(audio_path);
+    if let Ok(bytes) = serde_json::to_vec(track) {
+        let tmp = sidecar.with_extension("json.tmp");
+        if std::fs::write(&tmp, &bytes).is_ok() {
+            if std::fs::rename(&tmp, &sidecar).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+                let _ = std::fs::write(&sidecar, &bytes);
+            }
+        }
+    }
+}
+
+/// Loads companion display metadata stored beside a cached audio file.
+pub fn read_track_sidecar(audio_path: &Path) -> Option<OnlineTrack> {
+    let sidecar = sidecar_meta_path(audio_path);
+    let bytes = std::fs::read(&sidecar).ok()?;
+    let mut track: OnlineTrack = serde_json::from_slice(&bytes).ok()?;
+    if track.title.trim().is_empty() {
+        return None;
+    }
+    track.cached = true;
+    Some(track)
+}
+
 fn scan_dir_for(prefix: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(cache_dir()).ok()?;
     entries.flatten().map(|e| e.path()).find(|path| {
         path.file_name()
             .and_then(|n| n.to_str())
-            .is_some_and(|n| {
-                n.starts_with(prefix) && !n.ends_with(".part") && !n.ends_with(".ytdl")
-            })
+            .is_some_and(|n| n.starts_with(prefix) && !is_non_audio_sidecar(n))
     })
 }
 
@@ -240,7 +283,7 @@ pub fn cached_file_for(song_id: &str) -> Option<PathBuf> {
 
 /// Enumerates every completed audio file currently sitting in the stream cache
 /// as `(file_stem, path, size_bytes)` sorted newest-first by mtime.
-/// Skips partial `.part`/`.ytdl` sidecars and broken sub-threshold files.
+/// Skips partial `.part`/`.ytdl` and `.meta.json` sidecars and broken sub-threshold files.
 pub fn list_cached_files() -> Vec<(String, PathBuf, u64)> {
     let dir = cache_dir();
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -251,7 +294,7 @@ pub fn list_cached_files() -> Vec<(String, PathBuf, u64)> {
         .filter_map(|entry| {
             let path = entry.path();
             let name = path.file_name()?.to_str()?;
-            if name.ends_with(".part") || name.ends_with(".ytdl") {
+            if is_non_audio_sidecar(name) {
                 return None;
             }
             let meta = entry.metadata().ok()?;
@@ -353,7 +396,147 @@ pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, 
     if !interactive {
         cover.join();
     }
+    if let Ok(ref path) = result {
+        write_track_sidecar(path, track);
+    }
     result
+}
+
+/// Monotonic suffix for live `.part` files so overlapping retries for the same
+/// track never clobber an in-flight download before atomic rename.
+static PART_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn unique_part_path(dir: &Path, cache_key: &str) -> PathBuf {
+    let seq = PART_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let safe_stem = cache_key.replace(':', "_");
+    dir.join(format!("{safe_stem}.{seq}.part"))
+}
+
+fn cache_ext_for_content_type(content_type: &str) -> &'static str {
+    let ct = content_type.to_ascii_lowercase();
+    if ct.contains("webm") || ct.contains("opus") {
+        "webm"
+    } else if ct.contains("mpeg") || ct.contains("mp3") {
+        "mp3"
+    } else if ct.contains("ogg") {
+        "ogg"
+    } else if ct.contains("mp4") || ct.contains("aac") {
+        "m4a"
+    } else {
+        "m4a"
+    }
+}
+
+/// Interactive streaming resolver for mobile playback (T11):
+/// 1. Returns cached local file paths immediately (works in Airplane Mode).
+/// 2. Opens an upstream audio stream (JioSaavn CDN or YouTube fast path),
+///    pumps it into a `.part` file on a worker thread, and returns a local
+///    loopback HTTP/1.1 range URL (`http://127.0.0.1:<port>/stream/<token>`)
+///    as soon as initial audio bytes arrive (~1–2 s instead of ~20 s).
+/// 3. On stream completion, verifies size, atomically renames `.part` → final
+///    cache path, updates the cache index, prunes to cap, and invokes `on_finalized`.
+/// 4. Falls back cleanly to whole-file [`resolve_track`] if loopback streaming
+///    cannot start.
+pub fn resolve_track_streaming<F>(
+    track: &OnlineTrack,
+    on_finalized: F,
+) -> Result<String, String>
+where
+    F: FnOnce(PathBuf) + Send + 'static,
+{
+    if let Some(hit) = cached_file(&track.song_id()).or_else(|| cached_file(&track.video_id)) {
+        return Ok(hit.display().to_string());
+    }
+    if !track.source.is_empty() && track.source != "yt" && track.source != super::saavn::SOURCE {
+        return Err(format!("unknown online source `{}`", track.source));
+    }
+
+    let _cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
+    let dir = cache_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cache dir: {e}"))?;
+
+    // Helper that registers a loopback session and wires cache finalize + callback.
+    let start_loopback = |opened: super::sources::OpenedAudioStream,
+                          cache_key: String,
+                          ext: &str,
+                          cb: F|
+     -> Result<String, String> {
+        let server = super::stream_server::global_server()?;
+        let final_path = dir.join(cache_file_name(&cache_key, ext));
+        let part_path = unique_part_path(&dir, &cache_key);
+        let cfg = super::stream_server::StreamSessionConfig {
+            part_path,
+            final_path,
+            content_type: opened.content_type,
+            expected_total: opened.content_length,
+            min_file_bytes: MIN_FILE_BYTES,
+            max_file_bytes: super::sources::MAX_SOURCE_BYTES,
+            initial_ready_bytes: super::stream_server::INITIAL_READY_BYTES,
+            initial_ready_timeout: super::stream_server::INITIAL_READY_TIMEOUT,
+        };
+        let key_for_index = cache_key.clone();
+        let source_name = opened.source_name;
+        let sidecar_track = track.clone();
+        let url = server.start_session(opened.reader, cfg, move |landed| {
+            write_track_sidecar(&landed, &sidecar_track);
+            if let Ok(mut index) = CACHE_INDEX.write() {
+                index.insert(key_for_index, landed.clone());
+            }
+            prune_cache_to_cap();
+            cb(landed);
+        })?;
+        log::info!("resolve_track_streaming {}: loopback ready via {source_name}", track.video_id);
+        Ok(url)
+    };
+
+    if track.source == super::saavn::SOURCE {
+        let opened = super::saavn::open_saavn_stream(track, true)?;
+        return start_loopback(opened, track.song_id(), "mp4", on_finalized);
+    }
+
+    // YouTube track: check JioSaavn cross-source fast stream first.
+    if !track.title.trim().is_empty() {
+        if let Some(cross) = super::saavn::try_cross_source_open_stream(track) {
+            match cross {
+                super::saavn::CrossSourceStream::Cached(hit) => {
+                    return Ok(hit.display().to_string());
+                }
+                super::saavn::CrossSourceStream::Opened(matched, opened) => {
+                    if let Ok(url) = start_loopback(opened, matched.song_id(), "mp4", on_finalized) {
+                        return Ok(url);
+                    }
+                    // If loopback startup failed after consuming `on_finalized`, fall back to whole-file resolve.
+                    return resolve_track(track, true).map(|p| p.display().to_string());
+                }
+            }
+        }
+    }
+
+    // YouTube direct-URL streaming fast path (InnerTube direct / Piped / Invidious).
+    match super::sources::try_fast_path_open_stream(&track.video_id) {
+        Ok(opened) => {
+            let ext = cache_ext_for_content_type(&opened.content_type);
+            match start_loopback(opened, track.video_id.clone(), ext, on_finalized) {
+                Ok(url) => Ok(url),
+                Err(e) => {
+                    log::info!(
+                        "stream loopback failed for {} ({e}) — falling back to whole-file resolve",
+                        track.video_id
+                    );
+                    resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
+                        .map(|p| p.display().to_string())
+                }
+            }
+        }
+        Err(e) => {
+            log::info!(
+                "fast-path stream open exhausted for {} ({e}) — falling back to yt-dlp",
+                track.video_id
+            );
+            resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
+                .map(|p| p.display().to_string())
+        }
+    }
 }
 
 /// Joins a background cover fetch spawned alongside a download.
@@ -568,10 +751,14 @@ pub fn prune_cache(max_bytes: u64) -> u64 {
         if !meta.is_file() {
             continue;
         }
-        if n.ends_with(".part") || n.ends_with(".ytdl") {
+        if n.ends_with(".part") || n.ends_with(".ytdl") || n.ends_with(".tmp") {
             if meta.modified().ok().is_some_and(|m| m < sidecar_cutoff) {
                 swept.push((entry.path(), meta.len()));
             }
+            continue;
+        }
+        if n.ends_with(".meta.json") {
+            // Companion metadata files are tiny and removed alongside their audio file.
             continue;
         }
         let Some(mtime) = meta.modified().ok() else { continue };
@@ -600,6 +787,7 @@ pub fn prune_cache(max_bytes: u64) -> u64 {
                 break;
             }
             if std::fs::remove_file(&path).is_ok() {
+                let _ = std::fs::remove_file(sidecar_meta_path(&path));
                 lru_freed += size;
                 pruned_paths.push(path);
             }
@@ -971,5 +1159,47 @@ mod tests {
         std::fs::write(&p, b"definitely not an audio file").unwrap();
         assert!(probe_duration_secs(&p).is_none());
         assert!(probe_duration_secs(Path::new("/nonexistent/file.m4a")).is_none());
+    }
+
+    #[test]
+    fn sidecar_metadata_roundtrips_and_prunes_with_audio() {
+        let _tc = TestCache::acquire();
+        let dir = cache_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let audio = dir.join("sj342ms.m4a");
+        std::fs::write(&audio, vec![0x5Au8; (MIN_FILE_BYTES as usize) + 2048]).unwrap();
+        let meta = OnlineTrack {
+            video_id: "sj342ms".into(),
+            title: "Starlight Drive".into(),
+            artist: "Nova Echo".into(),
+            album: "Night Run".into(),
+            duration_secs: Some(214),
+            thumbnail: None,
+            cached: false,
+            source: String::new(),
+            artist_browse_id: None,
+        };
+        write_track_sidecar(&audio, &meta);
+
+        let sidecar = sidecar_meta_path(&audio);
+        assert!(sidecar.exists(), "sidecar must be written beside audio");
+
+        // Sidecar must never masquerade as a cached audio file.
+        let listed = list_cached_files();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].0, "sj342ms");
+        assert_eq!(cached_file("sj342ms"), Some(audio.clone()));
+
+        let read_back = read_track_sidecar(&audio).expect("sidecar reads back");
+        assert_eq!(read_back.title, "Starlight Drive");
+        assert_eq!(read_back.artist, "Nova Echo");
+        assert!(read_back.cached);
+
+        // Pruning the audio file removes its paired sidecar too.
+        let freed = prune_cache(1);
+        assert!(freed >= MIN_FILE_BYTES);
+        assert!(!audio.exists());
+        assert!(!sidecar.exists());
     }
 }

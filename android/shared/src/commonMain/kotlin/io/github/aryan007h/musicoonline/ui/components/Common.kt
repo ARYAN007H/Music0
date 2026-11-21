@@ -31,13 +31,20 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -98,6 +105,15 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+// ── Unified Edge-to-Edge Top Inset (status bar ∪ display cutout, top only) ──
+
+@Composable
+fun Modifier.musicoTopInset(): Modifier = this.windowInsetsPadding(
+    WindowInsets.statusBars
+        .union(WindowInsets.displayCutout)
+        .only(WindowInsetsSides.Top),
+)
+
 // ── Ambient Top Wash: subtle cover-extracted atmospheric halo on browse pages ──
 
 @Composable
@@ -114,13 +130,15 @@ fun AmbientTopWash(
     ) {
         val w = size.width
         val h = size.height
+        if (w <= 0f || h <= 0f) return@Canvas
+        val baseDim = maxOf(w, h)
         drawRect(
             brush = Brush.radialGradient(
                 0f to atmosphere.orbPrimary.copy(alpha = intensity),
                 0.55f to atmosphere.orbSecondary.copy(alpha = intensity * 0.42f),
                 1f to Color.Transparent,
                 center = Offset(w * 0.22f, h * 0.05f),
-                radius = maxOf(w, h) * 0.92f,
+                radius = (baseDim * 0.92f).coerceAtLeast(1f),
             ),
         )
         drawRect(
@@ -128,7 +146,7 @@ fun AmbientTopWash(
                 0f to atmosphere.glow.copy(alpha = intensity * 0.45f),
                 0.65f to Color.Transparent,
                 center = Offset(w * 0.85f, h * 0.18f),
-                radius = maxOf(w, h) * 0.72f,
+                radius = (baseDim * 0.72f).coerceAtLeast(1f),
             ),
         )
         drawRect(
@@ -158,13 +176,14 @@ fun Artwork(
             .crossfade(220)
             .build()
     }
+    val safeCorner = cornerRadius.coerceAtLeast(0.dp)
     SubcomposeAsyncImage(
         model = request,
         contentDescription = contentDescription,
         contentScale = ContentScale.Crop,
-        modifier = modifier.clip(RoundedCornerShape(cornerRadius)),
-        loading = { ArtworkPlaceholder(cornerRadius, placeholderIcon) },
-        error = { ArtworkPlaceholder(cornerRadius, placeholderIcon) },
+        modifier = modifier.clip(RoundedCornerShape(safeCorner)),
+        loading = { ArtworkPlaceholder(safeCorner, placeholderIcon) },
+        error = { ArtworkPlaceholder(safeCorner, placeholderIcon) },
     )
 }
 
@@ -173,7 +192,7 @@ private fun ArtworkPlaceholder(cornerRadius: Dp, icon: ImageVector) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(cornerRadius))
+            .clip(RoundedCornerShape(cornerRadius.coerceAtLeast(0.dp)))
             .background(
                 Brush.linearGradient(
                     listOf(
@@ -260,7 +279,7 @@ fun EqualizerBars(
                 Box(
                     Modifier
                         .width(3.dp)
-                        .height(height)
+                        .height(height.coerceAtLeast(1.dp))
                         .clip(RoundedCornerShape(2.dp))
                         .background(if (playing) color else Musico.extras.inkFaint)
                         .alpha(if (playing) 1f else 0.4f),
@@ -426,15 +445,16 @@ fun LikeButton(
         val p = ring.value
         if (p > 0.01f && p < 0.99f) {
             Canvas(Modifier.size(size * 2.5f)) {
+                val maxR = this.size.minDimension / 2f
+                if (maxR <= 0f) return@Canvas
                 val cx = this.size.width / 2f
                 val cy = this.size.height / 2f
-                val maxR = this.size.minDimension / 2f
                 // Expanding shockwave ring
                 drawCircle(
                     color = ringColor,
-                    radius = maxR * 0.72f * p,
-                    alpha = (1f - p) * 0.55f,
-                    style = Stroke(width = 2.dp.toPx() * (1f - p * 0.65f)),
+                    radius = (maxR * 0.72f * p).coerceAtLeast(0.5f),
+                    alpha = ((1f - p) * 0.55f).coerceIn(0f, 1f),
+                    style = Stroke(width = (2.dp.toPx() * (1f - p * 0.65f)).coerceAtLeast(0.5f)),
                 )
                 // 6 radiating celebration sparks
                 repeat(6) { i ->
@@ -459,8 +479,9 @@ fun LikeButton(
             modifier = Modifier
                 .size(size)
                 .graphicsLayer {
-                    scaleX = burst.value
-                    scaleY = burst.value
+                    val safeBurst = burst.value.coerceAtLeast(0.01f)
+                    scaleX = safeBurst
+                    scaleY = safeBurst
                 }
                 .clickable {
                     hapticConfirm()
@@ -649,7 +670,7 @@ fun MiniPlayFab(
         shadowElevation = 6.dp,
         modifier = modifier
             .size(44.dp)
-            .scale(scale)
+            .scale(scale.coerceAtLeast(0f))
             .pressable(onClick = onClick, pressedScale = 0.86f),
     ) {
         Box(contentAlignment = Alignment.Center) {

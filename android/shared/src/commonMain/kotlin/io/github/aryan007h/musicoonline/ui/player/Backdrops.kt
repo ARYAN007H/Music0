@@ -105,7 +105,8 @@ fun FluidMeshBackdrop(
     Canvas(modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        val diag = max(w, h)
+        if (w <= 0f || h <= 0f) return@Canvas
+        val diag = max(w, h).coerceAtLeast(1f)
         val t = phaseSecs
 
         // Deep velvet base
@@ -129,13 +130,13 @@ fun FluidMeshBackdrop(
         )
         drawCircle(
             brush = Brush.radialGradient(
-                0f to primary.copy(alpha = 0.64f * intensity),
-                0.5f to primary.copy(alpha = 0.24f * intensity),
+                0f to primary.copy(alpha = (0.64f * intensity).coerceIn(0f, 1f)),
+                0.5f to primary.copy(alpha = (0.24f * intensity).coerceIn(0f, 1f)),
                 1f to Color.Transparent,
                 center = c1,
-                radius = diag * (0.64f + 0.05f * sin(t * 0.31f)),
+                radius = (diag * (0.64f + 0.05f * sin(t * 0.31f))).coerceAtLeast(1f),
             ),
-            radius = diag * 0.72f,
+            radius = (diag * 0.72f).coerceAtLeast(1f),
             center = c1,
         )
 
@@ -146,13 +147,13 @@ fun FluidMeshBackdrop(
         )
         drawCircle(
             brush = Brush.radialGradient(
-                0f to secondary.copy(alpha = 0.58f * intensity),
-                0.52f to secondary.copy(alpha = 0.21f * intensity),
+                0f to secondary.copy(alpha = (0.58f * intensity).coerceIn(0f, 1f)),
+                0.52f to secondary.copy(alpha = (0.21f * intensity).coerceIn(0f, 1f)),
                 1f to Color.Transparent,
                 center = c2,
-                radius = diag * (0.60f + 0.06f * cos(t * 0.27f)),
+                radius = (diag * (0.60f + 0.06f * cos(t * 0.27f))).coerceAtLeast(1f),
             ),
-            radius = diag * 0.68f,
+            radius = (diag * 0.68f).coerceAtLeast(1f),
             center = c2,
         )
 
@@ -163,13 +164,13 @@ fun FluidMeshBackdrop(
         )
         drawCircle(
             brush = Brush.radialGradient(
-                0f to glow.copy(alpha = 0.30f * intensity),
-                0.48f to primary.copy(alpha = 0.12f * intensity),
+                0f to glow.copy(alpha = (0.30f * intensity).coerceIn(0f, 1f)),
+                0.48f to primary.copy(alpha = (0.12f * intensity).coerceIn(0f, 1f)),
                 1f to Color.Transparent,
                 center = c3,
-                radius = diag * 0.50f,
+                radius = (diag * 0.50f).coerceAtLeast(1f),
             ),
-            radius = diag * 0.55f,
+            radius = (diag * 0.55f).coerceAtLeast(1f),
             center = c3,
         )
 
@@ -180,13 +181,13 @@ fun FluidMeshBackdrop(
         )
         drawCircle(
             brush = Brush.radialGradient(
-                0f to primary.copy(alpha = 0.42f * intensity),
-                0.55f to secondary.copy(alpha = 0.14f * intensity),
+                0f to primary.copy(alpha = (0.42f * intensity).coerceIn(0f, 1f)),
+                0.55f to secondary.copy(alpha = (0.14f * intensity).coerceIn(0f, 1f)),
                 1f to Color.Transparent,
                 center = c4,
-                radius = diag * 0.48f,
+                radius = (diag * 0.48f).coerceAtLeast(1f),
             ),
-            radius = diag * 0.52f,
+            radius = (diag * 0.52f).coerceAtLeast(1f),
             center = c4,
         )
 
@@ -242,6 +243,7 @@ fun RainBackdrop(modifier: Modifier = Modifier) {
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
             drops.forEachIndexed { i, d ->
                 val depth = i / drops.size.toFloat()
                 val y = ((d.startYFrac + elapsed * d.speedFrac) % 1f) * h
@@ -298,6 +300,7 @@ fun AuroraBackdrop(
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
             fun veil(color: Color, cx: Float, cy: Float, radiusX: Float, radiusY: Float, rotation: Float, alpha: Float) {
                 val path = Path()
                 path.moveTo(cx - radiusX, cy)
@@ -316,7 +319,7 @@ fun AuroraBackdrop(
                     0f to Color.Transparent,
                     1f to Color.Black.copy(alpha = 0.50f),
                     center = Offset(w / 2f, h / 2f),
-                    radius = min(w, h) * 0.9f,
+                    radius = (min(w, h) * 0.9f).coerceAtLeast(1f),
                 ),
             )
         }

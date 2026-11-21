@@ -37,6 +37,7 @@ actual object MusicoCore {
             try {
                 System.load(File(envPath).absolutePath)
                 _isLoaded = true
+                _loadError = null
                 return
             } catch (t: Throwable) {
                 _loadError = "Failed to load MUSICO_NATIVE_LIB ($envPath): ${t.message}"
@@ -47,25 +48,49 @@ actual object MusicoCore {
         try {
             System.loadLibrary("musico_online_lib")
             _isLoaded = true
+            _loadError = null
             return
         } catch (_: UnsatisfiedLinkError) {
-            // Fall through to workspace Cargo build outputs.
+            // Fall through to packaged bundle + workspace Cargo build outputs.
         }
 
-        // 3. Automatic Cargo workspace discovery (works directly with `gradle :desktopApp:run`).
+        // 3. Packaged app bundle resources & Cargo workspace discovery.
         val cwd = File(System.getProperty("user.dir") ?: ".")
-        val candidates = listOf(
-            File(cwd, "src-tauri/target/release/$libFileName"),
-            File(cwd, "src-tauri/target/debug/$libFileName"),
-            File(cwd, "../src-tauri/target/release/$libFileName"),
-            File(cwd, "../src-tauri/target/debug/$libFileName"),
-            File(cwd, "../../src-tauri/target/release/$libFileName"),
-            File(cwd, "../../src-tauri/target/debug/$libFileName"),
-            File(cwd, "target/release/$libFileName"),
-            File(cwd, "target/debug/$libFileName"),
-            File(cwd, "../target/release/$libFileName"),
-            File(cwd, "../target/debug/$libFileName"),
-        )
+        val bundleDirs = buildList {
+            System.getProperty("compose.application.resources.dir")
+                ?.trim()?.takeIf { it.isNotEmpty() }?.let { add(File(it)) }
+            System.getProperty("app.dir")
+                ?.trim()?.takeIf { it.isNotEmpty() }?.let { dir ->
+                    add(File(dir))
+                    add(File(dir, "lib"))
+                }
+            runCatching {
+                MusicoCore::class.java.protectionDomain?.codeSource?.location?.toURI()?.let { uri ->
+                    File(uri).parentFile?.let { jarDir ->
+                        add(jarDir)
+                        jarDir.parentFile?.let { parent ->
+                            add(parent)
+                            add(File(parent, "lib"))
+                        }
+                    }
+                }
+            }
+        }
+        val candidates = buildList {
+            for (dir in bundleDirs) {
+                add(File(dir, libFileName))
+            }
+            add(File(cwd, "src-tauri/target/release/$libFileName"))
+            add(File(cwd, "src-tauri/target/debug/$libFileName"))
+            add(File(cwd, "../src-tauri/target/release/$libFileName"))
+            add(File(cwd, "../src-tauri/target/debug/$libFileName"))
+            add(File(cwd, "../../src-tauri/target/release/$libFileName"))
+            add(File(cwd, "../../src-tauri/target/debug/$libFileName"))
+            add(File(cwd, "target/release/$libFileName"))
+            add(File(cwd, "target/debug/$libFileName"))
+            add(File(cwd, "../target/release/$libFileName"))
+            add(File(cwd, "../target/debug/$libFileName"))
+        }
         for (candidate in candidates) {
             if (candidate.isFile) {
                 try {

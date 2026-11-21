@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +45,11 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,10 +61,12 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.UpdateInfo
 import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.Palette
 import io.github.aryan007h.musicoonline.ui.theme.pressable
+import kotlin.math.roundToInt
 
 /**
  * Unified Settings screen across Android & Desktop: Appearance (M3 Expressive
@@ -104,7 +110,7 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
+            .musicoTopInset()
             .navigationBarsPadding(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -248,6 +254,14 @@ fun SettingsScreen(
         }
 
         item(key = "group-storage") {
+            val persistedCapMb = (cacheMb ?: 1024).coerceIn(CACHE_CAP_MIN_MB, CACHE_CAP_MAX_MB)
+            var dragging by remember { mutableStateOf(false) }
+            var dragMb by remember { mutableFloatStateOf(persistedCapMb.toFloat()) }
+            LaunchedEffect(persistedCapMb) {
+                if (!dragging) dragMb = persistedCapMb.toFloat()
+            }
+            val displayedCapMb = if (dragging) snapCacheCapMb(dragMb) else persistedCapMb
+
             SettingsGroup(title = "Storage") {
                 Row(
                     Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -259,8 +273,8 @@ fun SettingsScreen(
                         Text("Stream cache", style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
                         Text(
                             cacheBytes?.let { used ->
-                                "${used / (1024 * 1024)} MB used · cap ${cacheMb ?: 1024} MB"
-                            } ?: "Cap ${cacheMb ?: 1024} MB",
+                                "${used / (1024 * 1024)} MB used · cap $displayedCapMb MB"
+                            } ?: "Cap $displayedCapMb MB",
                             style = Musico.type.caption,
                             color = Musico.extras.inkDim,
                         )
@@ -268,10 +282,21 @@ fun SettingsScreen(
                 }
                 Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                     Slider(
-                        value = (cacheMb ?: 1024).toFloat(),
-                        onValueChange = { onCacheCapChange(((it / 256).toInt()) * 256) },
-                        valueRange = 512f..5120f,
-                        enabled = !settingsSaving,
+                        value = dragMb.coerceIn(CACHE_CAP_MIN_MB.toFloat(), CACHE_CAP_MAX_MB.toFloat()),
+                        onValueChange = { raw ->
+                            dragging = true
+                            dragMb = raw
+                        },
+                        onValueChangeFinished = {
+                            val snapped = snapCacheCapMb(dragMb)
+                            dragMb = snapped.toFloat()
+                            dragging = false
+                            if (snapped != persistedCapMb) {
+                                onCacheCapChange(snapped)
+                            }
+                        },
+                        valueRange = CACHE_CAP_MIN_MB.toFloat()..CACHE_CAP_MAX_MB.toFloat(),
+                        enabled = !settingsSaving || dragging,
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
                             activeTrackColor = Musico.extras.mint,
@@ -279,7 +304,7 @@ fun SettingsScreen(
                         ),
                     )
                     Text(
-                        "Cap: ${cacheMb ?: 1024} MB",
+                        "Cap: $displayedCapMb MB",
                         style = Musico.type.caption,
                         color = Musico.extras.inkDim,
                     )
@@ -620,3 +645,12 @@ private fun BackdropChooser(current: LyricBackdrop, onPick: (LyricBackdrop) -> U
         }
     }
 }
+
+internal const val CACHE_CAP_MIN_MB = 512
+internal const val CACHE_CAP_MAX_MB = 5120
+internal const val CACHE_CAP_STEP_MB = 256
+
+internal fun snapCacheCapMb(rawMb: Float): Int =
+    ((rawMb / CACHE_CAP_STEP_MB).roundToInt() * CACHE_CAP_STEP_MB)
+        .coerceIn(CACHE_CAP_MIN_MB, CACHE_CAP_MAX_MB)
+

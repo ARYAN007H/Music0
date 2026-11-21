@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.pressable
@@ -55,7 +56,11 @@ fun RadioScreen(
             intensity = 0.22f,
             modifier = Modifier.align(Alignment.TopCenter),
         )
-        Column(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .musicoTopInset(),
+        ) {
             Text(
                 "RADIO",
                 style = Musico.type.section,

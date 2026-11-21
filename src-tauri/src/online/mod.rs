@@ -41,6 +41,7 @@ pub mod saavn;
 pub mod search;
 pub mod sources;
 pub mod stream;
+pub(crate) mod stream_server;
 
 pub use catalog::{browse, browse_continuation, genres, home_feed};
 pub use lrclib::{fetch_synced_lyrics, SyncedLyricsDto};
@@ -51,10 +52,21 @@ pub use saavn::{search_songs, SEARCH_MERGE_LIMIT};
 pub use search::{search, search_suggestions};
 pub use stream::{
     cache_usage_bytes, cached_file_for, clear_cache, list_cached_files, prune_cache_to_cap,
-    resolve_stream, resolve_track, to_song_info, yt_dlp_available,
+    read_track_sidecar, resolve_stream, resolve_track, resolve_track_streaming, to_song_info,
+    write_track_sidecar, yt_dlp_available,
 };
 #[allow(unused_imports)]
 use stream::cached_file;
+
+/// Best-effort online display-metadata lookup for a legacy cache stem missing
+/// sled/sidecar metadata (T12).
+pub fn fetch_track_metadata(video_id: &str, source: &str) -> Option<OnlineTrack> {
+    if source == saavn::SOURCE {
+        saavn::fetch_track_metadata(video_id)
+    } else {
+        sources::fetch_video_metadata(video_id)
+    }
+}
 
 #[cfg(test)]
 mod live_tests {
