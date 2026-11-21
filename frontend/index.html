@@ -14,8 +14,7 @@
   try {
     var t = localStorage.getItem('musico-theme');
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
-    var skin = localStorage.getItem('musico-skin');
-    if (skin === 'm3e' || skin === 'ios') document.documentElement.setAttribute('data-skin', skin);
+    document.documentElement.setAttribute('data-skin', 'm3e');
   } catch (e) {}
 </script>
 
@@ -881,13 +880,12 @@
 
           <!-- THEMES TAB -->
           <div class="settings-panel" id="panel-themes">
-            <!-- Design language (skin) — the whole-app look. Applied live. -->
+            <!-- Unified Material 3 Expressive Design System -->
             <div class="s-card">
               <div class="s-card-header">Design Language</div>
-              <div class="s-card-desc">The overall look of every surface. Applied instantly — no restart needed.</div>
+              <div class="s-card-desc">Unified Material 3 Expressive experience shared across Android &amp; Desktop (Compose Multiplatform).</div>
               <div style="padding: var(--space-4) var(--space-20) var(--space-16); display:flex; gap:var(--space-8); flex-wrap:wrap;">
-                <button class="sort-pill active" data-skin-pill="ios"> iOS (Default)</button>
-                <button class="sort-pill" data-skin-pill="m3e">Material 3 Expressive</button>
+                <button class="sort-pill active" data-skin-pill="m3e" aria-pressed="true">Material 3 Expressive</button>
               </div>
             </div>
 

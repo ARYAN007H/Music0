@@ -172,9 +172,8 @@ const App = (() => {
     try { localStorage.setItem('musico-theme', s.theme === 'dark' ? 'dark' : 'light'); } catch (e) {}
     document.querySelectorAll('[data-theme-pill]').forEach((p) =>
       p.classList.toggle('active', p.dataset.themePill === (s.theme === 'dark' ? 'dark' : 'light')));
-    // Design language (skin): "ios" is the default look — an unset/unknown
-    // value must render as iOS, not break the attribute off.
-    const skin = s.skin === 'm3e' ? 'm3e' : 'ios';
+    // Unified Material 3 Expressive design language across Android & Desktop.
+    const skin = 'm3e';
     document.documentElement.setAttribute('data-skin', skin);
     try { localStorage.setItem('musico-skin', skin); } catch (e) {}
     document.querySelectorAll('[data-skin-pill]').forEach((p) =>
@@ -432,19 +431,15 @@ const App = (() => {
       });
     });
 
-    // Design language (skin) pills — the whole-app look, applied live: the
-    // attribute flips every token in m3-expressive.css at once.
+    // Unified Material 3 Expressive design language pill.
     document.querySelectorAll('[data-skin-pill]').forEach((pill) => {
       pill.addEventListener('click', () => {
         document.querySelectorAll('[data-skin-pill]').forEach((p) => p.classList.remove('active'));
         pill.classList.add('active');
-        const skin = pill.dataset.skinPill === 'm3e' ? 'm3e' : 'ios';
-        document.documentElement.setAttribute('data-skin', skin);
-        try { localStorage.setItem('musico-skin', skin); } catch (e) {}
-        persistSettings({ skin });
-        showToast(skin === 'm3e'
-          ? 'Material 3 Expressive design language applied'
-          : 'iOS design language applied');
+        document.documentElement.setAttribute('data-skin', 'm3e');
+        try { localStorage.setItem('musico-skin', 'm3e'); } catch (e) {}
+        persistSettings({ skin: 'm3e' });
+        showToast('Material 3 Expressive design language active');
       });
     });
 
@@ -2539,12 +2534,14 @@ const App = (() => {
       }
     }
 
-    // 3. Query runtime platform capabilities (Desktop / Android APK / PWA)
+    // 3. Query runtime platform capabilities (Compose Multiplatform / Android / Desktop / Web)
     Bridge.invoke('get_platform_capabilities').then((caps) => {
       if (!caps) return;
       const badge = document.getElementById('platform-cap-badge');
       if (badge) {
-        const osLabel = caps.os === 'android' ? 'Android Native APK' : `${caps.os} · ${caps.arch}`;
+        const osLabel = caps.os === 'android'
+          ? 'Android Native APK'
+          : (caps.os && caps.arch ? `${caps.os} · ${caps.arch}` : 'Compose Multiplatform (Android & Desktop)');
         badge.textContent = `${osLabel} · Pure-Rust InnerTube + Saavn`;
       }
     }).catch(() => {});
