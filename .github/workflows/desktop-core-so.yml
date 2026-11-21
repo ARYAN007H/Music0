@@ -1,0 +1,41 @@
+name: Desktop core .so
+
+# Builds the x86_64-linux cdylib (libmusico_online_lib.so) that the Compose
+# Multiplatform desktop app loads over JNI (MusicoCore.desktop.kt). The Tauri
+# bundles link the core statically, so this artifact is the only desktop-JVM
+# dev path that doesn't require a local cargo build.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config libfontconfig1-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Build cdylib
+        run: cargo build --release --lib
+        working-directory: src-tauri
+
+      - name: Upload core library
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-core-so
+          path: src-tauri/target/release/libmusico_online_lib.so
+          if-no-files-found: error
