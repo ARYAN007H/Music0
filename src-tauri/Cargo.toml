@@ -39,6 +39,8 @@ tokio = { version = "1", features = ["sync", "time", "rt"] }
 # Online music: InnerTube (YT Music) search + thumbnail fetch.
 # http2: connection reuse + header compression on the catalog endpoints.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "http2"] }
+# Cross-platform JNI bridge for Compose Multiplatform (Android + Desktop JVM).
+jni = "0.21"
 
 # Desktop-only native folder dialog and single-instance lock (not supported on Android).
 [target.'cfg(not(target_os = "android"))'.dependencies]
@@ -63,7 +65,6 @@ zbus = { version = "4", default-features = false, features = ["tokio"] }
 # target resolves a Tauri path during plugin init and that can silently
 # fail on Android, leaving NO logger installed (observed on device).
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
 ndk-context = "0.1"
 android_logger = "0.15"
 

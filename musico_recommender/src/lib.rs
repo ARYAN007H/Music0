@@ -613,6 +613,61 @@ impl MusicRecommender {
     pub fn get_weights(&self) -> Result<models::SignalWeights, RecommenderError> {
         adapt::load(&self.store)
     }
+
+    /// Normalised affinity score `[0.0, 1.0]` for an artist (`0.5` = neutral/unknown).
+    /// Used by the hybrid online re-ranker to score catalog candidates that
+    /// have not yet been acoustically indexed locally.
+    pub fn artist_affinity(&self, artist: &str) -> f32 {
+        artists::affinity_match(&self.store, artist).unwrap_or(0.5)
+    }
+
+    /// Records a listen/skip signal directly against an artist's reputation
+    /// when a streamed track is not yet acoustically indexed in the local cache.
+    pub fn bump_artist_listen(
+        &self,
+        artist: &str,
+        listened_secs: u32,
+        duration_secs: u32,
+    ) -> Result<(), RecommenderError> {
+        if artist.trim().is_empty() {
+            return Ok(());
+        }
+        let ratio = if duration_secs > 0 {
+            (listened_secs as f32 / duration_secs as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let was_skip = history::is_skip(ratio);
+        artists::bump(&self.store, artist.trim(), ratio, was_skip)
+    }
+
+    /// Returns the listener's highest-affinity artists `(artist, normalized_affinity, plays)`
+    /// ordered by positive affinity and play count.
+    pub fn top_artists(&self, limit: usize) -> Vec<(String, f32, u32)> {
+        let mut out: Vec<(String, f32, u32)> = self
+            .store
+            .artists
+            .iter()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|(k, v)| {
+                let key = std::str::from_utf8(&k).ok()?;
+                let artist = key.strip_prefix("a:")?.to_string();
+                let cache = bincode::deserialize::<models::ArtistScoreCache>(&v).ok()?;
+                if cache.plays == 0 {
+                    return None;
+                }
+                let norm = (0.5 + cache.affinity / 10.0).clamp(0.0, 1.0);
+                Some((artist, norm, cache.plays))
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(b.2.cmp(&a.2))
+        });
+        out.truncate(limit);
+        out
+    }
 }
 
 #[cfg(test)]

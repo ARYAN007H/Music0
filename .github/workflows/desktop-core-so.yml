@@ -1,0 +1,78 @@
+name: Desktop core .so
+
+# Builds everything the Compose Multiplatform desktop app needs to RUN
+# without any local compilation: the x86_64-linux cdylib
+# (libmusico_online_lib.so) + a prebuilt installDist bundle, zipped.
+# The Tauri bundles link the core statically, so this artifact is the only
+# desktop-JVM dev path that doesn't require a local cargo/gradle build
+# (Aryan's machine is too weak for local compiles — CI only).
+on:
+  workflow_dispatch:
+  # Runs as a PR check for the gemini/* branches so the artifact is
+  # available while testing a round (workflow_dispatch alone can't fire
+  # for a file that isn't on the default branch yet).
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # gemini/* heads only — keeps ordinary PRs from paying for this build.
+    if: startsWith(github.head_ref, 'gemini/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config libfontconfig1-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Build cdylib
+        run: cargo build --release --lib
+        working-directory: src-tauri
+
+      - name: Set up Java 17 (Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle (pinned to match release.yml)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Android SDK environment
+        run: echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+
+      - name: Package prebuilt desktop bundle
+        run: |
+          gradle -p android :desktopApp:createDistributable --console=plain
+          # The repo root Cargo.toml is the workspace manifest — cargo puts
+          # the cdylib in <root>/target/release, NOT src-tauri/target.
+          SO=$(find . -name 'libmusico_online_lib.so' -print -quit)
+          [ -n "$SO" ] || { echo "cdylib not found anywhere"; exit 1; }
+          echo "cdylib at: $SO"
+          mkdir -p dist-desktop
+          cp "$SO" dist-desktop/
+          APPDIR=$(find android/desktopApp/build/compose/binaries -type d -name app | head -1)
+          cp -r "$APPDIR" dist-desktop/app
+          cd dist-desktop
+          zip -qr ../musico-desktop-test.zip .
+
+      - name: Upload prebuilt desktop bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-app-test
+          path: musico-desktop-test.zip
+          if-no-files-found: error

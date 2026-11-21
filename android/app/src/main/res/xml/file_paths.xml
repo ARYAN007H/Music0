@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Share scope for the in-app updater's downloaded release APK. -->
+<!-- Share scopes for the in-app updater APK and rendered lyric poster cards. -->
 <paths>
     <files-path name="updates" path="updates/" />
+    <cache-path name="lyric_cards" path="lyric_cards/" />
 </paths>

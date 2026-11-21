@@ -10,9 +10,7 @@ mod config;
 mod event_bridge;
 mod identity;
 mod lyrics;
-/// JNI bridge for the native Kotlin app (#111) — android-only export on the
-/// same cdylib the Tauri shell loads; dormant on desktop.
-#[cfg(target_os = "android")]
+/// Cross-platform JNI bridge for the Compose Multiplatform app (Android + Desktop JVM).
 mod mobile;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod media_controls;

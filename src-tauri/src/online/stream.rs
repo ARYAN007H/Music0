@@ -231,6 +231,42 @@ fn scan_dir_for(prefix: &str) -> Option<PathBuf> {
     })
 }
 
+/// Public lookup for whether `song_id` (or raw `video_id`) is already in the
+/// local stream cache — lets mobile playback serve offline tracks without
+/// touching the network or tripping Airplane Mode.
+pub fn cached_file_for(song_id: &str) -> Option<PathBuf> {
+    cached_file(song_id)
+}
+
+/// Enumerates every completed audio file currently sitting in the stream cache
+/// as `(file_stem, path, size_bytes)` sorted newest-first by mtime.
+/// Skips partial `.part`/`.ytdl` sidecars and broken sub-threshold files.
+pub fn list_cached_files() -> Vec<(String, PathBuf, u64)> {
+    let dir = cache_dir();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut rows: Vec<(SystemTime, String, PathBuf, u64)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            if name.ends_with(".part") || name.ends_with(".ytdl") {
+                return None;
+            }
+            let meta = entry.metadata().ok()?;
+            if !meta.is_file() || meta.len() < MIN_FILE_BYTES {
+                return None;
+            }
+            let stem = path.file_stem()?.to_str()?.to_string();
+            let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            Some((modified, stem, path, meta.len()))
+        })
+        .collect();
+    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    rows.into_iter().map(|(_, stem, path, len)| (stem, path, len)).collect()
+}
+
 /// Per-video download locks: two concurrent requests for the same video wait
 /// on the same mutex; the second one then finds the fresh cache entry.
 fn video_lock(video_id: &str) -> Arc<Mutex<()>> {

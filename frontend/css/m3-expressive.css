@@ -1,0 +1,298 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   Music0 — Unified Material 3 Expressive Design System (m3e)
+   Matches the Compose Multiplatform (:shared) Material 3 Expressive surfaces,
+   tonal elevation hierarchy, ambient album-art top wash, and kinetic motion.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+html[data-skin="m3e"] {
+  --m3-radius-xs: 10px;
+  --m3-radius-sm: 14px;
+  --m3-radius-md: 20px;
+  --m3-radius-lg: 26px;
+  --m3-radius-pill: 999px;
+  --m3-spring: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Core Material 3 Expressive Tonal Tokens (Light) */
+  --bg: #fbf8ff;
+  --bg-primary: #fbf8ff;
+  --bg-secondary: #f3effa;
+  --bg-elevated: #ffffff;
+  --surface: #f4f0fb;
+  --surface-raised: #ffffff;
+  --surface-inset: #ebe5f7;
+  --surface-deep: #e2daf2;
+  --bg-hover: rgba(103, 80, 164, 0.08);
+  --surface-tint: rgba(103, 80, 164, 0.06);
+  --border-subtle: rgba(103, 80, 164, 0.14);
+  --text-primary: #1a1625;
+  --text-secondary: #5c5470;
+  --accent: #6750a4;
+  --accent-secondary: #9a82db;
+  --accent-primary: #6750a4;
+  --accent-container: #e9ddff;
+  --on-accent-container: #22005d;
+  --shadow-card: 0 2px 12px rgba(26, 22, 37, 0.06), 0 1px 2px rgba(26, 22, 37, 0.04);
+  --shadow-elevated: 0 12px 32px rgba(26, 22, 37, 0.12), 0 2px 8px rgba(26, 22, 37, 0.06);
+}
+
+html[data-skin="m3e"][data-theme="dark"] {
+  /* Velvet Tonal Surface Hierarchy (Dark — matches Compose Theme.kt) */
+  --bg: #0f0d15;
+  --bg-primary: #0f0d15;
+  --bg-secondary: #171420;
+  --bg-elevated: #201c2c;
+  --surface: #15121d;
+  --surface-raised: #201c2c;
+  --surface-inset: #191524;
+  --surface-deep: #110e18;
+  --bg-hover: rgba(208, 188, 255, 0.09);
+  --surface-tint: rgba(208, 188, 255, 0.07);
+  --border-subtle: rgba(208, 188, 255, 0.13);
+  --text-primary: #f4effa;
+  --text-secondary: #a89ec0;
+  --accent: #d0bcff;
+  --accent-secondary: #9a82db;
+  --accent-primary: #d0bcff;
+  --accent-container: #4f378b;
+  --on-accent-container: #eaddff;
+  --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.34);
+  --shadow-elevated: 0 16px 40px rgba(0, 0, 0, 0.52);
+}
+
+/* Palette overrides for M3 Expressive */
+html[data-skin="m3e"][data-palette="sakura"] { --accent: #c9487d; --accent-secondary: #ef8db6; --accent-primary: #c9487d; --accent-container: #ffd8e6; }
+html[data-skin="m3e"][data-palette="sakura"][data-theme="dark"] { --accent: #ffb1cd; --accent-secondary: #e26d9c; --accent-primary: #ffb1cd; --accent-container: #7a2048; }
+html[data-skin="m3e"][data-palette="aurora"] { --accent: #1f8f69; --accent-secondary: #5cc49e; --accent-primary: #1f8f69; --accent-container: #c5f7e1; }
+html[data-skin="m3e"][data-palette="aurora"][data-theme="dark"] { --accent: #7be2b8; --accent-secondary: #3eb389; --accent-primary: #7be2b8; --accent-container: #0f563e; }
+html[data-skin="m3e"][data-palette="ocean"] { --accent: #1e7eb4; --accent-secondary: #68b8e0; --accent-primary: #1e7eb4; --accent-container: #cbeeff; }
+html[data-skin="m3e"][data-palette="ocean"][data-theme="dark"] { --accent: #82d3ff; --accent-secondary: #439fd1; --accent-primary: #82d3ff; --accent-container: #0c4d73; }
+html[data-skin="m3e"][data-palette="ember"] { --accent: #bf7328; --accent-secondary: #e8a868; --accent-primary: #bf7328; --accent-container: #ffe0c4; }
+html[data-skin="m3e"][data-palette="ember"][data-theme="dark"] { --accent: #ffba7a; --accent-secondary: #db893b; --accent-primary: #ffba7a; --accent-container: #6e3d0a; }
+
+/* Base surface + Ambient Top Wash halo */
+html[data-skin="m3e"] body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: "Inter", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+html[data-skin="m3e"] #content-area {
+  background:
+    radial-gradient(ellipse 72% 38% at 22% 0%, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 70%),
+    radial-gradient(ellipse 55% 32% at 84% 4%, color-mix(in srgb, var(--accent-primary) 9%, transparent), transparent 72%),
+    var(--bg-primary);
+}
+
+/* Clean Left M3 Expressive Navigation Rail / Sidebar (no noisy seam strip) */
+html[data-skin="m3e"] #sidebar {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: none;
+}
+
+html[data-skin="m3e"] #sidebar::before,
+html[data-skin="m3e"] #sidebar::after {
+  display: none;
+}
+
+html[data-skin="m3e"] .nav-item,
+html[data-skin="m3e"] .sb-item {
+  border-radius: var(--m3-radius-pill);
+  transition: transform 180ms var(--m3-spring), background-color 180ms ease, color 180ms ease;
+}
+
+html[data-skin="m3e"] .nav-item.active,
+html[data-skin="m3e"] .sb-item.active {
+  background: var(--accent-container);
+  color: var(--on-accent-container);
+  font-weight: 600;
+}
+
+html[data-skin="m3e"] .nav-item:active,
+html[data-skin="m3e"] .sb-item:active {
+  transform: scale(0.97);
+}
+
+/* Expressive Cards, Shelves & Settings Containers */
+html[data-skin="m3e"] .s-card,
+html[data-skin="m3e"] .card,
+html[data-skin="m3e"] .browse-card,
+html[data-skin="m3e"] .home-card,
+html[data-skin="m3e"] .shelf-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--m3-radius-md);
+  box-shadow: var(--shadow-card);
+  transition: transform 220ms var(--m3-spring), box-shadow 220ms ease, border-color 180ms ease;
+}
+
+html[data-skin="m3e"] .browse-card:hover,
+html[data-skin="m3e"] .home-card:hover,
+html[data-skin="m3e"] .shelf-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+  border-color: color-mix(in srgb, var(--accent-primary) 34%, transparent);
+}
+
+/* Curated Chromatic Gradients for Hero Cards & Seeded Artwork Tiles */
+html[data-skin="m3e"] .am-hero {
+  border-radius: var(--m3-radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  box-shadow: var(--shadow-elevated);
+}
+
+html[data-skin="m3e"] .am-hero .am-hero-art {
+  background:
+    radial-gradient(circle at 20% 24%, rgba(168, 127, 255, 0.85), transparent 56%),
+    radial-gradient(circle at 82% 76%, rgba(244, 114, 182, 0.72), transparent 58%),
+    linear-gradient(135deg, #2b1954 0%, #4b2a82 48%, #1c244b 100%) !important;
+}
+
+html[data-skin="m3e"] .am-hero-side .am-hero-art {
+  background:
+    radial-gradient(circle at 76% 24%, rgba(56, 189, 248, 0.82), transparent 56%),
+    radial-gradient(circle at 20% 82%, rgba(139, 92, 246, 0.78), transparent 58%),
+    linear-gradient(135deg, #13274a 0%, #2b1d5e 52%, #193a54 100%) !important;
+}
+
+html[data-skin="m3e"] .shelf-card .shelf-art {
+  border-radius: var(--m3-radius-sm);
+  background:
+    radial-gradient(circle at 26% 26%, rgba(167, 139, 250, 0.85), transparent 62%),
+    linear-gradient(135deg, #4f378b 0%, #241942 100%);
+}
+
+html[data-skin="m3e"] .shelf-card:nth-child(6n + 2) .shelf-art {
+  background:
+    radial-gradient(circle at 74% 28%, rgba(244, 114, 182, 0.82), transparent 60%),
+    linear-gradient(135deg, #7a2048 0%, #2c1432 100%);
+}
+
+html[data-skin="m3e"] .shelf-card:nth-child(6n + 3) .shelf-art {
+  background:
+    radial-gradient(circle at 30% 72%, rgba(52, 211, 153, 0.78), transparent 60%),
+    linear-gradient(135deg, #115e4b 0%, #102a2e 100%);
+}
+
+html[data-skin="m3e"] .shelf-card:nth-child(6n + 4) .shelf-art {
+  background:
+    radial-gradient(circle at 70% 24%, rgba(56, 189, 248, 0.82), transparent 60%),
+    linear-gradient(135deg, #134e7c 0%, #13213c 100%);
+}
+
+html[data-skin="m3e"] .shelf-card:nth-child(6n + 5) .shelf-art {
+  background:
+    radial-gradient(circle at 28% 30%, rgba(251, 146, 60, 0.82), transparent 62%),
+    linear-gradient(135deg, #8a4116 0%, #2f1912 100%);
+}
+
+html[data-skin="m3e"] .shelf-card:nth-child(6n + 6) .shelf-art {
+  background:
+    radial-gradient(circle at 72% 72%, rgba(192, 132, 252, 0.82), transparent 60%),
+    linear-gradient(135deg, #3b2878 0%, #191433 100%);
+}
+
+/* Expressive Pill Controls */
+html[data-skin="m3e"] .sort-pill,
+html[data-skin="m3e"] .chip,
+html[data-skin="m3e"] .vibe-chip,
+html[data-skin="m3e"] .filter-pill {
+  border-radius: var(--m3-radius-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
+  transition: transform 160ms var(--m3-spring), background-color 160ms ease, color 160ms ease;
+}
+
+html[data-skin="m3e"] .sort-pill.active,
+html[data-skin="m3e"] .chip.active,
+html[data-skin="m3e"] .filter-pill.active {
+  background: var(--accent-primary);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+html[data-skin="m3e"][data-theme="dark"] .sort-pill.active,
+html[data-skin="m3e"][data-theme="dark"] .chip.active,
+html[data-skin="m3e"][data-theme="dark"] .filter-pill.active {
+  color: #1a112a;
+  font-weight: 700;
+}
+
+/* Search Input — M3 Search Bar */
+html[data-skin="m3e"] .browse-search {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--m3-radius-pill);
+  box-shadow: var(--shadow-card);
+}
+
+/* Unified Queue Panel Surface */
+html[data-skin="m3e"] .queue-panel,
+html[data-skin="m3e"] #queue-panel,
+html[data-skin="m3e"] .np-queue-panel {
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* Docked / Floating Transport Bar */
+html[data-skin="m3e"] .topbar-root,
+html[data-skin="m3e"] #transport-root .transport-bar,
+html[data-skin="m3e"] #transport-root .mini-player {
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border-color: var(--border-subtle);
+}
+
+/* Mobile Responsive Floating Mini-Player Pill (Zero Overlap on <= 640px) */
+@media (max-width: 640px) {
+  html[data-skin="m3e"] #transport-root .transport-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 22px;
+  }
+
+  html[data-skin="m3e"] #transport-root .transport-left {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  html[data-skin="m3e"] #transport-root .transport-left .tb-star,
+  html[data-skin="m3e"] #transport-root .transport-center .lcd-seek-row,
+  html[data-skin="m3e"] #transport-root .transport-center .lcd-btn:first-child,
+  html[data-skin="m3e"] #transport-root .transport-center .lcd-btn:last-child,
+  html[data-skin="m3e"] #transport-root .transport-right .lcd-vol-wrap,
+  html[data-skin="m3e"] #transport-root .transport-right {
+    display: none;
+  }
+
+  html[data-skin="m3e"] #transport-root .transport-center {
+    flex: 0 0 auto;
+  }
+
+  html[data-skin="m3e"] #transport-root .transport-btns {
+    gap: 6px;
+  }
+}
+
+/* Typography Scale — Expressive Display Headers */
+html[data-skin="m3e"] .browse-title,
+html[data-skin="m3e"] h1 {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+/* Expressive Focus Rings */
+html[data-skin="m3e"] button:focus-visible,
+html[data-skin="m3e"] input:focus-visible,
+html[data-skin="m3e"] [tabindex]:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}

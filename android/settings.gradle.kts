@@ -13,4 +13,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MusicoOnline"
+include(":shared")
 include(":app")
+include(":desktopApp")

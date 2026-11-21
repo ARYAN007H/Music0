@@ -3,7 +3,8 @@
 //! The Compose UI talks to the SAME Rust core the desktop Tauri app uses,
 //! through one blocking JSON-in/JSON-out entry point. No Tauri runtime here:
 //! the bridge only calls AppHandle-free core functions (search, resolve,
-//! settings). Audio is Media3/ExoPlayer on the Kotlin side — it plays the
+//! settings, sled-backed playlists/library, and the 7-signal adaptive
+//! recommender). Audio is Media3/ExoPlayer on the Kotlin side — it plays the
 //! cached files this core produces, so the cpal engine is deliberately NOT
 //! initialized on mobile.
 //!
@@ -16,20 +17,209 @@
 //! - `invoke(cmd, argsJson) -> resultJson` with `{"ok":true,"data":…}` /
 //!   `{"ok":false,"error":"…"}`. Panics never cross FFI.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Mutex, OnceLock};
 
 use jni::objects::{JClass, JString};
 use jni::JNIEnv;
+use musico_recommender::library::CatalogEntry;
+use musico_recommender::user_playlists::PlaylistTrack;
+use musico_recommender::{LikeState, MusicRecommender};
 
 static MOBILE_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Serializes the settings read-merge-save cycle: two overlapping toggles
 /// from `Dispatchers.IO` must not lose a write (review P2-7).
-static SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
+
+/// Shared sled-backed recommender + playlists + library store.
+/// Lazily initialized after `initNative` exports XDG paths.
+static RECOMMENDER: OnceLock<Mutex<MusicRecommender>> = OnceLock::new();
+
+/// Desktop JVM audio playback engine (Android uses Media3/ExoPlayer instead).
+#[cfg(not(target_os = "android"))]
+static DESKTOP_PLAYER: OnceLock<Mutex<musico_playback::PlaybackEngine>> = OnceLock::new();
+
+#[cfg(not(target_os = "android"))]
+fn desktop_player() -> Result<&'static Mutex<musico_playback::PlaybackEngine>, String> {
+    if let Some(m) = DESKTOP_PLAYER.get() {
+        return Ok(m);
+    }
+    let engine = musico_playback::PlaybackEngine::new()
+        .map_err(|e| format!("desktop audio init failed: {e}"))?;
+    let _ = DESKTOP_PLAYER.set(Mutex::new(engine));
+    DESKTOP_PLAYER
+        .get()
+        .ok_or_else(|| "desktop audio engine unavailable".to_string())
+}
+
+/// Background acoustic-indexing queue: keeps audio decoding + FFT completely
+/// off the JNI/UI critical path while feeding the 30-dim feature space.
+struct IndexJob {
+    video_id: String,
+    file_path: String,
+    title: String,
+    artist: String,
+    album: String,
+    duration_secs: Option<u32>,
+}
+
+static INDEX_TX: OnceLock<Mutex<mpsc::Sender<IndexJob>>> = OnceLock::new();
+
+const TREE_TRACK_META: &str = "mobile:track_meta";
+const TREE_VID_TO_SONG: &str = "mobile:vid_to_song";
+const TREE_SONG_TO_VID: &str = "mobile:song_to_vid";
 
 fn set_env_var(key: &str, value: &str) {
     // Edition 2021: `set_var` is safe; single-threaded init contract anyway.
     std::env::set_var(key, value);
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Lazily opens the shared `MusicRecommender` sled DB at `<data_dir>/db`.
+fn recommender() -> Result<&'static Mutex<MusicRecommender>, String> {
+    if let Some(m) = RECOMMENDER.get() {
+        return Ok(m);
+    }
+    let db_dir = crate::identity::data_dir()
+        .ok_or_else(|| "mobile core: data dir unavailable".to_string())?
+        .join("db");
+    let _ = std::fs::create_dir_all(&db_dir);
+    let rec = MusicRecommender::new(&db_dir.to_string_lossy())
+        .map_err(|e| format!("recommender open failed: {e}"))?;
+    let _ = RECOMMENDER.set(Mutex::new(rec));
+    start_indexer_worker();
+    RECOMMENDER
+        .get()
+        .ok_or_else(|| "recommender unavailable".to_string())
+}
+
+fn with_recommender<T>(f: impl FnOnce(&mut MusicRecommender) -> Result<T, String>) -> Result<T, String> {
+    let mutex = recommender()?;
+    let mut guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&mut guard)
+}
+
+/// Spawns a single low-priority background thread that decodes & extracts
+/// acoustic features for cached tracks and registers them in `MusicRecommender`.
+fn start_indexer_worker() {
+    if INDEX_TX.get().is_some() {
+        return;
+    }
+    let (tx, rx) = mpsc::channel::<IndexJob>();
+    if INDEX_TX.set(Mutex::new(tx)).is_err() {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("musico-mobile-indexer".into())
+        .spawn(move || {
+            while let Ok(job) = rx.recv() {
+                // Skip if already indexed for this video_id.
+                let already = with_recommender(|rec| {
+                    let tree = rec
+                        .db()
+                        .open_tree(TREE_VID_TO_SONG)
+                        .map_err(|e| e.to_string())?;
+                    Ok(tree.contains_key(job.video_id.as_bytes()).unwrap_or(false))
+                })
+                .unwrap_or(false);
+                if already {
+                    continue;
+                }
+                match musico_recommender::extractor::analyze_file(&job.file_path) {
+                    Ok(mut analysis) => {
+                        if !job.title.is_empty() {
+                            analysis.title = job.title.clone();
+                        }
+                        if !job.artist.is_empty() {
+                            analysis.artist = job.artist.clone();
+                        }
+                        if !job.album.is_empty() {
+                            analysis.album = job.album.clone();
+                        }
+                        if let Some(d) = job.duration_secs {
+                            if d > 0 {
+                                analysis.duration_secs = d;
+                            }
+                        }
+                        let _ = with_recommender(|rec| {
+                            let record = rec
+                                .index_from_result(&job.file_path, analysis)
+                                .map_err(|e| e.to_string())?;
+                            if let Ok(v2s) = rec.db().open_tree(TREE_VID_TO_SONG) {
+                                let _ = v2s.insert(job.video_id.as_bytes(), record.id.as_bytes());
+                            }
+                            if let Ok(s2v) = rec.db().open_tree(TREE_SONG_TO_VID) {
+                                let _ = s2v.insert(record.id.as_bytes(), job.video_id.as_bytes());
+                            }
+                            Ok(())
+                        });
+                    }
+                    Err(e) => {
+                        log::debug!("mobile indexer: skip {} ({e})", job.video_id);
+                    }
+                }
+            }
+        });
+}
+
+fn enqueue_background_index(track: &crate::online::OnlineTrack, file_path: &str) {
+    start_indexer_worker();
+    if let Some(tx_lock) = INDEX_TX.get() {
+        if let Ok(tx) = tx_lock.lock() {
+            let _ = tx.send(IndexJob {
+                video_id: track.video_id.clone(),
+                file_path: file_path.to_string(),
+                title: track.title.clone(),
+                artist: track.artist.clone(),
+                album: track.album.clone(),
+                duration_secs: track.duration_secs,
+            });
+        }
+    }
+}
+
+/// Persists rich `OnlineTrack` metadata inside sled so Likes, Downloads, and
+/// Smart Mixes always have complete title/artist/thumbnail/duration fields.
+fn remember_track_meta(rec: &MusicRecommender, track: &crate::online::OnlineTrack) {
+    if track.video_id.is_empty() || track.title.is_empty() {
+        return;
+    }
+    if let Ok(tree) = rec.db().open_tree(TREE_TRACK_META) {
+        if let Ok(bytes) = serde_json::to_vec(track) {
+            let _ = tree.insert(track.video_id.as_bytes(), bytes);
+        }
+    }
+}
+
+fn load_track_meta(rec: &MusicRecommender, video_id: &str) -> Option<crate::online::OnlineTrack> {
+    let tree = rec.db().open_tree(TREE_TRACK_META).ok()?;
+    let bytes = tree.get(video_id.as_bytes()).ok()??;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn lookup_song_id(rec: &MusicRecommender, video_id: &str) -> String {
+    rec.db()
+        .open_tree(TREE_VID_TO_SONG)
+        .ok()
+        .and_then(|t| t.get(video_id.as_bytes()).ok().flatten())
+        .and_then(|b| String::from_utf8(b.to_vec()).ok())
+        .unwrap_or_else(|| video_id.to_string())
+}
+
+fn lookup_video_id(rec: &MusicRecommender, song_id: &str) -> Option<String> {
+    rec.db()
+        .open_tree(TREE_SONG_TO_VID)
+        .ok()
+        .and_then(|t| t.get(song_id.as_bytes()).ok().flatten())
+        .and_then(|b| String::from_utf8(b.to_vec()).ok())
 }
 
 /// Called from `MusicoCore.init(filesDir, cacheDir)` before any other entry.
@@ -40,9 +230,6 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_ini
     files_dir: JString,
     cache_dir: JString,
 ) {
-    // Idempotent: a second init (Activity recreation in the same process)
-    // would trip android_logger's init_once and abort the app — and panics
-    // never cross FFI, so the whole body is unwound into a warn log.
     if MOBILE_INITIALIZED.load(Ordering::Acquire) {
         return;
     }
@@ -71,21 +258,33 @@ fn init_core(files: &str, cache: &str) {
     set_env_var("XDG_DATA_HOME", files);
     set_env_var("XDG_CONFIG_HOME", files);
     set_env_var("XDG_CACHE_HOME", cache);
-    // Logcat is the only debugging surface on a device (the files dir is
-    // not readable over adb without root) — mirror everything there.
-    // RUST_LOG is settable via `adb shell am start --es RUST_LOG debug`-style
-    // wrappers only when the launcher passes it; keep Info as the default.
     let mut level = log::LevelFilter::Info;
     if let Ok(spec) = std::env::var("RUST_LOG") {
         if spec.contains("debug") {
             level = log::LevelFilter::Debug;
         }
     }
-    android_logger::init_once(
-        android_logger::Config::default()
-            .with_max_level(level)
-            .with_tag("musico-native"),
-    );
+    #[cfg(target_os = "android")]
+    {
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(level)
+                .with_tag("musico-native"),
+        );
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let mut builder = env_logger::Builder::new();
+        builder.filter_level(level);
+        if std::env::var("RUST_LOG").is_ok() {
+            builder.parse_default_env();
+        }
+        let _ = builder.try_init();
+    }
+    // Warm the recommender DB early so first Library/Home calls are instant.
+    if let Err(e) = recommender() {
+        log::warn!("mobile core: recommender bootstrap deferred: {e}");
+    }
 }
 
 /// The one IPC entry: `MusicoCore.invoke(cmd, argsJson)`.
@@ -112,9 +311,6 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_inv
     };
     match env.new_string(reply.to_string()) {
         Ok(s) => s,
-        // Only possible on OOM: throw a real Java exception instead of
-        // returning a null local ref (which would NPE in Kotlin
-        // unmarshalling with no diagnostics).
         Err(_) => {
             let _ = env.throw_new("java/lang/OutOfMemoryError", "musico native: OOM building reply");
             unsafe { JString::from_raw(std::ptr::null_mut()) }
@@ -122,8 +318,7 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_inv
     }
 }
 
-/// Command table. Every handler is AppHandle-free by construction — that is
-/// the whole point of this bridge (see the module doc).
+/// Command table. Every handler is AppHandle-free by construction.
 fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
     let args: serde_json::Value =
         serde_json::from_str(args_json).unwrap_or(serde_json::Value::Null);
@@ -152,34 +347,40 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 .get("continuation")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            // Same engine the Tauri command runs (sync; the Kotlin side calls
-            // us from Dispatchers.IO).
             let page = crate::online::search(&query, videos.unwrap_or(false), continuation.as_deref())?;
             serde_json::to_value(page).map_err(|e| format!("search serialize: {e}"))
         }
 
+        // Offline-first stream resolution: if the track is already cached on
+        // disk, return it immediately even in Airplane Mode, and queue
+        // background acoustic feature extraction for the recommender.
         "track.resolve" => {
-            ensure_online()?;
             let track = online_track_from_args(&args)?;
-            // `{"background": true}` opts into the patient multi-attempt
-            // budget — prefetch and offline saves use it so mass work never
-            // starves the user's next tap out of the bounded interactive
-            // slot (review P1-1/P2-9).
-            let background = args
-                .get("background")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let path = crate::online::resolve_track(&track, !background)?;
+            let _ = with_recommender(|rec| {
+                remember_track_meta(rec, &track);
+                Ok(())
+            });
+            let cached = crate::online::cached_file_for(&track.song_id())
+                .or_else(|| crate::online::cached_file_for(&track.video_id));
+            let path = if let Some(hit) = cached {
+                hit
+            } else {
+                ensure_online()?;
+                let background = args
+                    .get("background")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                crate::online::resolve_track(&track, !background)?
+            };
+            let path_str = path.display().to_string();
+            enqueue_background_index(&track, &path_str);
             Ok(serde_json::json!({
-                "path": path.display().to_string(),
+                "path": path_str,
                 "songId": track.song_id(),
             }))
         }
 
-        // ── Browse surfaces (Apple-Music-style home) ──────────────────────
-        // Same engines the desktop commands run; spawn_blocking is not needed
-        // because the Kotlin caller is already on Dispatchers.IO.
-
+        // ── Browse surfaces ──────────────────────────────────────────────
         "online.home" => {
             ensure_online()?;
             serde_json::to_value(crate::online::home_feed()?).map_err(|e| format!("home serialize: {e}"))
@@ -187,8 +388,6 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
         "online.genres" => {
             ensure_online()?;
-            // Wrapped in an object: the bridge contract is object-shaped
-            // data (MusicoCore.call unwraps `data` as a JsonObject).
             Ok(serde_json::json!({
                 "items": crate::online::genres()?,
             }))
@@ -196,8 +395,6 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
         "online.browse" => {
             ensure_online()?;
-            // Continuation form: {"continuation": token} — the next slice of
-            // a browse feed (home infinite scroll). No browseId involved.
             if let Some(token) = args.get("continuation").and_then(|v| v.as_str()) {
                 serde_json::to_value(crate::online::browse_continuation(token)?)
                     .map_err(|e| format!("browse continuation serialize: {e}"))
@@ -212,9 +409,6 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             }
         }
 
-        // Related tracks for a song (radio seeding / Up Next). Wrapped in
-        // an object: the bridge contract is object-shaped data — a bare
-        // JsonArray would collapse to {} in MusicoCore.call.
         "online.related" => {
             ensure_online()?;
             let video_id = args
@@ -236,11 +430,587 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             }))
         }
 
-        // ── Word-synced lyrics ────────────────────────────────────────────
-        // Desktop parity: LRCLIB synced (word timings synthesized across line
-        // spans by `build_enhanced_lines_from_timed`) → LRCLIB plain → YTM
-        // InnerTube plain. `{"synced":false,"lines":[]}` = no lyrics found —
-        // never an error, the player just hides the lyrics pane.
+        // ── User Playlists (sled-backed CRUD) ────────────────────────────
+        "playlist.list" => with_recommender(|rec| {
+            let list = rec.playlist_list().map_err(|e| e.to_string())?;
+            Ok(serde_json::json!({ "playlists": list }))
+        }),
+
+        "playlist.create" => {
+            let name = args
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or("missing playlist name")?;
+            with_recommender(|rec| {
+                let pl = rec.playlist_create(name).map_err(|e| e.to_string())?;
+                serde_json::to_value(pl).map_err(|e| format!("playlist serialize: {e}"))
+            })
+        }
+
+        "playlist.rename" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            let name = args.get("name").and_then(|v| v.as_str()).ok_or("missing name")?;
+            with_recommender(|rec| {
+                rec.playlist_rename(id, name).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "renamed": true }))
+            })
+        }
+
+        "playlist.delete" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            with_recommender(|rec| {
+                rec.playlist_delete(id).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "deleted": true }))
+            })
+        }
+
+        "playlist.add_track" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            let track_val = args.get("track").ok_or("missing track")?;
+            let online_track = online_track_from_args(track_val)?;
+            let pl_track = playlist_track_from_online(&online_track);
+            with_recommender(|rec| {
+                remember_track_meta(rec, &online_track);
+                let count = rec
+                    .playlist_add_track(id, pl_track)
+                    .map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "count": count }))
+            })
+        }
+
+        "playlist.remove_track" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            let index = args
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .ok_or("missing index")? as usize;
+            with_recommender(|rec| {
+                rec.playlist_remove_track(id, index).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "removed": true }))
+            })
+        }
+
+        "playlist.move_track" => {
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            let from = args
+                .get("from")
+                .and_then(|v| v.as_u64())
+                .ok_or("missing from")? as usize;
+            let to = args
+                .get("to")
+                .and_then(|v| v.as_u64())
+                .ok_or("missing to")? as usize;
+            with_recommender(|rec| {
+                rec.playlist_move_track(id, from, to).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "moved": true }))
+            })
+        }
+
+        // ── Catalog Library & Metadata-Complete Likes ────────────────────
+        "library.put" => {
+            let kind = args.get("kind").and_then(|v| v.as_str()).ok_or("missing kind")?;
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            let title = args.get("title").and_then(|v| v.as_str()).ok_or("missing title")?;
+            let entry = CatalogEntry {
+                id: id.to_string(),
+                kind: kind.to_string(),
+                title: title.to_string(),
+                subtitle: args.get("subtitle").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                thumbnail: args.get("thumbnail").and_then(|v| v.as_str()).map(str::to_string),
+                browse_id: args.get("browseId").and_then(|v| v.as_str()).map(str::to_string),
+                params: args.get("params").and_then(|v| v.as_str()).map(str::to_string),
+                video_id: args.get("videoId").and_then(|v| v.as_str()).map(str::to_string),
+                added_at: now_ms(),
+            };
+            with_recommender(|rec| {
+                rec.library_put(&entry).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "saved": true }))
+            })
+        }
+
+        "library.remove" => {
+            let kind = args.get("kind").and_then(|v| v.as_str()).ok_or("missing kind")?;
+            let id = args.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+            with_recommender(|rec| {
+                rec.library_remove(kind, id).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "removed": true }))
+            })
+        }
+
+        "library.list" => {
+            let kind = args.get("kind").and_then(|v| v.as_str()).ok_or("missing kind")?;
+            with_recommender(|rec| {
+                let entries = rec.library_list(kind).map_err(|e| e.to_string())?;
+                Ok(serde_json::json!({ "entries": entries }))
+            })
+        }
+
+        "library.likes.set" => {
+            let track_val = args.get("track").ok_or("missing track")?;
+            let track = online_track_from_args(track_val)?;
+            let liked = args.get("liked").and_then(|v| v.as_bool()).unwrap_or(true);
+            with_recommender(|rec| {
+                remember_track_meta(rec, &track);
+                let song_id = lookup_song_id(rec, &track.video_id);
+                let like_state = if liked { LikeState::Liked } else { LikeState::Neutral };
+                let _ = rec.set_like(&track.video_id, like_state);
+                if song_id != track.video_id {
+                    let _ = rec.set_like(&song_id, like_state);
+                }
+                if liked {
+                    let entry = CatalogEntry {
+                        id: track.video_id.clone(),
+                        kind: "track".into(),
+                        title: if track.title.is_empty() { track.video_id.clone() } else { track.title.clone() },
+                        subtitle: track.artist.clone(),
+                        thumbnail: track.thumbnail.clone(),
+                        browse_id: track.artist_browse_id.clone(),
+                        params: None,
+                        video_id: Some(track.video_id.clone()),
+                        added_at: now_ms(),
+                    };
+                    rec.library_put(&entry).map_err(|e| e.to_string())?;
+                } else {
+                    let _ = rec.library_remove("track", &track.video_id);
+                }
+                Ok(serde_json::json!({ "liked": liked }))
+            })
+        }
+
+        "library.likes.list" => with_recommender(|rec| {
+            let entries = rec.library_list("track").map_err(|e| e.to_string())?;
+            let mut tracks: Vec<crate::online::OnlineTrack> = Vec::with_capacity(entries.len());
+            let mut ids: Vec<String> = Vec::with_capacity(entries.len());
+            for e in entries {
+                let vid = e.video_id.unwrap_or_else(|| e.id.clone());
+                ids.push(vid.clone());
+                if let Some(mut meta) = load_track_meta(rec, &vid) {
+                    meta.cached = crate::online::cached_file_for(&meta.song_id()).is_some()
+                        || crate::online::cached_file_for(&meta.video_id).is_some();
+                    tracks.push(meta);
+                } else {
+                    let cached = crate::online::cached_file_for(&vid).is_some();
+                    tracks.push(crate::online::OnlineTrack {
+                        video_id: vid,
+                        title: e.title,
+                        artist: e.subtitle,
+                        album: String::new(),
+                        duration_secs: None,
+                        thumbnail: e.thumbnail,
+                        cached,
+                        source: String::new(),
+                        artist_browse_id: e.browse_id,
+                    });
+                }
+            }
+            Ok(serde_json::json!({
+                "tracks": tracks,
+                "ids": ids,
+            }))
+        }),
+
+        // Returns every audio file currently sitting in the offline stream cache,
+        // enriched with display metadata so Offline Downloads works in Airplane Mode.
+        "library.downloads.list" => with_recommender(|rec| {
+            let cached = crate::online::list_cached_files();
+            let mut playlist_meta: HashMap<String, crate::online::OnlineTrack> = HashMap::new();
+            if let Ok(pls) = rec.playlist_list() {
+                for p in pls {
+                    for t in p.tracks {
+                        playlist_meta.entry(t.id.clone()).or_insert_with(|| online_track_from_playlist(&t));
+                    }
+                }
+            }
+            let mut total_bytes: u64 = 0;
+            let mut downloads: Vec<serde_json::Value> = Vec::with_capacity(cached.len());
+            for (stem, path, size_bytes) in cached {
+                total_bytes = total_bytes.saturating_add(size_bytes);
+                let (video_id, source) = parse_cache_stem(&stem);
+                let mut track = load_track_meta(rec, &video_id)
+                    .or_else(|| playlist_meta.get(&video_id).cloned())
+                    .unwrap_or_else(|| crate::online::OnlineTrack {
+                        video_id: video_id.clone(),
+                        title: video_id.clone(),
+                        artist: "Offline track".into(),
+                        album: String::new(),
+                        duration_secs: None,
+                        thumbnail: None,
+                        cached: true,
+                        source: source.clone(),
+                        artist_browse_id: None,
+                    });
+                track.cached = true;
+                downloads.push(serde_json::json!({
+                    "track": track,
+                    "sizeBytes": size_bytes,
+                    "filePath": path.display().to_string(),
+                }));
+            }
+            Ok(serde_json::json!({
+                "downloads": downloads,
+                "totalBytes": total_bytes,
+            }))
+        }),
+
+        // One-time idempotent migration from legacy SharedPreferences likes/recents.
+        "library.migrate_legacy" => with_recommender(|rec| {
+            let mut migrated_likes = 0usize;
+            let existing: HashSet<String> = rec
+                .library_list("track")
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| e.id)
+                .collect();
+            if let Some(arr) = args.get("likedTracks").and_then(|v| v.as_array()) {
+                for item in arr {
+                    if let Ok(track) = online_track_from_args(item) {
+                        remember_track_meta(rec, &track);
+                        let _ = rec.set_like(&track.video_id, LikeState::Liked);
+                        if !existing.contains(&track.video_id) {
+                            let entry = CatalogEntry {
+                                id: track.video_id.clone(),
+                                kind: "track".into(),
+                                title: if track.title.is_empty() { track.video_id.clone() } else { track.title.clone() },
+                                subtitle: track.artist.clone(),
+                                thumbnail: track.thumbnail.clone(),
+                                browse_id: track.artist_browse_id.clone(),
+                                params: None,
+                                video_id: Some(track.video_id.clone()),
+                                added_at: now_ms(),
+                            };
+                            if rec.library_put(&entry).is_ok() {
+                                migrated_likes += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(arr) = args.get("recentTracks").and_then(|v| v.as_array()) {
+                for item in arr {
+                    if let Ok(track) = online_track_from_args(item) {
+                        remember_track_meta(rec, &track);
+                    }
+                }
+            }
+            Ok(serde_json::json!({ "migratedLikes": migrated_likes }))
+        }),
+
+        // ── Hybrid Recommender & Smart Mixes ─────────────────────────────
+        "rec.on_song_changed" => {
+            let video_id = args.get("videoId").and_then(|v| v.as_str()).unwrap_or_default();
+            with_recommender(|rec| {
+                if let Some(track_val) = args.get("track") {
+                    if let Ok(t) = online_track_from_args(track_val) {
+                        remember_track_meta(rec, &t);
+                    }
+                }
+                if !video_id.is_empty() {
+                    let song_id = lookup_song_id(rec, video_id);
+                    let _ = rec.on_song_changed(&song_id);
+                    if song_id != video_id {
+                        let _ = rec.on_song_changed(video_id);
+                    }
+                }
+                Ok(serde_json::json!({ "recorded": true }))
+            })
+        }
+
+        "rec.on_song_ended" => {
+            let video_id = args.get("videoId").and_then(|v| v.as_str()).unwrap_or_default();
+            let artist = args.get("artist").and_then(|v| v.as_str()).unwrap_or_default();
+            let listened_secs = args.get("listenedSecs").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let duration_secs = args.get("durationSecs").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            with_recommender(|rec| {
+                if !video_id.is_empty() && duration_secs > 0 {
+                    let song_id = lookup_song_id(rec, video_id);
+                    let had_record = rec.get_song_by_id(&song_id).ok().flatten().is_some();
+                    let _ = rec.on_song_ended(&song_id, listened_secs, duration_secs);
+                    // When the track hasn't finished acoustic indexing yet,
+                    // still teach the artist affinity graph immediately.
+                    if !had_record && !artist.is_empty() {
+                        let _ = rec.bump_artist_listen(artist, listened_secs, duration_secs);
+                    }
+                }
+                Ok(serde_json::json!({ "recorded": true }))
+            })
+        }
+
+        "rec.get_recommendations" => {
+            let current_vid = args.get("currentVideoId").and_then(|v| v.as_str()).unwrap_or_default();
+            let top_n = args.get("topN").and_then(|v| v.as_u64()).unwrap_or(15).clamp(1, 50) as usize;
+            with_recommender(|rec| {
+                let current_song_id = if current_vid.is_empty() {
+                    String::new()
+                } else {
+                    lookup_song_id(rec, current_vid)
+                };
+                let recs = rec
+                    .get_recommendations(&current_song_id, top_n)
+                    .map_err(|e| e.to_string())?;
+                let items: Vec<serde_json::Value> = recs
+                    .into_iter()
+                    .filter_map(|r| {
+                        let vid = lookup_video_id(rec, &r.record.id)?;
+                        let track = load_track_meta(rec, &vid).unwrap_or_else(|| crate::online::OnlineTrack {
+                            video_id: vid,
+                            title: r.record.title.clone(),
+                            artist: r.record.artist.clone(),
+                            album: r.record.album.clone(),
+                            duration_secs: Some(r.record.duration_secs),
+                            thumbnail: None,
+                            cached: true,
+                            source: String::new(),
+                            artist_browse_id: None,
+                        });
+                        Some(serde_json::json!({
+                            "track": track,
+                            "score": r.final_score,
+                            "signal": r.dominant_signal,
+                        }))
+                    })
+                    .collect();
+                Ok(serde_json::json!({ "recommendations": items }))
+            })
+        }
+
+        // Hybrid re-ranker: takes online candidates (InnerTube radio/home/search)
+        // and scores them with Rust artist affinity, dislikes, likes, session
+        // history, cache presence, and MMR artist diversity.
+        "rec.rerank_candidates" => {
+            let current_vid = args.get("currentVideoId").and_then(|v| v.as_str()).unwrap_or_default();
+            let top_n = args.get("topN").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 60) as usize;
+            let raw_candidates = args
+                .get("candidates")
+                .and_then(|v| v.as_array())
+                .ok_or("missing candidates array")?;
+            let candidates: Vec<crate::online::OnlineTrack> = raw_candidates
+                .iter()
+                .filter_map(|v| online_track_from_args(v).ok())
+                .collect();
+
+            with_recommender(|rec| {
+                let liked_set: HashSet<String> = rec.liked_ids().unwrap_or_default().into_iter().collect();
+                let session_history: HashSet<String> = rec
+                    .current_session()
+                    .song_history
+                    .iter()
+                    .cloned()
+                    .collect();
+
+                let mut scored: Vec<(f32, crate::online::OnlineTrack)> = Vec::new();
+                let mut seen_ids: HashSet<String> = HashSet::new();
+                if !current_vid.is_empty() {
+                    seen_ids.insert(current_vid.to_string());
+                }
+
+                for (idx, mut c) in candidates.into_iter().enumerate() {
+                    if !seen_ids.insert(c.video_id.clone()) {
+                        continue;
+                    }
+                    let song_id = lookup_song_id(rec, &c.video_id);
+                    let like_state = rec
+                        .get_like(&c.video_id)
+                        .or_else(|_| rec.get_like(&song_id))
+                        .unwrap_or(LikeState::Neutral);
+                    if like_state == LikeState::Disliked {
+                        continue;
+                    }
+                    let is_cached = crate::online::cached_file_for(&c.song_id()).is_some()
+                        || crate::online::cached_file_for(&c.video_id).is_some();
+                    c.cached = is_cached;
+
+                    // Base relevance from upstream catalog rank (smooth decay).
+                    let rank_score = 1.0 / (1.0 + (idx as f32) * 0.08);
+                    let artist_score = rec.artist_affinity(&c.artist);
+                    let liked_bonus = if liked_set.contains(&c.video_id) || liked_set.contains(&song_id) {
+                        0.16
+                    } else {
+                        0.0
+                    };
+                    let cached_bonus = if is_cached { 0.06 } else { 0.0 };
+                    let recent_penalty = if session_history.contains(&c.video_id) || session_history.contains(&song_id) {
+                        -0.45
+                    } else {
+                        0.0
+                    };
+                    let total = 0.45 * rank_score + 0.45 * artist_score + liked_bonus + cached_bonus + recent_penalty;
+                    scored.push((total, c));
+                }
+
+                scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+                // MMR-inspired artist diversity pass: prevent any single artist
+                // from dominating consecutive queue positions.
+                let mut selected: Vec<crate::online::OnlineTrack> = Vec::with_capacity(top_n);
+                let mut artist_counts: HashMap<String, usize> = HashMap::new();
+                let mut last_artist = String::new();
+                let mut remaining = scored;
+
+                while selected.len() < top_n && !remaining.is_empty() {
+                    let mut best_i = 0usize;
+                    let mut best_adj = f32::NEG_INFINITY;
+                    for (i, (base, cand)) in remaining.iter().enumerate() {
+                        let key = cand.artist.trim().to_lowercase();
+                        let count = if key.is_empty() { 0 } else { *artist_counts.get(&key).unwrap_or(&0) };
+                        let repeat_pen = if !key.is_empty() && key == last_artist { 0.35 } else { 0.0 };
+                        let cap_pen = (count as f32) * 0.14;
+                        let adj = *base - repeat_pen - cap_pen;
+                        if adj > best_adj {
+                            best_adj = adj;
+                            best_i = i;
+                        }
+                    }
+                    let (_, picked) = remaining.remove(best_i);
+                    let key = picked.artist.trim().to_lowercase();
+                    if !key.is_empty() {
+                        *artist_counts.entry(key.clone()).or_insert(0) += 1;
+                        last_artist = key;
+                    }
+                    selected.push(picked);
+                }
+
+                Ok(serde_json::json!({ "tracks": selected }))
+            })
+        }
+
+        // Auto-updating Smart Mixes generated directly from the Rust taste graph
+        // and local cache.
+        "rec.smart_mixes" => {
+            let local_hour = args.get("localHour").and_then(|v| v.as_u64()).unwrap_or(12) as u32;
+            with_recommender(|rec| {
+                let mut mixes: Vec<serde_json::Value> = Vec::new();
+                let stats = rec.get_stats().unwrap_or_default();
+                let top_artists = rec.top_artists(6);
+
+                // 1. Daily Discovery — 7-signal recommender picks across indexed tracks.
+                let discovery_tracks: Vec<crate::online::OnlineTrack> = rec
+                    .get_recommendations("", 20)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|r| {
+                        let vid = lookup_video_id(rec, &r.record.id)?;
+                        load_track_meta(rec, &vid)
+                    })
+                    .collect();
+                if !discovery_tracks.is_empty() {
+                    mixes.push(serde_json::json!({
+                        "id": "mix-daily-discovery",
+                        "title": "Daily Discovery",
+                        "subtitle": "Tuned to your taste profile & audio DNA",
+                        "accent": "primary",
+                        "tracks": discovery_tracks,
+                    }));
+                }
+
+                // 2. On Repeat — most played songs from event history.
+                let mut repeat_tracks: Vec<crate::online::OnlineTrack> = Vec::new();
+                for (song_id, _plays) in stats.top_songs.iter().take(20) {
+                    let vid = lookup_video_id(rec, song_id).unwrap_or_else(|| song_id.clone());
+                    if let Some(meta) = load_track_meta(rec, &vid) {
+                        repeat_tracks.push(meta);
+                    }
+                }
+                if !repeat_tracks.is_empty() {
+                    mixes.push(serde_json::json!({
+                        "id": "mix-on-repeat",
+                        "title": "On Repeat",
+                        "subtitle": "The songs you keep coming back to",
+                        "accent": "coral",
+                        "tracks": repeat_tracks,
+                    }));
+                }
+
+                // 3. Time-of-day Vibe mix using local hour & acoustic energy/tempo.
+                let (vibe_title, vibe_sub) = match local_hour {
+                    5..=10 => ("Morning Focus", "Crisp tempo and clear melodies to start the day"),
+                    11..=16 => ("Afternoon Drive", "Upbeat groove matched to your midday rhythm"),
+                    17..=21 => ("Evening Unwind", "Warm, balanced textures as the day winds down"),
+                    _ => ("Late Night Drift", "Deep, atmospheric cuts for after-hours listening"),
+                };
+                let all_songs = rec.get_all_songs().unwrap_or_default();
+                if all_songs.len() >= 3 {
+                    let target_energy = match local_hour {
+                        5..=10 => 0.45_f32,
+                        11..=16 => 0.72_f32,
+                        17..=21 => 0.52_f32,
+                        _ => 0.30_f32,
+                    };
+                    let mut scored: Vec<(f32, crate::online::OnlineTrack)> = all_songs
+                        .iter()
+                        .filter_map(|s| {
+                            let vid = lookup_video_id(rec, &s.id)?;
+                            let meta = load_track_meta(rec, &vid)?;
+                            let dist = (s.feature_vector.rms_energy - target_energy).abs();
+                            let affinity = rec.artist_affinity(&s.artist);
+                            Some(((1.0 - dist) * 0.65 + affinity * 0.35, meta))
+                        })
+                        .collect();
+                    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                    let vibe_tracks: Vec<crate::online::OnlineTrack> =
+                        scored.into_iter().take(18).map(|(_, t)| t).collect();
+                    if !vibe_tracks.is_empty() {
+                        mixes.push(serde_json::json!({
+                            "id": "mix-daypart-vibe",
+                            "title": vibe_title,
+                            "subtitle": vibe_sub,
+                            "accent": "mint",
+                            "tracks": vibe_tracks,
+                        }));
+                    }
+                }
+
+                // 4. Offline Ready mix — instantly playable cached tracks.
+                let cached = crate::online::list_cached_files();
+                let offline_tracks: Vec<crate::online::OnlineTrack> = cached
+                    .into_iter()
+                    .take(25)
+                    .filter_map(|(stem, _, _)| {
+                        let (vid, _) = parse_cache_stem(&stem);
+                        let mut t = load_track_meta(rec, &vid)?;
+                        t.cached = true;
+                        Some(t)
+                    })
+                    .collect();
+                if !offline_tracks.is_empty() {
+                    mixes.push(serde_json::json!({
+                        "id": "mix-offline-ready",
+                        "title": "Offline Ready",
+                        "subtitle": "Cached on device — zero buffering, works anywhere",
+                        "accent": "support",
+                        "tracks": offline_tracks,
+                    }));
+                }
+
+                let artist_seeds: Vec<String> = top_artists.into_iter().map(|(a, _, _)| a).collect();
+                Ok(serde_json::json!({
+                    "mixes": mixes,
+                    "topArtists": artist_seeds,
+                }))
+            })
+        }
+
+        "rec.stats" => with_recommender(|rec| {
+            let stats = rec.get_stats().map_err(|e| e.to_string())?;
+            let top_artists: Vec<serde_json::Value> = rec
+                .top_artists(8)
+                .into_iter()
+                .map(|(name, affinity, plays)| {
+                    serde_json::json!({ "artist": name, "affinity": affinity, "plays": plays })
+                })
+                .collect();
+            let weights = rec.get_weights().unwrap_or_default();
+            Ok(serde_json::json!({
+                "totalPlays": stats.total_plays,
+                "totalListenedSecs": stats.total_listened_secs,
+                "totalSkips": stats.total_skips,
+                "streakDays": stats.streak_days,
+                "avgListenRatio": stats.avg_listen_ratio,
+                "topArtists": top_artists,
+                "exploration": weights.exploration,
+            }))
+        }),
+
+        // ── Word-synced lyrics ───────────────────────────────────────────
         "lyrics.enhanced" => {
             ensure_online()?;
             let s = |k: &str| {
@@ -263,7 +1033,6 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 return Ok(no_lyrics());
             }
 
-            // 1. LRCLIB synced lines → word-level timing (desktop path).
             if let Some(lrc) = crate::online::fetch_synced_lyrics(&artist, &title, duration) {
                 if !lrc.synced.is_empty() {
                     let pairs: Vec<(f32, String)> = lrc
@@ -281,7 +1050,6 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 }
             }
 
-            // 2. YTM InnerTube plain-text fallback (needs the video id).
             if !video_id.is_empty() {
                 if let Some(text) = crate::online::fetch_lyrics(&video_id) {
                     return Ok(plain_lines(&text, track_id, "YouTube Music"));
@@ -291,10 +1059,7 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             Ok(no_lyrics())
         }
 
-        // ── Settings write-back ───────────────────────────────────────────
-        // Patch semantics: `{"settings": {…partial…}}` is shallow-merged over
-        // the loaded AppSettings, then validated by a full re-parse and saved.
-
+        // ── Settings write-back ──────────────────────────────────────────
         "settings.save" => {
             let patch = args
                 .get("settings")
@@ -316,21 +1081,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             serde_json::to_value(settings).map_err(|e| format!("settings serialize: {e}"))
         }
 
-        // ── In-app updater ────────────────────────────────────────────────
-        // The native app is sideloaded from GitHub releases; it checks the
-        // latest release over the shared reqwest stack and (if newer) points
-        // the Kotlin side at the native APK asset for download. Kotlin owns
-        // the download+install hand-off (progress callbacks + system
-        // installer intent) — this command is check-only.
-
+        // ── In-app updater ───────────────────────────────────────────────
         "app.update.check" => {
             const RELEASES_API: &str = "https://api.github.com/repos/ARYAN007H/Music0/releases/latest";
-            // Updater test rig: a dispatch build may POSE as an older
-            // version (compile-time override) so the whole update flow can
-            // run against the latest published release. Release builds
-            // never set the env and use the crate version. Kept separate
-            // from versionCode so posing never trips Android's downgrade
-            // protection.
             let current = match option_env!("MUSICO_VERSION_OVERRIDE") {
                 Some(v) if !v.trim().is_empty() => v.trim(),
                 _ => env!("CARGO_PKG_VERSION"),
@@ -352,18 +1105,14 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
             let latest_tag = reply["tag_name"].as_str().unwrap_or_default().trim();
             let latest = latest_tag.trim_start_matches('v').to_string();
-            // The native asset — NOT the retired Tauri APK.
-            let asset = reply["assets"]
-                .as_array()
-                .and_then(|assets| {
-                    assets
-                        .iter()
-                        .find(|a| {
-                            a["name"].as_str()
-                                .map(|n| n.starts_with("musico-online-native") && n.ends_with(".apk"))
-                                .unwrap_or(false)
-                        })
-                });
+            let asset = reply["assets"].as_array().and_then(|assets| {
+                assets.iter().find(|a| {
+                    a["name"]
+                        .as_str()
+                        .map(|n| n.starts_with("musico-online-native") && n.ends_with(".apk"))
+                        .unwrap_or(false)
+                })
+            });
             let (asset_url, asset_size, asset_name, asset_digest) = match asset {
                 Some(a) => (
                     a["browser_download_url"].as_str().unwrap_or_default().to_string(),
@@ -373,12 +1122,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 ),
                 None => (String::new(), 0, String::new(), String::new()),
             };
-            let update_available = !latest.is_empty()
-                && !asset_url.is_empty()
-                && version_newer(current, &latest);
+            let update_available =
+                !latest.is_empty() && !asset_url.is_empty() && version_newer(current, &latest);
 
-            // `digest` ("sha256:…") is what the Kotlin downloader verifies
-            // before handing the APK to the installer (review P1-4).
             Ok(serde_json::json!({
                 "current": current,
                 "latest": latest,
@@ -387,14 +1133,18 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 "assetName": asset_name,
                 "assetSizeBytes": asset_size,
                 "assetDigest": asset_digest,
-                "notes": reply["body"].as_str().unwrap_or_default().lines().take(12)
+                "notes": reply["body"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .lines()
+                    .take(12)
                     .map(|l| l.chars().take(200).collect::<String>())
-                    .collect::<Vec<_>>().join("\n"),
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             }))
         }
 
-        // ── Stream cache management ───────────────────────────────────────
-
+        // ── Stream cache management ──────────────────────────────────────
         "online.cache.usage" => {
             let settings = crate::config::AppSettings::load();
             Ok(serde_json::json!({
@@ -409,12 +1159,206 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             Ok(serde_json::json!({ "freedBytes": freed }))
         }
 
+        // ── Desktop JVM audio engine (musico_playback over JNI) ──────────
+        "player.play_file" => desktop_play_file(&args),
+        "player.preload_next" => desktop_preload_next(&args),
+        "player.toggle" => desktop_toggle(),
+        "player.pause" => desktop_simple_cmd(|e| e.pause()),
+        "player.resume" => desktop_simple_cmd(|e| e.resume()),
+        "player.stop" => desktop_simple_cmd(|e| e.stop()),
+        "player.seek" => desktop_seek(&args),
+        "player.set_volume" => desktop_set_volume(&args),
+        "player.set_eq" => desktop_set_eq(&args),
+        "player.state" => desktop_state(),
+
         other => Err(format!("unknown command `{other}`")),
     }
 }
 
-/// Airplane-mode gate, mirroring `commands::ensure_online` without the
-/// Tauri state (mobile reads the persisted settings directly).
+#[cfg(not(target_os = "android"))]
+fn song_info_from_args(args: &serde_json::Value) -> Result<musico_playback::SongInfo, String> {
+    let file_path = args
+        .get("path")
+        .or_else(|| args.get("filePath"))
+        .and_then(|v| v.as_str())
+        .ok_or("missing path")?
+        .to_string();
+    Ok(musico_playback::SongInfo {
+        id: args.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        file_path,
+        title: args.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        artist: args.get("artist").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        album: args.get("album").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        duration_secs: args
+            .get("durationSecs")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32,
+        cover_art: None,
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_play_file(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let song = song_info_from_args(args)?;
+    let mutex = desktop_player()?;
+    let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.play(song).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "playing": true }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_preload_next(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let song = song_info_from_args(args)?;
+    let mutex = desktop_player()?;
+    let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.preload_next(song).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "preloaded": true }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_toggle() -> Result<serde_json::Value, String> {
+    let mutex = desktop_player()?;
+    let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let st = guard.state();
+    match st.status {
+        musico_playback::PlaybackStatus::Playing | musico_playback::PlaybackStatus::Buffering => {
+            guard.pause().map_err(|e| e.to_string())?;
+            Ok(serde_json::json!({ "playing": false }))
+        }
+        musico_playback::PlaybackStatus::Paused => {
+            guard.resume().map_err(|e| e.to_string())?;
+            Ok(serde_json::json!({ "playing": true }))
+        }
+        musico_playback::PlaybackStatus::Stopped => Ok(serde_json::json!({ "playing": false })),
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_simple_cmd(
+    f: impl FnOnce(&musico_playback::PlaybackEngine) -> Result<(), musico_playback::PlaybackError>,
+) -> Result<serde_json::Value, String> {
+    let mutex = desktop_player()?;
+    let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&guard).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_seek(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let ms = args.get("positionMs").and_then(|v| v.as_f64()).ok_or("missing positionMs")?;
+    let secs = (ms / 1000.0).max(0.0) as f32;
+    desktop_simple_cmd(|e| e.seek(secs))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_set_volume(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let vol = args.get("volume").and_then(|v| v.as_f64()).ok_or("missing volume")? as f32;
+    desktop_simple_cmd(|e| e.set_volume(vol.clamp(0.0, 1.0)))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_set_eq(args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let mut gains = [0.0f32; 10];
+    if let Some(arr) = args.get("gainsDb").and_then(|v| v.as_array()) {
+        for (i, v) in arr.iter().take(10).enumerate() {
+            gains[i] = v.as_f64().unwrap_or(0.0).clamp(-12.0, 12.0) as f32;
+        }
+    }
+    desktop_simple_cmd(|e| e.set_eq(enabled, gains))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_state() -> Result<serde_json::Value, String> {
+    let Some(mutex) = DESKTOP_PLAYER.get() else {
+        return Ok(serde_json::json!({
+            "status": "stopped",
+            "playing": false,
+            "buffering": false,
+            "positionMs": 0,
+            "durationMs": 0,
+            "volume": 1.0,
+            "muted": false,
+            "ended": false,
+            "endedSongId": null,
+            "currentSongId": null,
+            "error": null,
+        }));
+    };
+    let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let events = guard.poll_events();
+    let mut ended = false;
+    let mut ended_song_id: Option<String> = None;
+    let mut last_error: Option<String> = None;
+    for ev in events {
+        match ev {
+            musico_playback::PlaybackEvent::SongEnded { song_id, .. } => {
+                ended = true;
+                ended_song_id = Some(song_id);
+            }
+            musico_playback::PlaybackEvent::Error(msg) => {
+                last_error = Some(msg);
+            }
+            _ => {}
+        }
+    }
+    let st = guard.state();
+    let status_str = match st.status {
+        musico_playback::PlaybackStatus::Playing => "playing",
+        musico_playback::PlaybackStatus::Paused => "paused",
+        musico_playback::PlaybackStatus::Buffering => "buffering",
+        musico_playback::PlaybackStatus::Stopped => "stopped",
+    };
+    Ok(serde_json::json!({
+        "status": status_str,
+        "playing": st.status == musico_playback::PlaybackStatus::Playing,
+        "buffering": st.status == musico_playback::PlaybackStatus::Buffering,
+        "positionMs": (st.position_secs.max(0.0) * 1000.0) as i64,
+        "durationMs": (st.duration_secs.max(0.0) * 1000.0) as i64,
+        "volume": st.volume,
+        "muted": st.muted,
+        "ended": ended,
+        "endedSongId": ended_song_id,
+        "currentSongId": st.current_song.as_ref().map(|s| s.id.clone()),
+        "error": last_error,
+    }))
+}
+
+#[cfg(target_os = "android")]
+fn desktop_play_file(_args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Err("player.play_file is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_preload_next(_args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Err("player.preload_next is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_toggle() -> Result<serde_json::Value, String> {
+    Err("player.toggle is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_simple_cmd(
+    _f: impl FnOnce(&musico_playback::PlaybackEngine) -> Result<(), musico_playback::PlaybackError>,
+) -> Result<serde_json::Value, String> {
+    Err("desktop player command unavailable on Android".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_seek(_args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Err("player.seek is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_set_volume(_args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Err("player.set_volume is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_set_eq(_args: &serde_json::Value) -> Result<serde_json::Value, String> {
+    Err("player.set_eq is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_state() -> Result<serde_json::Value, String> {
+    Err("player.state is desktop-only; Android uses Media3".into())
+}
+
 fn ensure_online() -> Result<(), String> {
     let settings = crate::config::AppSettings::load();
     if settings.offline_mode {
@@ -423,8 +1367,6 @@ fn ensure_online() -> Result<(), String> {
     Ok(())
 }
 
-/// Triple-wise semver comparison for `a > b` ("0.9.1" > "0.9.0"). Suffixes
-/// like `-native` are stripped on both sides; missing components are 0.
 fn version_newer(current: &str, latest: &str) -> bool {
     fn triple(v: &str) -> (u32, u32, u32) {
         let core = v.trim().trim_start_matches('v').split(['-', '+']).next().unwrap_or("");
@@ -436,7 +1378,6 @@ fn version_newer(current: &str, latest: &str) -> bool {
     triple(latest) > triple(current)
 }
 
-/// The "no lyrics exist" reply the Kotlin side treats as an empty pane.
 fn no_lyrics() -> serde_json::Value {
     serde_json::json!({
         "track_id": "",
@@ -449,8 +1390,6 @@ fn no_lyrics() -> serde_json::Value {
     })
 }
 
-/// Unsynced plain text → [`crate::commands::EnhancedLyricsDto`]-shaped JSON
-/// (one line per row, no word timings).
 fn plain_lines(text: &str, track_id: String, source: &str) -> serde_json::Value {
     let lines: Vec<serde_json::Value> = text
         .lines()
@@ -477,21 +1416,62 @@ fn plain_lines(text: &str, track_id: String, source: &str) -> serde_json::Value 
     })
 }
 
-/// Builds an [`crate::online::OnlineTrack`] from loose JNI args: `videoId`
-/// plus optional title/artist/album/duration/thumbnail/source. Only the id
-/// and source namespace affect resolution; metadata fields default.
+fn parse_cache_stem(stem: &str) -> (String, String) {
+    if let Some(rest) = stem.strip_prefix("saavn_").or_else(|| stem.strip_prefix("saavn:")) {
+        (rest.to_string(), "saavn".to_string())
+    } else if let Some(rest) = stem.strip_prefix("yt_").or_else(|| stem.strip_prefix("yt:")) {
+        (rest.to_string(), String::new())
+    } else {
+        (stem.to_string(), String::new())
+    }
+}
+
+fn playlist_track_from_online(t: &crate::online::OnlineTrack) -> PlaylistTrack {
+    let source = match t.source.as_str() {
+        "saavn" => "saavn".to_string(),
+        "local" => "local".to_string(),
+        _ => "yt".to_string(),
+    };
+    PlaylistTrack {
+        source,
+        id: t.video_id.clone(),
+        title: if t.title.is_empty() { t.video_id.clone() } else { t.title.clone() },
+        artist: t.artist.clone(),
+        album: t.album.clone(),
+        duration_secs: t.duration_secs,
+        thumbnail: t.thumbnail.clone(),
+        file_path: None,
+    }
+}
+
+fn online_track_from_playlist(t: &PlaylistTrack) -> crate::online::OnlineTrack {
+    crate::online::OnlineTrack {
+        video_id: t.id.clone(),
+        title: t.title.clone(),
+        artist: t.artist.clone(),
+        album: t.album.clone(),
+        duration_secs: t.duration_secs,
+        thumbnail: t.thumbnail.clone(),
+        cached: false,
+        source: if t.source == "saavn" { "saavn".into() } else { String::new() },
+        artist_browse_id: None,
+    }
+}
+
+/// Builds an [`crate::online::OnlineTrack`] from loose JNI args: accepts both
+/// camelCase (`videoId`, `durationSecs`, `artistBrowseId`) and snake_case
+/// (`video_id`, `duration_secs`, `artist_browse_id`).
 fn online_track_from_args(args: &serde_json::Value) -> Result<crate::online::OnlineTrack, String> {
     use crate::online::OnlineTrack;
     let video_id = args
         .get("videoId")
+        .or_else(|| args.get("video_id"))
         .and_then(|v| v.as_str())
         .ok_or("missing videoId")?
         .to_string();
-    if video_id.is_empty() || video_id.len() > 32 {
+    if video_id.is_empty() || video_id.len() > 64 {
         return Err("invalid videoId".into());
     }
-    // Charset gate: YT ids are [A-Za-z0-9_-], saavn ids alphanumeric. A
-    // crafted id must not fall through to shell-interpolating resolvers.
     if !video_id
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -509,13 +1489,149 @@ fn online_track_from_args(args: &serde_json::Value) -> Result<crate::online::Onl
         title: s("title"),
         artist: s("artist"),
         album: s("album"),
-        duration_secs: args.get("durationSecs").and_then(|v| v.as_u64()).map(|v| v as u32),
+        duration_secs: args
+            .get("durationSecs")
+            .or_else(|| args.get("duration_secs"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32),
         thumbnail: args.get("thumbnail").and_then(|v| v.as_str()).map(str::to_string),
         cached: false,
         source: s("source"),
         artist_browse_id: args
             .get("artistBrowseId")
+            .or_else(|| args.get("artist_browse_id"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ensure_test_core() {
+        static TEST_INIT: OnceLock<()> = OnceLock::new();
+        TEST_INIT.get_or_init(|| {
+            let base = std::env::temp_dir().join(format!(
+                "musico_mobile_test_{}",
+                std::process::id()
+            ));
+            let files = base.join("files");
+            let cache = base.join("cache");
+            init_core(&files.to_string_lossy(), &cache.to_string_lossy());
+            MOBILE_INITIALIZED.store(true, Ordering::Release);
+        });
+    }
+
+    #[test]
+    fn ping_and_unknown_command_dispatch() {
+        ensure_test_core();
+        let pong = dispatch("ping", "{}").expect("ping should succeed");
+        assert_eq!(pong["core"], "rust-mobile");
+        assert_eq!(pong["initialized"], true);
+        assert!(dispatch("does.not.exist", "{}").is_err());
+    }
+
+    #[test]
+    fn playlist_crud_and_reorder_roundtrip() {
+        ensure_test_core();
+        let created = dispatch("playlist.create", r#"{"name":"CMP Test Mix"}"#)
+            .expect("create playlist");
+        let id = created["id"].as_str().expect("playlist id").to_string();
+
+        for (vid, title) in [("vidAAA111", "Alpha"), ("vidBBB222", "Beta"), ("vidCCC333", "Gamma")] {
+            let args = serde_json::json!({
+                "id": id,
+                "track": {
+                    "videoId": vid,
+                    "title": title,
+                    "artist": "Test Artist",
+                    "durationSecs": 200
+                }
+            });
+            dispatch("playlist.add_track", &args.to_string()).expect("add track");
+        }
+
+        // Move index 0 ("Alpha") down past index 1 ("Beta") -> target 2 in Rust insert semantics.
+        let move_args = serde_json::json!({ "id": id, "from": 0, "to": 2 });
+        dispatch("playlist.move_track", &move_args.to_string()).expect("move track");
+
+        let list = dispatch("playlist.list", "{}").expect("list playlists");
+        let pls = list["playlists"].as_array().expect("playlists array");
+        let found = pls.iter().find(|p| p["id"] == id).expect("created playlist present");
+        let tracks = found["tracks"].as_array().expect("tracks array");
+        assert_eq!(tracks.len(), 3);
+        assert_eq!(tracks[0]["id"], "vidBBB222");
+        assert_eq!(tracks[1]["id"], "vidAAA111");
+
+        dispatch("playlist.rename", &serde_json::json!({ "id": id, "name": "Renamed Mix" }).to_string())
+            .expect("rename");
+        dispatch("playlist.remove_track", &serde_json::json!({ "id": id, "index": 0 }).to_string())
+            .expect("remove track");
+        dispatch("playlist.delete", &serde_json::json!({ "id": id }).to_string())
+            .expect("delete");
+    }
+
+    #[test]
+    fn library_likes_and_recommender_rerank() {
+        ensure_test_core();
+        let fav = serde_json::json!({
+            "videoId": "favTrack01",
+            "title": "Midnight Pulse",
+            "artist": "Aurora Synth",
+            "durationSecs": 210
+        });
+        dispatch(
+            "library.likes.set",
+            &serde_json::json!({ "track": fav, "liked": true }).to_string(),
+        )
+        .expect("like track");
+
+        let likes = dispatch("library.likes.list", "{}").expect("list likes");
+        let ids = likes["ids"].as_array().expect("ids");
+        assert!(ids.iter().any(|v| v == "favTrack01"));
+
+        // Feed listening telemetry + verify MMR diversity re-ranking.
+        dispatch(
+            "rec.on_song_ended",
+            &serde_json::json!({
+                "videoId": "favTrack01",
+                "artist": "Aurora Synth",
+                "listenedSecs": 200,
+                "durationSecs": 210
+            })
+            .to_string(),
+        )
+        .expect("record listen");
+
+        let reranked = dispatch(
+            "rec.rerank_candidates",
+            &serde_json::json!({
+                "currentVideoId": "curr0001",
+                "topN": 4,
+                "candidates": [
+                    { "videoId": "c1", "title": "One", "artist": "Same Artist" },
+                    { "videoId": "c2", "title": "Two", "artist": "Same Artist" },
+                    { "videoId": "favTrack01", "title": "Midnight Pulse", "artist": "Aurora Synth" },
+                    { "videoId": "c4", "title": "Four", "artist": "Fresh Artist" }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("rerank");
+        let out = reranked["tracks"].as_array().expect("reranked tracks");
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0]["video_id"], "favTrack01");
+
+        let stats = dispatch("rec.stats", "{}").expect("stats");
+        assert!(stats["totalPlays"].is_number());
+    }
+
+    #[test]
+    fn version_newer_compares_semver() {
+        assert!(version_newer("0.9.5", "0.9.6"));
+        assert!(version_newer("0.9.5", "1.0.0"));
+        assert!(!version_newer("1.0.0", "0.9.9"));
+        assert!(!version_newer("0.9.5", "0.9.5"));
+    }
 }

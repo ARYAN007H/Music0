@@ -5,19 +5,14 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// versionCode/versionName: CI overrides versionCode per release
-// (-PmusicoVersionCode / -PmusicoVersionName); defaults keep local
-// `gradle assembleDebug` working without inputs.
-val musicoVersionCode: Int = (project.findProperty("musicoVersionCode") as String?)?.toInt() ?: 90500
-val musicoVersionName: String = project.findProperty("musicoVersionName") as String? ?: "0.9.5-native"
+val musicoVersionCode: Int = (project.findProperty("musicoVersionCode") as String?)?.toInt() ?: 90600
+val musicoVersionName: String = project.findProperty("musicoVersionName") as String? ?: "0.9.6-cmp"
 
 android {
     namespace = "io.github.aryan007h.musicoonline"
     compileSdk = 35
 
     defaultConfig {
-        // Same applicationId as the Tauri APK: installing the native build
-        // replaces it (until the Tauri android job retires at parity, #111).
         applicationId = "io.github.aryan007h.musicoonline"
         minSdk = 26
         targetSdk = 35
@@ -25,9 +20,6 @@ android {
         versionName = musicoVersionName
     }
 
-    // CI signs with the shared release keystore (ANDROID_KEYSTORE_* secrets,
-    // same key as the Tauri APKs so installs stay compatible); unsigned for
-    // local debug builds.
     signingConfigs {
         create("ciRelease") {
             val ks = System.getenv("ANDROID_KEYSTORE_FILE")
@@ -65,18 +57,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime)
-    implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons)
-    implementation(libs.media3.exoplayer)
-    implementation(libs.media3.session)
-    implementation(libs.kotlinx.serialization.json)
-    implementation(libs.coil.compose)
-    implementation(libs.kotlinx.coroutines.guava)
 }
