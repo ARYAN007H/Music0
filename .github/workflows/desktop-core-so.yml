@@ -55,7 +55,7 @@ jobs:
 
       - name: Package prebuilt desktop bundle
         run: |
-          gradle :desktopApp:installDist --console=plain
+          gradle -p android :desktopApp:installDist --console=plain
           mkdir -p dist-desktop
           cp src-tauri/target/release/libmusico_online_lib.so dist-desktop/
           cp -r android/desktopApp/build/install/desktopApp dist-desktop/app
