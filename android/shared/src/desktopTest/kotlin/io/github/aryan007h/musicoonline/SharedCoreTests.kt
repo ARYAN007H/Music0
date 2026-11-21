@@ -5,6 +5,7 @@ import io.github.aryan007h.musicoonline.core.CoreException
 import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformPrefs
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
+import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.player.ArtworkPaletteCache
 import io.github.aryan007h.musicoonline.ui.player.formatTime
 import io.github.aryan007h.musicoonline.ui.theme.Palette
@@ -61,11 +62,23 @@ class SharedCoreTests {
 
     @Test
     fun artworkFallbackAtmosphereIsDeterministicAndAccentTinted() {
-        val fallback = ArtworkPaletteCache.fallback(Color(0xFF7C6BC4))
-        val fallback2 = ArtworkPaletteCache.fallback(Color(0xFF7C6BC4))
-        assertEquals(fallback, fallback2)
-        assertNotEquals(Color.Transparent, fallback.base)
-        assertNotEquals(Color.Transparent, fallback.orbPrimary)
+        val accent = Color(0xFF7C6BC4)
+        val fallback = ArtworkAtmosphere(
+            base = Color(0xFF0A0A14),
+            orbPrimary = accent,
+            orbSecondary = accent,
+            glow = accent,
+        )
+        // No decodable pixels → the fallback passes through untouched, deterministically.
+        assertEquals(fallback, ArtworkPaletteCache.quantizePixels(IntArray(0), fallback))
+
+        // A solid-accent thumbnail quantizes to a deterministic, opaque palette.
+        val pixels = IntArray(64) { 0xFF7C6BC4.toInt() }
+        val fromAccent = ArtworkPaletteCache.quantizePixels(pixels, fallback)
+        val fromAccent2 = ArtworkPaletteCache.quantizePixels(pixels, fallback)
+        assertEquals(fromAccent, fromAccent2)
+        assertNotEquals(Color.Transparent, fromAccent.base)
+        assertNotEquals(Color.Transparent, fromAccent.orbPrimary)
     }
 
     @Test
