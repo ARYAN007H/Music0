@@ -19,7 +19,7 @@ permissions:
 jobs:
   linux:
     # gemini/* heads only — keeps ordinary PRs from paying for this build.
-    if: startsWith(github.head_ref, 'gemini/')
+    if: startsWith(github.head_ref, 'gemini/') || startsWith(github.head_ref, 'fix/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
