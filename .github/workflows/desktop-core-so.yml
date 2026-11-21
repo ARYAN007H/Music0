@@ -58,8 +58,13 @@ jobs:
       - name: Package prebuilt desktop bundle
         run: |
           gradle -p android :desktopApp:createDistributable --console=plain
+          # The repo root Cargo.toml is the workspace manifest — cargo puts
+          # the cdylib in <root>/target/release, NOT src-tauri/target.
+          SO=$(find . -name 'libmusico_online_lib.so' -print -quit)
+          [ -n "$SO" ] || { echo "cdylib not found anywhere"; exit 1; }
+          echo "cdylib at: $SO"
           mkdir -p dist-desktop
-          cp src-tauri/target/release/libmusico_online_lib.so dist-desktop/
+          cp "$SO" dist-desktop/
           APPDIR=$(find android/desktopApp/build/compose/binaries -type d -name app | head -1)
           cp -r "$APPDIR" dist-desktop/app
           cd dist-desktop
