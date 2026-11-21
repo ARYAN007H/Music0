@@ -1621,7 +1621,7 @@ mod tests {
         .expect("rerank");
         let out = reranked["tracks"].as_array().expect("reranked tracks");
         assert_eq!(out.len(), 4);
-        assert_eq!(out[0]["videoId"], "favTrack01");
+        assert_eq!(out[0]["video_id"], "favTrack01");
 
         let stats = dispatch("rec.stats", "{}").expect("stats");
         assert!(stats["totalPlays"].is_number());

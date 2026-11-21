@@ -77,6 +77,6 @@ class SharedCoreTests {
 
         assertEquals(LyricBackdrop.Mesh, LyricBackdrop.fromId("unknown"))
         assertEquals(LyricBackdrop.Aurora, LyricBackdrop.fromId("aurora"))
-        assertEquals(Palette.Nebula, Palette.fromId("does-not-exist"))
+        assertEquals(Palette.NEBULA, Palette.fromId("does-not-exist"))
     }
 }
