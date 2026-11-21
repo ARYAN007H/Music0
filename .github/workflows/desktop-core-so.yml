@@ -18,8 +18,9 @@ permissions:
 
 jobs:
   linux:
-    # gemini/* heads only — keeps ordinary PRs from paying for this build.
-    if: startsWith(github.head_ref, 'gemini/') || startsWith(github.head_ref, 'fix/')
+    # gemini/* and fix/* PR heads only — keeps ordinary PRs from paying for
+    # this build. workflow_dispatch has no head_ref, so always allow it.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'gemini/') || startsWith(github.head_ref, 'fix/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
