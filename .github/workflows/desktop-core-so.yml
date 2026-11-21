@@ -47,18 +47,21 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Gradle cache
+      - name: Gradle (pinned to match release.yml)
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
 
       - name: Android SDK environment
         run: echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
       - name: Package prebuilt desktop bundle
         run: |
-          gradle -p android :desktopApp:installDist --console=plain
+          gradle -p android :desktopApp:createDistributable --console=plain
           mkdir -p dist-desktop
           cp src-tauri/target/release/libmusico_online_lib.so dist-desktop/
-          cp -r android/desktopApp/build/install/desktopApp dist-desktop/app
+          APPDIR=$(find android/desktopApp/build/compose/binaries -type d -name app | head -1)
+          cp -r "$APPDIR" dist-desktop/app
           cd dist-desktop
           zip -qr ../musico-desktop-test.zip .
 
