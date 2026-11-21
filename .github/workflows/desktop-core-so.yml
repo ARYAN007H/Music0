@@ -10,8 +10,15 @@ on:
   # artifact is available while testing a round (workflow_dispatch alone
   # can't fire for a file that isn't on the default branch yet).
   pull_request:
-    branches:
-      - 'gemini/**'
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # gemini/* heads only — keeps ordinary PRs from paying for this build.
+    if: startsWith(github.head_ref, 'gemini/')
+    runs-on: ubuntu-latest
 
 permissions:
   contents: read
