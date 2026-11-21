@@ -1,14 +1,16 @@
 name: Desktop core .so
 
-# Builds the x86_64-linux cdylib (libmusico_online_lib.so) that the Compose
-# Multiplatform desktop app loads over JNI (MusicoCore.desktop.kt). The Tauri
-# bundles link the core statically, so this artifact is the only desktop-JVM
-# dev path that doesn't require a local cargo build.
+# Builds everything the Compose Multiplatform desktop app needs to RUN
+# without any local compilation: the x86_64-linux cdylib
+# (libmusico_online_lib.so) + a prebuilt installDist bundle, zipped.
+# The Tauri bundles link the core statically, so this artifact is the only
+# desktop-JVM dev path that doesn't require a local cargo/gradle build
+# (Aryan's machine is too weak for local compiles — CI only).
 on:
   workflow_dispatch:
-  # Runs as a PR check for the gemini/* branches so the desktop cdylib
-  # artifact is available while testing a round (workflow_dispatch alone
-  # can't fire for a file that isn't on the default branch yet).
+  # Runs as a PR check for the gemini/* branches so the artifact is
+  # available while testing a round (workflow_dispatch alone can't fire
+  # for a file that isn't on the default branch yet).
   pull_request:
 
 permissions:
@@ -18,13 +20,6 @@ jobs:
   linux:
     # gemini/* heads only — keeps ordinary PRs from paying for this build.
     if: startsWith(github.head_ref, 'gemini/')
-    runs-on: ubuntu-latest
-
-permissions:
-  contents: read
-
-jobs:
-  linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,9 +41,30 @@ jobs:
         run: cargo build --release --lib
         working-directory: src-tauri
 
-      - name: Upload core library
+      - name: Set up Java 17 (Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK environment
+        run: echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+
+      - name: Package prebuilt desktop bundle
+        run: |
+          gradle :desktopApp:installDist --console=plain
+          mkdir -p dist-desktop
+          cp src-tauri/target/release/libmusico_online_lib.so dist-desktop/
+          cp -r android/desktopApp/build/install/desktopApp dist-desktop/app
+          cd dist-desktop
+          zip -qr ../musico-desktop-test.zip .
+
+      - name: Upload prebuilt desktop bundle
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-core-so
-          path: src-tauri/target/release/libmusico_online_lib.so
+          name: desktop-app-test
+          path: musico-desktop-test.zip
           if-no-files-found: error
