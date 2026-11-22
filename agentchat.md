@@ -234,19 +234,6 @@ off origin/main 2b86b70) → PR into `main`.
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
-### 2026-11-06 01:45 UTC — agent-harbor
-- STATUS: CLAIMED
-- TASK: Release workflow — fix Android APK collection
-- FILES: .github/workflows/release.yml, agentchat.md
-- WHAT: Release run 42144321732 failed only at "Collect and sign APK". The
-  build itself succeeded; `tauri android build --apk --target aarch64` writes
-  the APK to `app/build/outputs/apk/universal/release/app-universal-release-
-  unsigned.apk`, not `apk/aarch64/release/`. The step hard-coded the ABI
-  directory, so `ls` failed. Replace it with a `find` over the outputs tree plus
-  a clear diagnostic when nothing is produced. Linux/macOS/Windows and the
-  publish job (skipped) are unaffected.
-- WORKTREE: ~/Documents/projects/Musico-online-flathub, branch fix/android-apk-path
-
 ### 2026-11-09 23:05 UTC — agent-quill
 - STATUS: WORKING
 - TASK: Android playback overhaul — InnerTube-direct multi-client director (Aryan directive: reverse-engineer Metrolist's streaming, port what works; shared resolve path approved, JioSaavn stays backup)
@@ -463,3 +450,9 @@ NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9
 - STATUS: DECISION LOG (retroactive, recorded so the bus has them)
 - TASK: —
 - WHAT: Product decisions attributed to their owner, Aryan: (1) Round-2 palette naming (Nebula/Ocean/Ember/Forest/Mono) was Aryan's spec — the "Palette.NEBULA case mismatch" fix corrected an agent test reference, not the design; (2) Tauri retirement + v1.0.0 direction is Aryan's explicit decision (2026-11-21), executed in PR #132 `fix/retire-tauri-compose-v1` stacked on #131; (3) T16 playlist import: BOTH URL + file paths, v1-simple (implemented in #131 per this approval); (4) Release policy unchanged: v0.9.5 stays Latest — no v1.0.0 tag until Aryan says so. Process note going forward: ALL product decisions (Aryan's included) must be logged here when they are made, not retroactively.
+
+### 2026-11-22 21:55 UTC — Aryan (logged via Bella, review assistant)
+- STATUS: TASKS POSTED — round 5 (much-needed + polish)
+- TASK: T25 (MUCH NEEDED — instant-start playback) + T26 (backdrop v2)
+- FILES: src-tauri/src/online/{stream.rs,stream_server.rs,sources.rs}, musico_core paths after rename, android/shared/.../DesktopPlayback.kt, PlaybackController.kt, player/Backdrops.kt
+- WHAT: Aryan's report + directives, verbatim intent: **T25 — "songs are taking like 10 secs to load from cold start; I think it's resolving the whole track first then starting to play. It should start playing the second the first 5 secs are available — buffer in between if the user has slow internet, but the start should be instant, just like other big music companies."** T11's loopback pump (64 KiB startup gate) should already give instant start — so MEASURE where the ~10 s actually goes before coding: (a) does the DESKTOP `DesktopPlayback.playFile` path use `resolve_track_streaming`/loopback URL at all, or does it still block on whole-file `track.resolve` → play local file? (b) resolve-chain latency: Piped/Invidious serial failover can burn seconds before the pump starts — parallelize/first-success, cache last-good instance, and pre-resolve the NEXT track while the current one plays. Target: click-to-audio < 2.5 s cold, < 1 s warm, on both platforms; instrument timings (log click→resolved→first-byte→audio) and add a hermetic test for the startup-gate behavior. **T26 — "the Fluid water effect looks AI-generated; we want a clean rain-on-clear-glass look"**: replace/upgrade the Fluid backdrop with a rain-on-glass effect. Evaluate implementation honestly and pick with a bundle-size budget: bundled seamless MP4 loop (Android: Media3 video composable is trivial; Desktop: no first-party video composable in CMP — evaluate a community player lib vs a Skia/AGSL-style rain shader port vs divergent implementations) — report findings in the Log BEFORE implementing, then implement behind the existing backdrop picker (Fluid → Rain on glass, other backdrops unchanged).
