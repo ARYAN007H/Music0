@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -74,6 +75,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -106,6 +108,7 @@ import io.github.aryan007h.musicoonline.ui.detail.DetailScreen
 import io.github.aryan007h.musicoonline.ui.home.HomeScreen
 import io.github.aryan007h.musicoonline.ui.library.AddToPlaylistSheet
 import io.github.aryan007h.musicoonline.ui.library.CreateOrRenamePlaylistDialog
+import io.github.aryan007h.musicoonline.ui.library.ImportPlaylistDialog
 import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.library.LibraryScreen
 import io.github.aryan007h.musicoonline.ui.library.PlaylistDetailScreen
@@ -150,6 +153,7 @@ fun MusicoApp(
     var sheetTrack by remember { mutableStateOf<OnlineTrack?>(null) }
     var playlistTargetTracks by remember { mutableStateOf<List<OnlineTrack>?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var showImportPlaylistDialog by remember { mutableStateOf(false) }
     var playerDragProgress by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(state.errorSeq) {
@@ -227,57 +231,70 @@ fun MusicoApp(
                 label = "shellDim",
             )
 
+            val mainTabs = remember(vm) {
+                movableContentOf<MusicViewModel.UiState, ArtworkAtmosphere> { currentState, currentAtmosphere ->
+                    MainTabContent(
+                        state = currentState,
+                        atmosphere = currentAtmosphere,
+                        vm = vm,
+                        onTrackLongClick = { sheetTrack = it },
+                    )
+                }
+            }
+
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         val safeScale = shellScale.coerceAtLeast(0.01f)
+                        val safeRadius = shellRadius.coerceAtLeast(0.dp)
                         scaleX = safeScale
                         scaleY = safeScale
                         translationX = shellShift.toPx()
-                    }
-                    .clip(RoundedCornerShape(shellRadius.coerceAtLeast(0.dp))),
+                        if (safeRadius > 0.dp) {
+                            shape = RoundedCornerShape(safeRadius)
+                            clip = true
+                        } else {
+                            clip = false
+                        }
+                    },
             ) {
                 if (isWidescreen) {
                     // ── Widescreen Desktop / Tablet Shell ────────────────────────
-                    Column(Modifier.fillMaxSize()) {
-                        Row(Modifier.weight(1f).fillMaxWidth()) {
-                            DesktopNavigationRail(
-                                state = state,
-                                onSelectTab = { hapticTick(); vm.selectTab(it) },
-                                onOpenCollection = { hapticTick(); vm.openCollection(it) },
-                                onNewPlaylist = { hapticTick(); showCreatePlaylistDialog = true },
-                                onOpenProfile = { hapticTick(); vm.openOverlay(AppOverlay.PROFILE) },
-                                onOpenSettings = { hapticTick(); vm.openOverlay(AppOverlay.SETTINGS) },
-                            )
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
-                            ) {
-                                MainTabContent(
-                                    state = state,
-                                    atmosphere = activeAtmosphere,
-                                    vm = vm,
-                                    onTrackLongClick = { sheetTrack = it },
-                                )
-                            }
-                        }
-
-                        DesktopDockedPlayerBar(
+                    Row(Modifier.fillMaxSize()) {
+                        DesktopNavigationRail(
                             state = state,
-                            atmosphere = activeAtmosphere,
-                            onExpandPlayer = { vm.openPlayer(0) },
-                            onOpenLyrics = { vm.openPlayer(1) },
-                            onOpenQueue = { vm.openPlayer(2) },
-                            onTogglePlay = vm::onTogglePlayback,
-                            onNext = vm::next,
-                            onPrevious = vm::previous,
-                            onSeek = vm::seekTo,
-                            onToggleRepeat = vm::toggleRepeat,
-                            onLikeToggle = vm::toggleLikeCurrent,
-                            onVolumeChange = vm::setVolume,
+                            onSelectTab = { hapticTick(); vm.selectTab(it) },
+                            onOpenCollection = { hapticTick(); vm.openCollection(it) },
+                            onNewPlaylist = { hapticTick(); showCreatePlaylistDialog = true },
+                            onOpenProfile = { hapticTick(); vm.openOverlay(AppOverlay.PROFILE) },
+                            onOpenSettings = { hapticTick(); vm.openOverlay(AppOverlay.SETTINGS) },
                         )
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        ) {
+                            mainTabs(state, activeAtmosphere)
+                            DesktopDockedPlayerBar(
+                                state = state,
+                                atmosphere = activeAtmosphere,
+                                onExpandPlayer = { vm.openPlayer(0) },
+                                onOpenLyrics = { vm.openPlayer(1) },
+                                onOpenQueue = { vm.openPlayer(2) },
+                                onTogglePlay = vm::onTogglePlayback,
+                                onNext = vm::next,
+                                onPrevious = vm::previous,
+                                onSeek = vm::seekTo,
+                                onToggleRepeat = vm::toggleRepeat,
+                                onLikeToggle = vm::toggleLikeCurrent,
+                                onVolumeChange = vm::setVolume,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(horizontal = 24.dp, vertical = 14.dp)
+                                    .widthIn(max = 1040.dp),
+                            )
+                        }
                     }
                 } else {
                     // ── Compact Phone Shell ──────────────────────────────────────
@@ -285,12 +302,7 @@ fun MusicoApp(
                     // status bar/cutout; each screen applies `musicoTopInset()`
                     // to its foreground content so top-edge behavior is identical.
                     Column(Modifier.fillMaxSize()) {
-                        MainTabContent(
-                            state = state,
-                            atmosphere = activeAtmosphere,
-                            vm = vm,
-                            onTrackLongClick = { sheetTrack = it },
-                        )
+                        mainTabs(state, activeAtmosphere)
                     }
 
                     Column(
@@ -537,6 +549,10 @@ fun MusicoApp(
                         onClearCache = vm::clearStreamCache,
                         onRefreshCache = vm::refreshCacheUsage,
                         onOpenEq = { vm.openOverlay(AppOverlay.EQ) },
+                        onImportPlaylist = {
+                            vm.dismissImportState()
+                            showImportPlaylistDialog = true
+                        },
                     )
                 }
             }
@@ -574,6 +590,7 @@ fun MusicoApp(
                             onPlayTrack = vm::playTrack,
                             onLikeToggle = vm::toggleLike,
                             onOpenItem = vm::openShelfItem,
+                            onRetry = vm::retryTopDetail,
                             onTrackLongClick = { sheetTrack = it },
                         )
                     }
@@ -630,6 +647,28 @@ fun MusicoApp(
                 )
             }
 
+            if (showImportPlaylistDialog || state.importingPlaylist) {
+                ImportPlaylistDialog(
+                    importing = state.importingPlaylist,
+                    progress = state.importProgress,
+                    result = state.importResult,
+                    error = state.importError,
+                    onImportUrl = vm::importPlaylistFromUrl,
+                    onImportFile = vm::importPlaylistFromFile,
+                    onFileError = vm::reportImportError,
+                    onCancelImport = vm::cancelPlaylistImport,
+                    onOpenPlaylist = { playlistId ->
+                        vm.dismissImportState()
+                        showImportPlaylistDialog = false
+                        vm.openCollection(LibraryCollectionRef.Playlist(playlistId))
+                    },
+                    onDismiss = {
+                        vm.dismissImportState()
+                        showImportPlaylistDialog = false
+                    },
+                )
+            }
+
             AnimatedVisibility(
                 visible = state.overlay == AppOverlay.ONBOARD,
                 enter = fadeIn(tween(MusicoMotion.SLOW)) +
@@ -646,6 +685,10 @@ fun MusicoApp(
                     onFinish = vm::finishOnboarding,
                     onDismiss = vm::dismissOnboarding,
                     onArtistQuery = vm::searchArtists,
+                    onImportPlaylist = {
+                        vm.dismissImportState()
+                        showImportPlaylistDialog = true
+                    },
                 )
             }
 
@@ -778,6 +821,8 @@ private fun MainTabContent(
                 onOpenTrack = vm::playTrack,
                 onRetry = vm::loadHome,
                 onLoadMore = vm::loadMoreHome,
+                onRetryPersonalization = vm::retryPersonalization,
+                onDismissPersonalizationError = vm::dismissPersonalizationError,
                 currentTrackId = state.nowPlaying?.videoId,
                 isPlaying = state.isPlaying,
             )
@@ -814,6 +859,7 @@ private fun MainTabContent(
                 onTrackLongClick = onTrackLongClick,
             )
             AppTab.SEARCH -> SearchScreen(
+                atmosphere = atmosphere,
                 query = state.searchQuery,
                 submittedQuery = state.searchSubmitted,
                 searching = state.searching,
@@ -878,15 +924,12 @@ private fun DesktopNavigationRail(
                 Column {
                     Text(
                         "Music0",
-                        style = Musico.type.title,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        style = Musico.type.titleLarge,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                     Text(
-                        "Material Expressive",
+                        state.coreVersion?.let { "v$it" } ?: "Desktop",
                         style = Musico.type.caption,
-                        fontSize = 10.sp,
                         color = Musico.extras.mint,
                     )
                 }
@@ -943,8 +986,7 @@ private fun DesktopNavigationRail(
             ) {
                 Text(
                     "PLAYLISTS",
-                    style = Musico.type.section,
-                    fontSize = 11.sp,
+                    style = Musico.type.overline,
                     color = Musico.extras.inkDim,
                 )
                 IconButton(onClick = onNewPlaylist, modifier = Modifier.size(28.dp)) {
@@ -1106,6 +1148,7 @@ private fun DesktopDockedPlayerBar(
     onToggleRepeat: () -> Unit,
     onLikeToggle: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val track = state.resolvingTrack ?: state.nowPlaying
     val smoothPosition = rememberSmoothPositionMs(
@@ -1120,53 +1163,60 @@ private fun DesktopDockedPlayerBar(
     val shownSeek = if (draggingSeek.isNaN()) seekFraction else draggingSeek
 
     val barTint by animateColorAsState(
-        targetValue = if (track != null) atmosphere.orbPrimary.copy(alpha = 0.16f) else Color.Transparent,
+        targetValue = if (track != null) atmosphere.orbPrimary.copy(alpha = 0.20f) else Color.Transparent,
         animationSpec = tween(700),
         label = "dockTint",
     )
-
+    val dockBorderTint by animateColorAsState(
+        targetValue = if (track != null) {
+            atmosphere.glow.copy(alpha = 0.24f)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
+        },
+        animationSpec = tween(700),
+        label = "dockBorderTint",
+    )
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shadowElevation = 12.dp,
-        modifier = Modifier
+        shape = MusicoShapes.pillDock,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+        border = BorderStroke(1.dp, dockBorderTint),
+        shadowElevation = 20.dp,
+        modifier = modifier
             .fillMaxWidth()
-            .height(84.dp),
+            .height(76.dp),
     ) {
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        listOf(barTint, Color.Transparent, barTint.copy(alpha = 0.55f)),
+                        0.00f to barTint,
+                        0.38f to barTint.copy(alpha = barTint.alpha * 0.35f),
+                        0.72f to Color.Transparent,
+                        1.00f to barTint.copy(alpha = barTint.alpha * 0.22f),
                     ),
                 ),
         ) {
-            // Hairline top border or indeterminate resolve progress
+            // Inset indeterminate resolve progress along the top pill curve
             if (state.resolvingId != null) {
                 LinearProgressIndicator(
                     color = atmosphere.glow,
                     trackColor = atmosphere.glow.copy(alpha = 0.16f),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
                         .height(2.5.dp)
+                        .clip(CircleShape)
                         .align(Alignment.TopCenter),
-                )
-            } else {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .align(Alignment.TopCenter)
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
                 )
             }
 
             Row(
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // Left: Track Info + Like
                 Row(
@@ -1441,7 +1491,12 @@ private fun MiniPlayer(
     ) {
         Column(
             Modifier.background(
-                Brush.horizontalGradient(listOf(coverTint, Color.Transparent)),
+                Brush.horizontalGradient(
+                    0.00f to coverTint,
+                    0.36f to coverTint.copy(alpha = coverTint.alpha * 0.48f),
+                    0.72f to coverTint.copy(alpha = coverTint.alpha * 0.10f),
+                    1.00f to Color.Transparent,
+                ),
             ),
         ) {
             Row(

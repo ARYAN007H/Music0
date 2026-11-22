@@ -5,12 +5,112 @@ All notable changes to Musico Online are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with an `-online`
 prerelease suffix.
 
-The desktop app version lives in three places and must stay in sync:
-`src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and `package.json`.
-Release tags are `v<version>-online` (for example `v0.7.0-online`). Any tag
-containing a hyphen is published as a GitHub prerelease.
+The app version lives in five places and must stay in sync:
+`musico_core/Cargo.toml`, `android/app/build.gradle.kts`,
+`android/desktopApp/build.gradle.kts`,
+`android/shared/src/desktopMain/.../DesktopPlatform.kt`, and `package.json`.
+Release tags are `v<version>` (for example `v1.0.0`). Any tag containing a
+hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-11-22
+
+**All-in Compose Multiplatform release** across **Android**, **Linux**,
+**macOS**, and **Windows** — sharing one Material 3 Expressive `:shared` UI and
+a pure-Rust JNI core (`musico_core`), with the legacy Tauri WebView shell fully
+retired.
+
+### Removed / Retired
+
+- **Retired Tauri 2 desktop shell (`src-tauri/`) and legacy Flatpak manifest (`flatpak/`):**
+  removed the Tauri runtime, WebKitGTK/GTK Linux build dependencies,
+  `tauri.conf.json`, and `@tauri-apps/cli`.
+- **Extracted pure-Rust `musico_core` crate:** moved the shared JNI engine
+  (`mobile.rs`, `online/`, `config.rs`, `identity.rs`, `lyrics.rs`, `cover.rs`)
+  into `musico_core/` (compiling to `libmusico_online_lib.{so,dylib,dll}`) with
+  zero Tauri or WebView dependencies.
+
+### Changed (CI & Release Engineering)
+
+- **Compose Multiplatform release pipeline (`.github/workflows/release.yml`):**
+  all desktop releases now ship native Compose Multiplatform packages with the
+  Rust JNI core bundled automatically via `appResourcesRootDir`:
+  - Linux x86_64: `.deb`, `.rpm`, and portable `.tar.gz`
+  - macOS arm64: `.dmg` and `.app.tar.gz`
+  - Windows x86_64: `.msi` and portable `.zip`
+  - Android aarch64: signed `musico-online-native-aarch64.apk`
+- **Lean CI (`.github/workflows/ci.yml`):** dropped WebKitGTK/GTK deps in favor
+  of `libasound2-dev pkg-config`, added release `musico_core` cdylib build
+  verification, pinned Gradle `8.10.2`, and added web-engine TypeScript tests.
+- **Cross-platform in-app update matching:** `app.update.check` now selects the
+  matching installer asset per OS (`.apk` on Android, `.dmg` on macOS,
+  `.msi`/`.zip` on Windows, `.deb`/`.tar.gz` on Linux).
+
+### Added (Android & Desktop CMP)
+
+- **Compose Multiplatform desktop app (`android/desktopApp` + `:shared`):**
+  Android and Desktop now share one Material 3 Expressive UI, ViewModel,
+  palettes, Lyrics Studio, Library, and Rust JNI bridge (`musico_online_lib`),
+  with a native Rust `musico_playback` audio backend on Desktop and Media3
+  ExoPlayer on Android.
+- **Stream-while-downloading playback:** a loopback-only HTTP/1.1 range server
+  (`127.0.0.1`, 32-hex CSPRNG session tokens) streams audio from `.part` files
+  as bytes arrive (32 KiB startup gate) before atomically renaming into the
+  disk cache; already-cached tracks still short-circuit immediately in Airplane
+  Mode.
+- **Playlist Import (URL + File):** import playlists from public Spotify
+  (`open.spotify.com/playlist/...`) and Apple Music
+  (`music.apple.com/.../playlist/...`) links, or from exported CSV (Exportify,
+  TuneMyMusic, Soundiiz), JSON (Spotify / Music0), and M3U/M3U8 files via
+  Android SAF `OpenDocument` or Desktop `FileDialog`. Runs as a single-flight,
+  cancelable Rust job (`library.playlist.import`) with live `"Matching X of M…"`
+  progress, InnerTube track matching, sled persistence, and an expandable list
+  of unmatched tracks. Reachable from **Settings → Library** and **Onboarding**.
+- **Downloads metadata enrichment:** companion `{stem}.meta.json` sidecars are
+  written at download time and pruned alongside audio; legacy cache files are
+  enriched in the background (rate-limited, cached in sled, with offline
+  fallback).
+- **Equalizer parity:** Android AudioFX equalizer now reliably attaches on
+  session changes and track transitions with read-back diagnostics; Desktop
+  maps the 5-band UI + bass boost onto the 10-band Rust biquad DSP equalizer
+  and persists settings across restarts.
+- **Desktop floating squircle pill dock:** the widescreen bottom player floats
+  cleanly above content with cover-tinted wash, inline resolve progress, volume
+  control, and quick Lyrics Studio / Queue access.
+
+### Changed & Polished (Android & Desktop CMP)
+
+- **Seamless gradients & backdrop overhaul:** introduced reusable
+  `Modifier.musicoWash(...)` (offscreen cubic alpha feathering to 0.0 before
+  bounds) and `musicoScrimBrush(...)` to eliminate hard horizontal gradient
+  cutoffs across every screen, palette, and window size; overhauled **Aurora**
+  (volumetric 3-curtain boreal rays + starfield) and **Rain** (realistic rain
+  on dark glass with bokeh, tapered streaks, droplets, and sliding rivulets).
+- **Uniform Material 3 Expressive audit:** completed the 5-rung palette-tinted
+  tonal surface ladder, 4 dp spacing tokens, and unified typography scale across
+  all 12 screens; added matching-geometry shimmer skeletons on Search, Radio,
+  and Detail, inline Retry on Detail, and flattened nested cards in Settings
+  and Profile.
+- **Faster cold-start playback:** core startup pre-warms the loopback stream
+  server, TLS/visitor caches, and JioSaavn client off-thread; interactive track
+  resolution races JioSaavn and InnerTube in parallel; Android pre-binds
+  `MediaController` during startup.
+
+### Fixed (Android & Desktop CMP)
+
+- **Persistent `"Couldn't build shelves for: English"` banner:** added
+  `resolveLanguageGenreStyle` regional genre-alias mapping + search-backed
+  shelf fallback, gated the Home banner so it only appears when no shelves can
+  be built, and added Retry & Dismiss controls.
+- **Version consistency:** synchronized reported versions across About,
+  `app.update.check`, Desktop rail, and package manifests (`0.9.6-cmp` / `0.9.6`).
+- **Stability & edge-to-edge fixes:** clamped dynamic spring corners/scales to
+  prevent negative-corner crashes, unified top cutouts via `musicoTopInset()`,
+  fixed the Settings stream-cache slider drag/snap behavior, stopped Desktop
+  keyboard shortcuts from hijacking focused text inputs, preserved tab state
+  across the 840 dp resize breakpoint (`movableContentOf`), and eliminated
+  silent track swapping when a user-tapped track fails to resolve.
 
 ## [0.9.5] - 2026-11-12
 

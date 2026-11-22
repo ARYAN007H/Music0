@@ -1,7 +1,8 @@
 package io.github.aryan007h.musicoonline.ui.library
 
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,8 +36,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,11 +57,18 @@ import io.github.aryan007h.musicoonline.core.DownloadedTrack
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.SmartMix
 import io.github.aryan007h.musicoonline.core.UserPlaylist
+import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
+import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
+import io.github.aryan007h.musicoonline.ui.components.ShelfScrollButtons
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
+import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalScroll
+import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import kotlinx.coroutines.launch
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -173,12 +184,10 @@ fun LibraryScreen(
             }
 
             item(key = "lib-filters") {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                DesktopScrollableChipRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    edgeFadeColor = MaterialTheme.colorScheme.background,
                 ) {
                     LibraryFilter.entries.forEach { f ->
                         val selected = filter == f
@@ -243,20 +252,54 @@ fun LibraryScreen(
             }
 
             if (filter == LibraryFilter.ALL && smartMixes.isNotEmpty()) {
-                item(key = "smart-mixes-header") {
-                    SectionLabel("Smart mixes")
-                }
-                item(key = "smart-mixes-row") {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        items(smartMixes, key = { it.id }) { mix ->
-                            SmartMixCard(
-                                mix = mix,
-                                onClick = { onOpenCollection(LibraryCollectionRef.Mix(mix.id)) },
-                            )
+                item(key = "smart-mixes-section") {
+                    val mixState = rememberLazyListState()
+                    val mixScope = rememberCoroutineScope()
+                    var mixViewportPx by remember { mutableFloatStateOf(0f) }
+                    Column {
+                        SectionLabel(
+                            title = "Smart mixes",
+                            trailing = {
+                                ShelfScrollButtons(
+                                    canScrollBackward = mixState.canScrollBackward,
+                                    canScrollForward = mixState.canScrollForward,
+                                    onScrollBackward = {
+                                        val step = HorizontalScrollMath.computePageStepPx(mixViewportPx)
+                                        mixScope.launch {
+                                            mixState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                                        }
+                                    },
+                                    onScrollForward = {
+                                        val step = HorizontalScrollMath.computePageStepPx(mixViewportPx)
+                                        mixScope.launch {
+                                            mixState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                        LazyRow(
+                            state = mixState,
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onSizeChanged { mixViewportPx = it.width.toFloat() }
+                                .desktopHorizontalScroll(mixState),
+                        ) {
+                            items(smartMixes, key = { it.id }) { mix ->
+                                SmartMixCard(
+                                    mix = mix,
+                                    onClick = { onOpenCollection(LibraryCollectionRef.Mix(mix.id)) },
+                                )
+                            }
                         }
+                        PlatformHorizontalScrollbar(
+                            state = mixState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                        )
                     }
                 }
             }
@@ -425,8 +468,8 @@ fun LibraryScreen(
             }
 
             if ((filter == LibraryFilter.ALL && savedAlbums.isNotEmpty()) || filter == LibraryFilter.ALBUMS) {
-                item(key = "albums-header") { SectionLabel("Saved albums") }
                 if (savedAlbums.isEmpty()) {
+                    item(key = "albums-header") { SectionLabel("Saved albums") }
                     item(key = "albums-empty") {
                         EmptyState(
                             icon = Icons.Filled.Album,
@@ -435,26 +478,63 @@ fun LibraryScreen(
                         )
                     }
                 } else {
-                    item(key = "albums-row") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            items(savedAlbums, key = { "alb-${it.id}" }) { entry ->
-                                CatalogEntryCard(
-                                    entry = entry,
-                                    circular = false,
-                                    onClick = { onOpenCatalogEntry(entry) },
-                                )
+                    item(key = "albums-section") {
+                        val albumsState = rememberLazyListState()
+                        val albumsScope = rememberCoroutineScope()
+                        var albumsViewportPx by remember { mutableFloatStateOf(0f) }
+                        Column {
+                            SectionLabel(
+                                title = "Saved albums",
+                                trailing = {
+                                    ShelfScrollButtons(
+                                        canScrollBackward = albumsState.canScrollBackward,
+                                        canScrollForward = albumsState.canScrollForward,
+                                        onScrollBackward = {
+                                            val step = HorizontalScrollMath.computePageStepPx(albumsViewportPx)
+                                            albumsScope.launch {
+                                                albumsState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                                            }
+                                        },
+                                        onScrollForward = {
+                                            val step = HorizontalScrollMath.computePageStepPx(albumsViewportPx)
+                                            albumsScope.launch {
+                                                albumsState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                                            }
+                                        },
+                                    )
+                                },
+                            )
+                            LazyRow(
+                                state = albumsState,
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { albumsViewportPx = it.width.toFloat() }
+                                    .desktopHorizontalScroll(albumsState),
+                            ) {
+                                items(savedAlbums, key = { "alb-${it.id}" }) { entry ->
+                                    CatalogEntryCard(
+                                        entry = entry,
+                                        circular = false,
+                                        onClick = { onOpenCatalogEntry(entry) },
+                                    )
+                                }
                             }
+                            PlatformHorizontalScrollbar(
+                                state = albumsState,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                            )
                         }
                     }
                 }
             }
 
             if ((filter == LibraryFilter.ALL && savedArtists.isNotEmpty()) || filter == LibraryFilter.ARTISTS) {
-                item(key = "artists-header") { SectionLabel("Followed artists") }
                 if (savedArtists.isEmpty()) {
+                    item(key = "artists-header") { SectionLabel("Followed artists") }
                     item(key = "artists-empty") {
                         EmptyState(
                             icon = Icons.Filled.Person,
@@ -463,18 +543,55 @@ fun LibraryScreen(
                         )
                     }
                 } else {
-                    item(key = "artists-row") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            items(savedArtists, key = { "art-${it.id}" }) { entry ->
-                                CatalogEntryCard(
-                                    entry = entry,
-                                    circular = true,
-                                    onClick = { onOpenCatalogEntry(entry) },
-                                )
+                    item(key = "artists-section") {
+                        val artistsState = rememberLazyListState()
+                        val artistsScope = rememberCoroutineScope()
+                        var artistsViewportPx by remember { mutableFloatStateOf(0f) }
+                        Column {
+                            SectionLabel(
+                                title = "Followed artists",
+                                trailing = {
+                                    ShelfScrollButtons(
+                                        canScrollBackward = artistsState.canScrollBackward,
+                                        canScrollForward = artistsState.canScrollForward,
+                                        onScrollBackward = {
+                                            val step = HorizontalScrollMath.computePageStepPx(artistsViewportPx)
+                                            artistsScope.launch {
+                                                artistsState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                                            }
+                                        },
+                                        onScrollForward = {
+                                            val step = HorizontalScrollMath.computePageStepPx(artistsViewportPx)
+                                            artistsScope.launch {
+                                                artistsState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                                            }
+                                        },
+                                    )
+                                },
+                            )
+                            LazyRow(
+                                state = artistsState,
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { artistsViewportPx = it.width.toFloat() }
+                                    .desktopHorizontalScroll(artistsState),
+                            ) {
+                                items(savedArtists, key = { "art-${it.id}" }) { entry ->
+                                    CatalogEntryCard(
+                                        entry = entry,
+                                        circular = true,
+                                        onClick = { onOpenCatalogEntry(entry) },
+                                    )
+                                }
                             }
+                            PlatformHorizontalScrollbar(
+                                state = artistsState,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                            )
                         }
                     }
                 }
@@ -645,13 +762,7 @@ private fun SmartMixCard(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1f to Color(0xD90A0A14),
-                        ),
-                    ),
+                    .background(musicoScrimBrush(Color(0xFF0A0A14), maxAlpha = 0.86f, startFraction = 0.26f)),
             )
             Column(
                 Modifier
@@ -725,11 +836,25 @@ private fun CatalogEntryCard(
 }
 
 @Composable
-private fun SectionLabel(title: String) {
-    Text(
-        title.uppercase(),
-        style = Musico.type.section,
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp, start = 22.dp),
-    )
+private fun SectionLabel(
+    title: String,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp, bottom = 6.dp, start = 22.dp, end = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            title.uppercase(),
+            style = Musico.type.section,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        trailing?.invoke()
+    }
 }

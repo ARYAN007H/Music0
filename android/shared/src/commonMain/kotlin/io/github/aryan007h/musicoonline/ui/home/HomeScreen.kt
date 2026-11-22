@@ -2,8 +2,11 @@ package io.github.aryan007h.musicoonline.ui.home
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,12 +26,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
@@ -41,13 +48,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,14 +70,22 @@ import io.github.aryan007h.musicoonline.core.Shelf
 import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.core.SmartMix
 import io.github.aryan007h.musicoonline.core.UserPlaylist
+import io.github.aryan007h.musicoonline.platform.PlatformHorizontalGridScrollbar
+import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.platform.currentLocalHour
+import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
-import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.SectionHeader
 import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
+import io.github.aryan007h.musicoonline.ui.components.ShelfScrollButtons
+import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalPagerScroll
+import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalScroll
+import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.library.PlaylistMosaicArtwork
 import io.github.aryan007h.musicoonline.ui.library.formatSongCount
@@ -79,6 +100,7 @@ import io.github.aryan007h.musicoonline.ui.theme.pressable
 import io.github.aryan007h.musicoonline.ui.theme.shimmer
 import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Editorial Home Feed with viscerally alive Apple Music + Spotify craft:
@@ -110,6 +132,8 @@ fun HomeScreen(
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit = { _, _ -> },
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
+    onRetryPersonalization: (() -> Unit)? = null,
+    onDismissPersonalizationError: (() -> Unit)? = null,
     currentTrackId: String?,
     isPlaying: Boolean = false,
 ) {
@@ -125,7 +149,12 @@ fun HomeScreen(
                 error != null && shelves.isEmpty() && smartMixes.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
                 loading && shelves.isEmpty() && smartMixes.isEmpty() -> HomeSkeleton()
                 else -> Column {
-                    PersonalizationBanner(personalizing, personalizationError)
+                    PersonalizationBanner(
+                        personalizing = personalizing,
+                        error = personalizationError,
+                        onRetry = onRetryPersonalization,
+                        onDismiss = onDismissPersonalizationError,
+                    )
                     HomeFeed(
                         displayName = displayName,
                         shelves = shelves,
@@ -150,7 +179,12 @@ fun HomeScreen(
 }
 
 @Composable
-private fun PersonalizationBanner(personalizing: Boolean, error: String?) {
+private fun PersonalizationBanner(
+    personalizing: Boolean,
+    error: String?,
+    onRetry: (() -> Unit)?,
+    onDismiss: (() -> Unit)?,
+) {
     when {
         personalizing -> Row(
             Modifier
@@ -170,12 +204,45 @@ private fun PersonalizationBanner(personalizing: Boolean, error: String?) {
                 color = Musico.extras.inkDim,
             )
         }
-        error != null -> Text(
-            error,
-            style = Musico.type.caption,
-            color = Musico.extras.coral,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-        )
+        error != null -> Surface(
+            shape = MusicoShapes.tile,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    error,
+                    style = Musico.type.caption,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (onRetry != null) {
+                    Text(
+                        "Retry",
+                        style = Musico.type.caption,
+                        fontWeight = FontWeight.Bold,
+                        color = Musico.extras.mint,
+                        modifier = Modifier.pressable(onClick = onRetry, pressedScale = 0.92f),
+                    )
+                }
+                if (onDismiss != null) {
+                    Text(
+                        "Dismiss",
+                        style = Musico.type.caption,
+                        color = Musico.extras.inkDim,
+                        modifier = Modifier.pressable(onClick = onDismiss, pressedScale = 0.92f),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -324,11 +391,39 @@ private fun HomeFeed(
         }
         if (smartMixes.isNotEmpty()) {
             item(key = "home-smart-mixes") {
+                val mixListState = rememberLazyListState()
+                val mixScope = rememberCoroutineScope()
+                var mixViewportPx by remember { mutableFloatStateOf(0f) }
                 Column {
-                    SectionHeader("Smart mixes")
+                    SectionHeader(
+                        title = "Smart mixes",
+                        trailing = {
+                            ShelfScrollButtons(
+                                canScrollBackward = mixListState.canScrollBackward,
+                                canScrollForward = mixListState.canScrollForward,
+                                onScrollBackward = {
+                                    val step = HorizontalScrollMath.computePageStepPx(mixViewportPx)
+                                    mixScope.launch {
+                                        mixListState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                                    }
+                                },
+                                onScrollForward = {
+                                    val step = HorizontalScrollMath.computePageStepPx(mixViewportPx)
+                                    mixScope.launch {
+                                        mixListState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                                    }
+                                },
+                            )
+                        },
+                    )
                     LazyRow(
+                        state = mixListState,
                         contentPadding = PaddingValues(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { mixViewportPx = it.width.toFloat() }
+                            .desktopHorizontalScroll(mixListState),
                     ) {
                         items(smartMixes, key = { "hmix-${it.id}" }) { mix ->
                             HomeSmartMixCard(
@@ -340,6 +435,12 @@ private fun HomeFeed(
                             )
                         }
                     }
+                    PlatformHorizontalScrollbar(
+                        state = mixListState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                    )
                 }
             }
         }
@@ -580,13 +681,7 @@ private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1f to Color(0xD90A0A14),
-                        ),
-                    ),
+                    .background(musicoScrimBrush(Color(0xFF0A0A14), maxAlpha = 0.86f, startFraction = 0.26f)),
             )
             Column(
                 Modifier
@@ -629,6 +724,7 @@ private fun HeroCarousel(
 ) {
     if (items.isEmpty()) return
     val pagerState = rememberPagerState(pageCount = { items.size })
+    val scope = rememberCoroutineScope()
 
     val userScrolling by remember { derivedStateOf { pagerState.isScrollInProgress } }
     LaunchedEffect(userScrolling, items.size) {
@@ -641,30 +737,84 @@ private fun HeroCarousel(
     }
 
     Column {
-        HorizontalPager(
-            state = pagerState,
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            pageSpacing = 14.dp,
-            modifier = Modifier.fillMaxWidth(),
-        ) { page ->
-            val item = items[page]
-            HeroCard(
-                item = item,
-                onClick = { onOpenItem(item, items) },
-                modifier = Modifier.graphicsLayer {
-                    val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-                    val abs = kotlin.math.abs(offset).coerceAtMost(1f)
-                    val s = 1f - 0.06f * abs
-                    scaleX = s
-                    scaleY = s
-                    alpha = 1f - 0.35f * (kotlin.math.abs(offset) - 1f).coerceIn(0f, 1f)
-                },
-            )
+        Box(Modifier.fillMaxWidth()) {
+            HorizontalPager(
+                state = pagerState,
+                contentPadding = PaddingValues(horizontal = 20.dp),
+                pageSpacing = 14.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .desktopHorizontalPagerScroll(pagerState),
+            ) { page ->
+                val item = items[page]
+                HeroCard(
+                    item = item,
+                    onClick = { onOpenItem(item, items) },
+                    modifier = Modifier.graphicsLayer {
+                        val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+                        val abs = kotlin.math.abs(offset).coerceAtMost(1f)
+                        val s = 1f - 0.06f * abs
+                        scaleX = s
+                        scaleY = s
+                        alpha = 1f - 0.35f * (kotlin.math.abs(offset) - 1f).coerceIn(0f, 1f)
+                    },
+                )
+            }
+
+            if (isDesktopPlatform && items.size > 1) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xAA0C0D16),
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 32.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable {
+                            val prev = (pagerState.currentPage - 1 + items.size) % items.size
+                            scope.launch { pagerState.animateScrollToPage(prev) }
+                        },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous slide",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xAA0C0D16),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 32.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable {
+                            val next = (pagerState.currentPage + 1) % items.size
+                            scope.launch { pagerState.animateScrollToPage(next) }
+                        },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next slide",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(10.dp))
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             repeat(items.size) { i ->
                 val active = pagerState.currentPage == i
@@ -683,12 +833,22 @@ private fun HeroCarousel(
                     label = "heroDotC$i",
                 )
                 Box(
-                    Modifier
-                        .padding(horizontal = 3.dp)
-                        .size(width = dotWidth.coerceAtLeast(0.dp), height = 6.dp)
+                    modifier = Modifier
                         .clip(CircleShape)
-                        .background(dotColor),
-                )
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable {
+                            scope.launch { pagerState.animateScrollToPage(i) }
+                        }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(width = dotWidth.coerceAtLeast(0.dp), height = 6.dp)
+                            .clip(CircleShape)
+                            .background(dotColor),
+                    )
+                }
             }
         }
     }
@@ -712,13 +872,7 @@ private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = 
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.50f to Color.Transparent,
-                        1f to Color(0xD40A0A12),
-                    ),
-                ),
+                .background(musicoScrimBrush(Color(0xFF0A0A12), maxAlpha = 0.85f, startFraction = 0.24f)),
         )
         Row(
             Modifier
@@ -731,17 +885,14 @@ private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = 
                 if (item.subtitle.isNotBlank()) {
                     Text(
                         item.subtitle.uppercase(),
-                        style = Musico.type.section,
-                        fontSize = 11.sp,
-                        letterSpacing = 2.sp,
+                        style = Musico.type.overline,
                         color = Musico.extras.mint,
                     )
                     Spacer(Modifier.height(4.dp))
                 }
                 Text(
                     item.title,
-                    style = Musico.type.display,
-                    fontSize = 26.sp,
+                    style = Musico.type.headline,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -777,16 +928,43 @@ private fun GridSection(
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
     currentTrackId: String?,
 ) {
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    var viewportWidthPx by remember { mutableFloatStateOf(0f) }
+
     Column {
-        SectionHeader(title)
+        SectionHeader(
+            title = title,
+            trailing = {
+                ShelfScrollButtons(
+                    canScrollBackward = gridState.canScrollBackward,
+                    canScrollForward = gridState.canScrollForward,
+                    onScrollBackward = {
+                        val step = HorizontalScrollMath.computePageStepPx(viewportWidthPx)
+                        scope.launch {
+                            gridState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                        }
+                    },
+                    onScrollForward = {
+                        val step = HorizontalScrollMath.computePageStepPx(viewportWidthPx)
+                        scope.launch {
+                            gridState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                        }
+                    },
+                )
+            },
+        )
         LazyHorizontalGrid(
+            state = gridState,
             rows = GridCells.Fixed(2),
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(386.dp),
+                .height(416.dp)
+                .onSizeChanged { viewportWidthPx = it.width.toFloat() }
+                .desktopHorizontalScroll(gridState),
         ) {
             itemsIndexed(items, key = { idx, it -> "g$idx-${it.videoId}-${it.browseId}-${it.params}-${it.title}" }) { idx, item ->
                 GridCard(
@@ -798,6 +976,12 @@ private fun GridSection(
                 )
             }
         }
+        PlatformHorizontalGridScrollbar(
+            state = gridState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 6.dp),
+        )
     }
 }
 
@@ -811,7 +995,7 @@ private fun GridCard(
 ) {
     Column(
         modifier
-            .width(172.dp)
+            .width(if (rank != null) 188.dp else 156.dp)
             .clip(MusicoShapes.card)
             .pressable(onClick = onClick, pressedScale = 0.95f)
             .padding(6.dp),

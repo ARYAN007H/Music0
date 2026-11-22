@@ -30,8 +30,8 @@ body:
     id: version
     attributes:
       label: Version and commit
-      description: "Output of: grep '^version' src-tauri/Cargo.toml && git rev-parse --short HEAD"
-      placeholder: "0.7.0 / a1b2c3d"
+      description: "Output of: grep '^version' musico_core/Cargo.toml && git rev-parse --short HEAD"
+      placeholder: "1.0.0 / a1b2c3d"
     validations:
       required: true
 
@@ -40,11 +40,11 @@ body:
     attributes:
       label: Install method
       options:
-        - Development build (`cargo tauri dev` / `cargo tauri build`)
-        - Linux deb / rpm / AppImage
-        - macOS DMG
-        - Windows MSI / NSIS / portable exe
-        - Android APK (local build)
+        - Development build (`gradle :desktopApp:run` / `:app:assembleDebug`)
+        - Linux deb / rpm / tar.gz (Compose Desktop)
+        - macOS DMG / app (Compose Desktop)
+        - Windows MSI / portable zip (Compose Desktop)
+        - Android APK (Compose Multiplatform)
         - Web preview (`npm run dev`)
     validations:
       required: true
@@ -125,8 +125,10 @@ body:
         Reproduce with debug logging, then paste the relevant excerpt:
 
         ```sh
-        RUST_LOG=debug cargo tauri dev
-        tail -n 200 ~/.local/share/musico-online/musico.log
+        # Desktop
+        RUST_LOG=debug gradle -p android :desktopApp:run
+        # Android
+        adb logcat -s musico-native
         ```
 
         Remove personal file paths you do not want public. There is no telemetry.
@@ -138,13 +140,8 @@ body:
     id: diagnostics
     attributes:
       label: Diagnostics
-      description: Paste the results of these commands from the webview console.
-      value: |
-        await Bridge.invoke('get_platform_capabilities')
-        await Bridge.invoke('online_available')
-        await Bridge.invoke('online_cache_usage')
-        await Bridge.invoke('get_offline')
-      render: js
+      description: Optional output of Settings → About version or cache/network state.
+      render: text
     validations:
       required: false
 

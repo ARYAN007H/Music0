@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,17 +20,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
+import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.shimmer
 import io.github.aryan007h.musicoonline.ui.theme.staggerIn
 import kotlin.math.abs
 
@@ -63,27 +61,41 @@ fun RadioScreen(
         ) {
             Text(
                 "RADIO",
-                style = Musico.type.section,
+                style = Musico.type.overline,
                 color = Musico.extras.mint,
-                modifier = Modifier.padding(start = 22.dp, top = 14.dp),
+                modifier = Modifier.padding(start = 20.dp, top = 16.dp),
             )
             Text(
                 "Ambient, moods & stations",
-                style = Musico.type.display.copy(fontSize = 28.sp),
+                style = Musico.type.headline,
                 color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 22.dp, bottom = 6.dp),
+                modifier = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 8.dp),
             )
 
             when {
                 error != null && styles.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
-                loading && styles.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                loading && styles.isEmpty() -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 160.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 148.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(10, key = { "radio-skel-$it" }) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.25f)
+                                .clip(MusicoShapes.tile)
+                                .shimmer(),
+                        )
+                    }
                 }
                 else -> LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 160.dp),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 150.dp, top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 148.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     itemsIndexed(styles, key = { i, it -> "r$i-${it.params}-${it.title}" }) { i, style ->
@@ -109,7 +121,7 @@ private fun RadioCard(style: ShelfItem, onClick: () -> Unit, modifier: Modifier 
         modifier
             .fillMaxWidth()
             .aspectRatio(1.25f)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(MusicoShapes.tile)
             .pressable(onClick = onClick, pressedScale = 0.94f),
     ) {
         Box(
@@ -123,7 +135,7 @@ private fun RadioCard(style: ShelfItem, onClick: () -> Unit, modifier: Modifier 
         )
         Text(
             style.title,
-            style = Musico.type.display.copy(fontSize = 20.sp, lineHeight = 24.sp),
+            style = Musico.type.titleLarge,
             color = Color.White,
             textAlign = TextAlign.Start,
             modifier = Modifier
@@ -133,9 +145,8 @@ private fun RadioCard(style: ShelfItem, onClick: () -> Unit, modifier: Modifier 
         if (style.subtitle.isNotBlank()) {
             Text(
                 style.subtitle,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.7f),
+                style = Musico.type.caption,
+                color = Color.White.copy(alpha = 0.72f),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(12.dp),

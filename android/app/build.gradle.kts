@@ -5,8 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val musicoVersionCode: Int = (project.findProperty("musicoVersionCode") as String?)?.toInt() ?: 90600
-val musicoVersionName: String = project.findProperty("musicoVersionName") as String? ?: "0.9.6-cmp"
+val musicoVersionCode: Int = (project.findProperty("musicoVersionCode") as String?)?.toInt() ?: 1000000
+val musicoVersionName: String = project.findProperty("musicoVersionName") as String? ?: "1.0.0-cmp"
 
 android {
     namespace = "io.github.aryan007h.musicoonline"

@@ -1,4 +1,0 @@
-{
-  "$schema": "https://raw.githubusercontent.com/nicehash/tauri/v2/crates/tauri-cli/schema.json",
-  "identifier": "io.github.aryan007h.musicoonline"
-}

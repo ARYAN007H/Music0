@@ -1,9 +1,20 @@
 package io.github.aryan007h.musicoonline.platform
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -27,7 +38,9 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import java.awt.Color as AwtColor
 import java.awt.Desktop
+import java.awt.FileDialog
 import java.awt.Font
+import java.awt.Frame
 import java.awt.GradientPaint
 import java.awt.Graphics2D
 import java.awt.RadialGradientPaint
@@ -36,6 +49,7 @@ import java.awt.geom.Point2D
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import java.io.File
+import java.io.FilenameFilter
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -91,7 +105,7 @@ object DesktopPlatformHost {
 class DesktopPlatformUpdater : PlatformUpdater {
     private val json = Json { ignoreUnknownKeys = true }
 
-    override fun currentVersion(): String = "1.0.0-desktop"
+    override fun currentVersion(): String = "1.0.0-cmp"
 
     override suspend fun check(): UpdateInfo = withContext(Dispatchers.IO) {
         val reply = MusicoCore.call("app.update.check")
@@ -486,3 +500,160 @@ private fun renderDesktopPoster(
     g.dispose()
     return img
 }
+
+private const val MAX_DESKTOP_PLAYLIST_IMPORT_BYTES = 4L * 1024L * 1024L
+
+@Composable
+actual fun rememberPlaylistFilePicker(
+    onPicked: (fileName: String, content: String) -> Unit,
+    onError: (String) -> Unit,
+): () -> Unit {
+    val scope = rememberCoroutineScope()
+    return remember(scope, onPicked, onError) {
+        {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val dialog = FileDialog(null as Frame?, "Import playlist (CSV, JSON, M3U)", FileDialog.LOAD)
+                        dialog.filenameFilter = FilenameFilter { _, name ->
+                            val lower = name.lowercase()
+                            lower.endsWith(".csv") ||
+                                lower.endsWith(".json") ||
+                                lower.endsWith(".m3u") ||
+                                lower.endsWith(".m3u8")
+                        }
+                        dialog.isVisible = true
+                        val dir = dialog.directory
+                        val file = dialog.file
+                        dialog.dispose()
+                        if (dir == null || file == null) {
+                            null
+                        } else {
+                            val selected = File(dir, file)
+                            if (selected.length() > MAX_DESKTOP_PLAYLIST_IMPORT_BYTES) {
+                                error("Playlist file is too large (max 4 MB).")
+                            }
+                            selected.name to selected.readText(Charsets.UTF_8)
+                        }
+                    }
+                }
+                result.fold(
+                    onSuccess = { pair -> if (pair != null) onPicked(pair.first, pair.second) },
+                    onFailure = { e -> onError(e.message ?: "Couldn't read playlist file.") },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+actual fun PlatformHorizontalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier,
+) {
+    if (!state.canScrollBackward && !state.canScrollForward) return
+    val baseColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+    val style = remember(baseColor) {
+        androidx.compose.foundation.ScrollbarStyle(
+            minimalHeight = 36.dp,
+            thickness = 4.dp,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp),
+            hoverDurationMillis = 220,
+            unhoverColor = baseColor.copy(alpha = 0.18f),
+            hoverColor = baseColor.copy(alpha = 0.52f),
+        )
+    }
+    androidx.compose.foundation.HorizontalScrollbar(
+        adapter = androidx.compose.foundation.rememberScrollbarAdapter(state),
+        modifier = modifier,
+        style = style,
+    )
+}
+
+@Composable
+actual fun PlatformHorizontalGridScrollbar(
+    state: androidx.compose.foundation.lazy.grid.LazyGridState,
+    modifier: Modifier,
+) {
+    if (!state.canScrollBackward && !state.canScrollForward) return
+    val scope = rememberCoroutineScope()
+    val info = state.layoutInfo
+    val visible = info.visibleItemsInfo
+    if (visible.isEmpty() || info.totalItemsCount <= 0) return
+
+    val rowCount = remember(visible) { (visible.maxOfOrNull { it.row } ?: 0) + 1 }
+    val firstItem = visible.minByOrNull { it.column } ?: return
+    val colPitch = (firstItem.size.width + info.mainAxisItemSpacing).coerceAtLeast(1)
+    val hiddenRatio = ((-firstItem.offset.x).coerceAtLeast(0) / colPitch.toFloat()).coerceIn(0f, 1f)
+    val visibleCols = info.viewportSize.width.toFloat() / colPitch.toFloat()
+    val thumb = io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath.computeGridScrollbarThumb(
+        totalItems = info.totalItemsCount,
+        rowCount = rowCount,
+        firstVisibleColumn = firstItem.column,
+        firstColumnHiddenRatio = hiddenRatio,
+        visibleColumns = visibleCols,
+    )
+    if (thumb.fraction >= 0.99f) return
+
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val baseColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+    val thumbAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (hovered) 0.52f else 0.18f,
+        animationSpec = androidx.compose.animation.core.tween(200),
+        label = "gridScrollbarAlpha",
+    )
+
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .height(10.dp)
+            .hoverable(interactionSource)
+            .pointerHoverIcon(androidx.compose.ui.input.pointer.PointerIcon.Hand)
+            .pointerInput(state, info.totalItemsCount, rowCount) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val trackWidth = size.width.toFloat().coerceAtLeast(1f)
+                    val totalCols = ((info.totalItemsCount + rowCount - 1) / rowCount).coerceAtLeast(1)
+
+                    fun scrubTo(xPx: Float) {
+                        val ratio = (xPx / trackWidth).coerceIn(0f, 1f)
+                        val targetCol = (ratio * (totalCols - 1)).toInt().coerceIn(0, totalCols - 1)
+                        val targetIdx = (targetCol * rowCount).coerceIn(0, (info.totalItemsCount - 1).coerceAtLeast(0))
+                        scope.launch { state.scrollToItem(targetIdx) }
+                    }
+
+                    down.consume()
+                    scrubTo(down.position.x)
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        change.consume()
+                        scrubTo(change.position.x)
+                    }
+                }
+            },
+        contentAlignment = androidx.compose.ui.Alignment.CenterStart,
+    ) {
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp),
+        ) {
+            val w = size.width
+            val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
+            val minThumb = 36.dp.toPx().coerceAtMost(w)
+            val thumbW = (w * thumb.fraction).coerceIn(minThumb, w)
+            val thumbX = ((w - thumbW) * thumb.progress).coerceIn(0f, (w - thumbW).coerceAtLeast(0f))
+            drawRoundRect(
+                color = baseColor.copy(alpha = thumbAlpha),
+                topLeft = androidx.compose.ui.geometry.Offset(thumbX, 0f),
+                size = androidx.compose.ui.geometry.Size(thumbW, h),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f),
+            )
+        }
+    }
+}
+
+

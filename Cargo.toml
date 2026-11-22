@@ -2,7 +2,7 @@
 members = [
     "musico_recommender",
     "musico_playback",
-    "src-tauri"
+    "musico_core"
 ]
 resolver = "2"
 

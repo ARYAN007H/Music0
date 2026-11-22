@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -63,8 +61,10 @@ import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.DetailPageSkeleton
+import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
-import io.github.aryan007h.musicoonline.ui.components.ShelfCard
+import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.rememberArtworkAtmosphere
@@ -96,6 +96,7 @@ fun DetailScreen(
     onPlayTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
+    onRetry: (() -> Unit)? = null,
     onTrackLongClick: (OnlineTrack) -> Unit = {},
 ) {
     val page = entry.page
@@ -175,10 +176,8 @@ fun DetailScreen(
                 label = "detailBody",
             ) { (loading, error, p) ->
                 when {
-                    loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
-                    error != null -> ErrorState(message = error, onRetry = null)
+                    loading -> DetailPageSkeleton()
+                    error != null -> ErrorState(message = error, onRetry = onRetry)
                     p == null -> Box(Modifier.fillMaxSize())
                     else -> DetailBody(
                         entry = entry,
@@ -262,31 +261,25 @@ private fun DetailBody(
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        0f to Color.Transparent,
-                                        0.45f to Color.Transparent,
-                                        1f to Color(0xD80A0A12),
-                                    ),
-                                ),
+                                .background(musicoScrimBrush(Color(0xFF0A0A12), maxAlpha = 0.86f, startFraction = 0.22f)),
                         )
                         Column(
                             Modifier
                                 .align(Alignment.BottomStart)
-                                .padding(18.dp),
+                                .padding(20.dp),
                         ) {
                             if (subtitle.isNotBlank()) {
                                 Text(
                                     subtitle.uppercase(),
-                                    style = Musico.type.section,
-                                    fontSize = 11.sp,
+                                    style = Musico.type.overline,
                                     color = Musico.extras.mint,
                                     maxLines = 2,
                                 )
+                                Spacer(Modifier.height(4.dp))
                             }
                             Text(
                                 entry.title,
-                                style = Musico.type.display.copy(fontSize = 28.sp),
+                                style = Musico.type.headline,
                                 color = Color.White,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
@@ -364,27 +357,13 @@ private fun DetailBody(
         page.shelves.drop(1).forEachIndexed { idx, shelf ->
             if (shelf.items.isEmpty()) return@forEachIndexed
             item(key = "shelf-$idx-${shelf.title}") {
-                Text(
-                    shelf.title.uppercase(),
-                    style = Musico.type.section,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 32.dp, top = 20.dp, bottom = 6.dp),
+                ShelfCarousel(
+                    shelfTitle = shelf.title.ifBlank { "More" },
+                    items = shelf.items,
+                    onItemClick = onOpenItem,
+                    cardWidth = 150.dp,
+                    modifier = Modifier.padding(top = 12.dp),
                 )
-            }
-            item(key = "shelfrow-$idx") {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    itemsIndexed(shelf.items, key = { i, it -> "d$i-${it.videoId}-${it.browseId}-${it.params}-${it.title}" }) { _, item ->
-                        ShelfCard(
-                            item = item,
-                            width = 150.dp,
-                            onClick = { onOpenItem(item, shelf.items) },
-                        )
-                    }
-                }
             }
         }
     }

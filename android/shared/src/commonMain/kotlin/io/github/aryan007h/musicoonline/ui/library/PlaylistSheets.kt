@@ -23,11 +23,19 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -51,8 +59,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import io.github.aryan007h.musicoonline.core.OnlineTrack
+import io.github.aryan007h.musicoonline.core.PlaylistImportResult
+import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
 import io.github.aryan007h.musicoonline.core.UserPlaylist
 import io.github.aryan007h.musicoonline.platform.formatDouble
+import io.github.aryan007h.musicoonline.platform.rememberPlaylistFilePicker
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -407,4 +418,274 @@ fun formatDownloadsSummary(count: Int, totalBytes: Long): String = when {
     totalBytes > 0L -> "${formatSongCount(count)} · ${formatBytesHuman(totalBytes)}"
     else -> formatSongCount(count)
 }
+
+/**
+ * Minimal v1 playlist importer dialog supporting both public playlist URLs
+ * (`open.spotify.com/playlist/...` & `music.apple.com/.../playlist/...`)
+ * and exported files (CSV, JSON, M3U/M3U8), with live matching progress,
+ * cancellation, and an expandable unmatched list.
+ */
+@Composable
+fun ImportPlaylistDialog(
+    importing: Boolean,
+    progress: PlaylistImportStatus?,
+    result: PlaylistImportResult?,
+    error: String?,
+    onImportUrl: (String) -> Unit,
+    onImportFile: (fileName: String, content: String) -> Unit,
+    onFileError: (String) -> Unit,
+    onCancelImport: () -> Unit,
+    onOpenPlaylist: (playlistId: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var urlDraft by remember { mutableStateOf("") }
+    var showUnmatched by remember(result) { mutableStateOf(false) }
+    val launchFilePicker = rememberPlaylistFilePicker(
+        onPicked = onImportFile,
+        onError = onFileError,
+    )
+
+    AlertDialog(
+        onDismissRequest = { if (!importing) onDismiss() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        title = {
+            Text(
+                when {
+                    importing -> "Importing playlist"
+                    result != null -> if (result.cancelled) "Import stopped" else "Import complete"
+                    else -> "Import playlist"
+                },
+                style = Musico.type.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            when {
+                importing -> {
+                    val current = progress?.current ?: 0
+                    val total = progress?.total ?: 0
+                    val label = progress?.name?.takeIf { it.isNotBlank() } ?: "Preparing…"
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            label,
+                            style = Musico.type.title,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (total > 0) {
+                            LinearProgressIndicator(
+                                progress = { (current.toFloat() / total.toFloat()).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            )
+                            Text(
+                                "Matching $current of $total…",
+                                style = Musico.type.tabularCaption,
+                                color = Musico.extras.inkDim,
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().clip(CircleShape),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            )
+                            Text(
+                                "Reading track list…",
+                                style = Musico.type.caption,
+                                color = Musico.extras.inkDim,
+                            )
+                        }
+                    }
+                }
+
+                result != null -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        val headline = when {
+                            result.matched == 0 ->
+                                "Couldn't match any tracks from “${result.name}”."
+                            result.cancelled ->
+                                "Saved “${result.name}” — matched ${result.matched} of ${result.total} tracks before stopping."
+                            else ->
+                                "Imported “${result.name}” — matched ${result.matched} of ${result.total} tracks."
+                        }
+                        Text(
+                            headline,
+                            style = Musico.type.body,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (result.unmatched.isNotEmpty()) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                                    .pressable(
+                                        onClick = { showUnmatched = !showUnmatched },
+                                        pressedScale = 0.98f,
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Unmatched tracks (${result.unmatched.size})",
+                                    style = Musico.type.caption,
+                                    color = Musico.extras.inkDim,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    if (showUnmatched) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription = null,
+                                    tint = Musico.extras.inkDim,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            if (showUnmatched) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height((result.unmatched.size.coerceAtMost(5) * 44).dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    items(result.unmatched.take(50)) { item ->
+                                        Column(Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+                                            Text(
+                                                item.title.ifBlank { "Untitled" },
+                                                style = Musico.type.caption,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            if (item.artist.isNotBlank()) {
+                                                Text(
+                                                    item.artist,
+                                                    style = Musico.type.caption,
+                                                    color = Musico.extras.inkFaint,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            "Paste a public Spotify or Apple Music playlist link, or pick an exported CSV, JSON, or M3U file.",
+                            style = Musico.type.caption,
+                            color = Musico.extras.inkDim,
+                        )
+                        OutlinedTextField(
+                            value = urlDraft,
+                            onValueChange = { urlDraft = it.take(512) },
+                            placeholder = { Text("https://open.spotify.com/playlist/…") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Link,
+                                    contentDescription = null,
+                                    tint = Musico.extras.inkDim,
+                                )
+                            },
+                            singleLine = true,
+                            shape = MusicoShapes.tile,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (urlDraft.isNotBlank()) onImportUrl(urlDraft)
+                                },
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            onClick = { onImportUrl(urlDraft) },
+                            enabled = urlDraft.isNotBlank(),
+                            shape = MusicoShapes.chip,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Import from link", fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            HorizontalDivider(
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                            )
+                            Text("or", style = Musico.type.caption, color = Musico.extras.inkFaint)
+                            HorizontalDivider(
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                hapticTick()
+                                launchFilePicker()
+                            },
+                            shape = MusicoShapes.chip,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(
+                                Icons.Filled.UploadFile,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Choose file (CSV, JSON, M3U)", fontWeight = FontWeight.SemiBold)
+                        }
+                        if (!error.isNullOrBlank()) {
+                            Text(
+                                error,
+                                style = Musico.type.caption,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                importing -> {
+                    TextButton(onClick = onCancelImport) {
+                        Text("Cancel import", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                result != null && result.playlistId.isNotBlank() -> {
+                    TextButton(
+                        onClick = {
+                            onOpenPlaylist(result.playlistId)
+                            onDismiss()
+                        },
+                    ) {
+                        Text("Open playlist", fontWeight = FontWeight.Bold)
+                    }
+                }
+                result != null -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("Done", fontWeight = FontWeight.Bold)
+                    }
+                }
+                else -> {}
+            }
+        },
+        dismissButton = {
+            if (!importing) {
+                TextButton(onClick = onDismiss) {
+                    Text(if (result != null && result.playlistId.isNotBlank()) "Done" else "Close")
+                }
+            }
+        },
+    )
+}
+
 

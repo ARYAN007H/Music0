@@ -121,3 +121,23 @@ expect suspend fun shareLyricCard(
     lines: List<String>,
     atmosphere: ArtworkAtmosphere,
 ): Result<String>
+
+@Composable
+expect fun rememberPlaylistFilePicker(
+    onPicked: (fileName: String, content: String) -> Unit,
+    onError: (String) -> Unit,
+): () -> Unit
+
+@Composable
+expect fun PlatformHorizontalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+)
+
+@Composable
+expect fun PlatformHorizontalGridScrollbar(
+    state: androidx.compose.foundation.lazy.grid.LazyGridState,
+    modifier: Modifier = Modifier,
+)
+
+

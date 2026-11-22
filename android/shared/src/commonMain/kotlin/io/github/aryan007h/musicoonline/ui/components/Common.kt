@@ -45,8 +45,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -66,19 +68,26 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,6 +100,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.ShelfItem
+import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -114,49 +124,120 @@ fun Modifier.musicoTopInset(): Modifier = this.windowInsetsPadding(
         .only(WindowInsetsSides.Top),
 )
 
-// ── Ambient Top Wash: subtle cover-extracted atmospheric halo on browse pages ──
+// ── Ambient Top Wash: seamless cover-extracted atmospheric halo ─────────────
+
+/**
+ * Reusable seamless atmospheric top wash.
+ *
+ * Renders multi-stop radial blooms + a soft top ambient tint inside an
+ * offscreen compositing buffer, then multiplies the entire wash with a
+ * cubic-eased vertical `BlendMode.DstIn` alpha mask so the wash reaches
+ * alpha `0.0f` smoothly BEFORE its geometric bottom edge on every aspect
+ * ratio (portrait phones through ultrawide desktop windows) and all palettes.
+ */
+fun Modifier.musicoWash(
+    primary: Color,
+    secondary: Color = primary,
+    glow: Color = primary,
+    intensity: Float = 0.24f,
+): Modifier = this
+    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+    .drawBehind {
+        val w = size.width
+        val h = size.height
+        if (w <= 0f || h <= 0f) return@drawBehind
+        val safeIntensity = intensity.coerceIn(0f, 0.85f)
+        // Soft top-down base tint so wide windows don't leave dark side corners.
+        drawRect(
+            brush = Brush.verticalGradient(
+                0.00f to primary.copy(alpha = safeIntensity * 0.52f),
+                0.28f to secondary.copy(alpha = safeIntensity * 0.30f),
+                0.62f to secondary.copy(alpha = safeIntensity * 0.08f),
+                0.88f to Color.Transparent,
+                1.00f to Color.Transparent,
+            ),
+        )
+        // Primary left-biased bloom, height-coupled so it fades cleanly vertically.
+        val rPrimary = (minOf(w * 0.88f, h * 1.45f)).coerceAtLeast(h * 0.78f).coerceAtLeast(1f)
+        drawRect(
+            brush = Brush.radialGradient(
+                0.00f to primary.copy(alpha = safeIntensity * 0.92f),
+                0.28f to primary.copy(alpha = safeIntensity * 0.60f),
+                0.56f to secondary.copy(alpha = safeIntensity * 0.22f),
+                0.80f to secondary.copy(alpha = safeIntensity * 0.04f),
+                1.00f to Color.Transparent,
+                center = Offset(w * 0.22f, h * 0.02f),
+                radius = rPrimary,
+            ),
+        )
+        // Secondary warm/accent glow on the opposite side for organic depth.
+        val rGlow = (minOf(w * 0.72f, h * 1.18f)).coerceAtLeast(h * 0.68f).coerceAtLeast(1f)
+        drawRect(
+            brush = Brush.radialGradient(
+                0.00f to glow.copy(alpha = safeIntensity * 0.50f),
+                0.32f to glow.copy(alpha = safeIntensity * 0.26f),
+                0.64f to glow.copy(alpha = safeIntensity * 0.06f),
+                1.00f to Color.Transparent,
+                center = Offset(w * 0.82f, h * 0.14f),
+                radius = rGlow,
+            ),
+        )
+        // Multiplicative DstIn feather: guarantees mathematically smooth 0.0 alpha
+        // before the bottom boundary — zero visible horizontal seam at any size.
+        drawRect(
+            brush = Brush.verticalGradient(
+                0.00f to Color.Black,
+                0.32f to Color.Black.copy(alpha = 0.88f),
+                0.58f to Color.Black.copy(alpha = 0.46f),
+                0.78f to Color.Black.copy(alpha = 0.14f),
+                0.91f to Color.Black.copy(alpha = 0.02f),
+                0.98f to Color.Transparent,
+                1.00f to Color.Transparent,
+            ),
+            blendMode = BlendMode.DstIn,
+        )
+    }
+
+/**
+ * Cubic-eased vertical legibility scrim for artwork cards, heroes, and headers.
+ * Eliminates the harsh mid-card horizontal band produced by naive 2-stop fades.
+ */
+fun musicoScrimBrush(
+    color: Color,
+    maxAlpha: Float = 0.86f,
+    startFraction: Float = 0.24f,
+): Brush {
+    val s0 = startFraction.coerceIn(0f, 0.70f)
+    val span = (1f - s0).coerceAtLeast(0.01f)
+    val peak = maxAlpha.coerceIn(0f, 1f)
+    return Brush.verticalGradient(
+        0.00f to Color.Transparent,
+        s0 to Color.Transparent,
+        (s0 + span * 0.25f) to color.copy(alpha = peak * 0.08f),
+        (s0 + span * 0.52f) to color.copy(alpha = peak * 0.34f),
+        (s0 + span * 0.78f) to color.copy(alpha = peak * 0.72f),
+        1.00f to color.copy(alpha = peak),
+    )
+}
 
 @Composable
 fun AmbientTopWash(
     atmosphere: ArtworkAtmosphere,
     modifier: Modifier = Modifier,
-    height: Dp = 320.dp,
+    height: Dp = 380.dp,
     intensity: Float = 0.24f,
 ) {
-    Canvas(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(height),
-    ) {
-        val w = size.width
-        val h = size.height
-        if (w <= 0f || h <= 0f) return@Canvas
-        val baseDim = maxOf(w, h)
-        drawRect(
-            brush = Brush.radialGradient(
-                0f to atmosphere.orbPrimary.copy(alpha = intensity),
-                0.55f to atmosphere.orbSecondary.copy(alpha = intensity * 0.42f),
-                1f to Color.Transparent,
-                center = Offset(w * 0.22f, h * 0.05f),
-                radius = (baseDim * 0.92f).coerceAtLeast(1f),
+            .height(height)
+            .musicoWash(
+                primary = atmosphere.orbPrimary,
+                secondary = atmosphere.orbSecondary,
+                glow = atmosphere.glow,
+                intensity = intensity,
             ),
-        )
-        drawRect(
-            brush = Brush.radialGradient(
-                0f to atmosphere.glow.copy(alpha = intensity * 0.45f),
-                0.65f to Color.Transparent,
-                center = Offset(w * 0.85f, h * 0.18f),
-                radius = (baseDim * 0.72f).coerceAtLeast(1f),
-            ),
-        )
-        drawRect(
-            brush = Brush.verticalGradient(
-                0f to Color.Transparent,
-                0.72f to Color.Transparent,
-                1f to Color.Black.copy(alpha = 0f),
-            ),
-        )
-    }
+    )
 }
 
 // ── Artwork ────────────────────────────────────────────────────────────────
@@ -226,12 +307,15 @@ fun SectionHeader(
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             title.uppercase(),
             style = Musico.type.section,
             color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
         trailing?.invoke()
     }
@@ -561,11 +645,40 @@ fun ShelfCarousel(
     modifier: Modifier = Modifier,
     cardWidth: Dp = 160.dp,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var viewportWidthPx by remember { mutableFloatStateOf(0f) }
+
     Column(modifier = modifier) {
-        SectionHeader(shelfTitle)
+        SectionHeader(
+            title = shelfTitle,
+            trailing = {
+                ShelfScrollButtons(
+                    canScrollBackward = listState.canScrollBackward,
+                    canScrollForward = listState.canScrollForward,
+                    onScrollBackward = {
+                        val step = HorizontalScrollMath.computePageStepPx(viewportWidthPx)
+                        scope.launch {
+                            listState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                        }
+                    },
+                    onScrollForward = {
+                        val step = HorizontalScrollMath.computePageStepPx(viewportWidthPx)
+                        scope.launch {
+                            listState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                        }
+                    },
+                )
+            },
+        )
         LazyRow(
+            state = listState,
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { viewportWidthPx = it.width.toFloat() }
+                .desktopHorizontalScroll(listState),
         ) {
             itemsIndexed(items) { i, item ->
                 ShelfCard(
@@ -576,6 +689,12 @@ fun ShelfCarousel(
                 )
             }
         }
+        PlatformHorizontalScrollbar(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+        )
     }
 }
 
@@ -694,3 +813,96 @@ fun MiniPlayFab(
         }
     }
 }
+
+// ── Matching-Geometry Shimmer Skeletons ──────────────────────────────────
+
+@Composable
+fun TrackRowSkeleton(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .shimmer(),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier
+                    .fillMaxWidth(0.68f)
+                    .height(14.dp)
+                    .clip(MusicoShapes.chip)
+                    .shimmer(),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.42f)
+                    .height(11.dp)
+                    .clip(MusicoShapes.chip)
+                    .shimmer(),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(
+            Modifier
+                .size(width = 32.dp, height = 11.dp)
+                .clip(MusicoShapes.chip)
+                .shimmer(),
+        )
+    }
+}
+
+@Composable
+fun TrackListSkeleton(count: Int = 7, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(count) { TrackRowSkeleton() }
+    }
+}
+
+@Composable
+fun DetailPageSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .clip(MusicoShapes.hero)
+                .shimmer(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                Modifier
+                    .size(width = 112.dp, height = 44.dp)
+                    .clip(MusicoShapes.chip)
+                    .shimmer(),
+            )
+            Box(
+                Modifier
+                    .size(width = 96.dp, height = 44.dp)
+                    .clip(MusicoShapes.chip)
+                    .shimmer(),
+            )
+            Box(
+                Modifier
+                    .size(width = 96.dp, height = 44.dp)
+                    .clip(MusicoShapes.chip)
+                    .shimmer(),
+            )
+        }
+        TrackListSkeleton(count = 5)
+    }
+}
+
