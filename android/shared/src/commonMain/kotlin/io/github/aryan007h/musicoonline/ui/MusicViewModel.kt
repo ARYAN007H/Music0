@@ -15,6 +15,8 @@ import io.github.aryan007h.musicoonline.core.LikesListReply
 import io.github.aryan007h.musicoonline.core.ListeningStatsReply
 import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.core.OnlineTrack
+import io.github.aryan007h.musicoonline.core.PlaylistImportResult
+import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
 import io.github.aryan007h.musicoonline.core.PlaylistsReply
 import io.github.aryan007h.musicoonline.core.RelatedReply
 import io.github.aryan007h.musicoonline.core.RerankReply
@@ -57,6 +59,7 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -234,6 +237,11 @@ class MusicViewModel(
         val coreSettingsStreamingQuality: String = "normal",
         val coreSettingsCacheMb: Int? = null,
         val settingsSaving: Boolean = false,
+        // Playlist import (T23)
+        val importingPlaylist: Boolean = false,
+        val importProgress: PlaylistImportStatus? = null,
+        val importResult: PlaylistImportResult? = null,
+        val importError: String? = null,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -256,6 +264,7 @@ class MusicViewModel(
     private var personalizeJob: Job? = null
     private var artistSearchJob: Job? = null
     private var downloadsEnrichJob: Job? = null
+    private var importJob: Job? = null
 
     // Listen telemetry for closed-loop Rust recommender
     private var telemetryTrack: OnlineTrack? = null
@@ -737,6 +746,19 @@ class MusicViewModel(
         }
     }
 
+    fun dismissPersonalizationError() {
+        _state.update { it.copy(personalizationError = null) }
+    }
+
+    fun retryPersonalization() {
+        val st = _state.value
+        if (st.savedLanguages.isEmpty() && st.savedArtists.isEmpty()) {
+            _state.update { it.copy(personalizationError = null) }
+            return
+        }
+        personalizeHome(st.savedLanguages, st.savedArtists)
+    }
+
     private fun personalizeHome(languages: List<String>, artists: List<String>) {
         if (personalizeJob?.isActive == true) return
         personalizeJob = scope.launch {
@@ -780,50 +802,93 @@ class MusicViewModel(
                 if (!done) failures += artist
             }
 
-            languages.take(3).forEach { lang ->
+            // Fetch Moods & Genres catalog ONCE for all selected languages.
+            val genreStyles = if (languages.isNotEmpty()) {
                 runCatching {
-                    val styles = json.decodeFromJsonElement(
+                    json.decodeFromJsonElement(
                         GenresReply.serializer(),
                         MusicoCore.call("online.genres"),
                     ).items
-                    val style = styles.firstOrNull { s -> s.title.contains(lang, ignoreCase = true) }
-                    if (style?.browseId == null) {
-                        failures += lang
-                        return@forEach
-                    }
-                    val page = json.decodeFromJsonElement(
-                        BrowsePage.serializer(),
-                        MusicoCore.call(
-                            "online.browse",
-                            buildJsonObject {
-                                put("browseId", style.browseId)
-                                style.params?.let { put("params", it) }
-                            },
-                        ),
-                    )
-                    val songShelf = page.shelves.firstOrNull { shelf -> shelf.items.any { it.videoId != null } }
-                    if (songShelf != null) {
-                        shelves += Shelf(
-                            title = "$lang picks",
-                            items = songShelf.items.take(14),
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+
+            languages.take(3).forEach { lang ->
+                var built = false
+                val matchedStyle = resolveLanguageGenreStyle(lang, genreStyles)
+                if (matchedStyle?.browseId != null) {
+                    runCatching {
+                        val page = json.decodeFromJsonElement(
+                            BrowsePage.serializer(),
+                            MusicoCore.call(
+                                "online.browse",
+                                buildJsonObject {
+                                    put("browseId", matchedStyle.browseId)
+                                    matchedStyle.params?.let { put("params", it) }
+                                },
+                            ),
                         )
-                    } else {
-                        failures += lang
+                        val songShelf = page.shelves.firstOrNull { shelf ->
+                            shelf.items.any { it.videoId != null }
+                        }
+                        if (songShelf != null) {
+                            shelves += Shelf(
+                                title = "$lang picks",
+                                items = songShelf.items.take(14),
+                            )
+                            built = true
+                        }
                     }
                 }
+                // Fallback when YTM's regional Moods & Genres omits a language card
+                // (e.g. "English" has no literal genre card on YouTube Music).
+                if (!built) {
+                    runCatching {
+                        val page = json.decodeFromJsonElement(
+                            SearchResultPage.serializer(),
+                            MusicoCore.call(
+                                "online.search",
+                                buildJsonObject { put("query", "$lang top hits") },
+                            ),
+                        )
+                        if (page.tracks.size >= 3) {
+                            shelves += Shelf(
+                                title = "$lang picks",
+                                items = page.tracks.take(14).map { t ->
+                                    ShelfItem(
+                                        kind = ItemKind.SONG,
+                                        title = t.title,
+                                        subtitle = t.artist,
+                                        thumbnail = t.thumbnail,
+                                        videoId = t.videoId,
+                                        durationSecs = t.durationSecs,
+                                    )
+                                },
+                            )
+                            built = true
+                        }
+                    }
+                }
+                if (!built) failures += lang
             }
 
             prefs.putString(
                 PREF_PERSONAL_SHELVES,
                 json.encodeToString(ListSerializer(Shelf.serializer()), shelves),
             )
+            // Only surface an error banner when shelves genuinely couldn't be built
+            // (never nag with a persistent red warning when personalized shelves succeeded).
+            val bannerError = if (shelves.isEmpty() && failures.isNotEmpty()) {
+                "Couldn't build personalized shelves — check your connection"
+            } else {
+                null
+            }
             _state.update {
                 it.copy(
                     personalizing = false,
                     personalizedShelves = shelves,
-                    personalizationError = if (failures.isNotEmpty()) {
-                        "Couldn't build shelves for: ${failures.joinToString()}"
-                    } else null,
+                    personalizationError = bannerError,
                 )
             }
             if (shelves.isEmpty() && failures.isNotEmpty()) {
@@ -1243,6 +1308,20 @@ class MusicViewModel(
     fun openDetail(browseId: String, params: String?, title: String) {
         val entry = DetailPageState(browseId = browseId, params = params, title = title, loading = true)
         _state.update { it.copy(details = it.details + entry, overlay = AppOverlay.DETAIL) }
+        fetchDetail(browseId, params)
+    }
+
+    fun retryTopDetail() {
+        val top = _state.value.details.lastOrNull() ?: return
+        _state.update {
+            it.copy(details = it.details.mapIndexed { idx, d ->
+                if (idx == it.details.lastIndex) d.copy(loading = true, error = null) else d
+            })
+        }
+        fetchDetail(top.browseId, top.params)
+    }
+
+    private fun fetchDetail(browseId: String, params: String?) {
         scope.launch {
             runCatching {
                 val reply = MusicoCore.call(
@@ -1257,7 +1336,7 @@ class MusicViewModel(
                 onSuccess = { page ->
                     _state.update {
                         it.copy(details = it.details.map { d ->
-                            if (d.browseId == browseId && d.params == params) d.copy(page = page, loading = false)
+                            if (d.browseId == browseId && d.params == params) d.copy(page = page, error = null, loading = false)
                             else d
                         })
                     }
@@ -2008,6 +2087,111 @@ class MusicViewModel(
         }
     }
 
+    // ── Playlist import (T23: URL + CSV/JSON/M3U, single-flight cancelable) ─
+
+    fun importPlaylistFromUrl(rawUrl: String) {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isEmpty()) {
+            _state.update { it.copy(importError = "Paste a public Spotify or Apple Music playlist URL.") }
+            return
+        }
+        runPlaylistImport(
+            buildJsonObject {
+                put("mode", "url")
+                put("url", trimmed)
+            },
+            initialLabel = "Fetching playlist…",
+        )
+    }
+
+    fun importPlaylistFromFile(fileName: String, content: String) {
+        if (content.isBlank()) {
+            _state.update { it.copy(importError = "The selected playlist file is empty.") }
+            return
+        }
+        runPlaylistImport(
+            buildJsonObject {
+                put("mode", "file")
+                put("fileName", fileName)
+                put("content", content)
+            },
+            initialLabel = "Reading $fileName…",
+        )
+    }
+
+    fun reportImportError(message: String) {
+        _state.update { it.copy(importError = message) }
+    }
+
+    private fun runPlaylistImport(args: JsonObject, initialLabel: String) {
+        if (_state.value.importingPlaylist) return
+        importJob?.cancel()
+        importJob = scope.launch {
+            _state.update {
+                it.copy(
+                    importingPlaylist = true,
+                    importProgress = PlaylistImportStatus(active = true, name = initialLabel, current = 0, total = 0),
+                    importResult = null,
+                    importError = null,
+                )
+            }
+            val poller = launch {
+                while (isActive) {
+                    delay(350)
+                    runCatching {
+                        val reply = MusicoCore.call("library.playlist.import.status")
+                        json.decodeFromJsonElement(PlaylistImportStatus.serializer(), reply)
+                    }.onSuccess { status ->
+                        if (status.active) {
+                            _state.update { it.copy(importProgress = status) }
+                        }
+                    }
+                }
+            }
+            try {
+                val reply = MusicoCore.call("library.playlist.import", args)
+                val result = json.decodeFromJsonElement(PlaylistImportResult.serializer(), reply)
+                if (result.playlistId.isNotBlank()) {
+                    refreshPlaylistsInternal()
+                }
+                _state.update {
+                    it.copy(
+                        importingPlaylist = false,
+                        importProgress = null,
+                        importResult = result,
+                        importError = null,
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        importingPlaylist = false,
+                        importProgress = null,
+                        importError = t.userMessage(),
+                    )
+                }
+            } finally {
+                poller.cancel()
+            }
+        }
+    }
+
+    fun cancelPlaylistImport() {
+        if (!_state.value.importingPlaylist) return
+        scope.launch {
+            runCatching { MusicoCore.call("library.playlist.import.cancel") }
+        }
+    }
+
+    fun dismissImportState() {
+        if (_state.value.importingPlaylist) return
+        _state.update {
+            it.copy(importProgress = null, importResult = null, importError = null)
+        }
+    }
+
     fun showToast(message: String) = fail(message)
 
     fun dismissError() {
@@ -2060,3 +2244,40 @@ private fun ShelfItem.toTrackOrNull(): OnlineTrack? = videoId?.let { videoId ->
         source = "",
     )
 }
+
+/**
+ * Matches a user-selected onboarding language (e.g. "English", "Korean", "Hindi")
+ * to an available YouTube Music Moods & Genres card that has a valid [ShelfItem.browseId].
+ * YTM's regional catalog often omits an explicit "English" genre card, so we fall back
+ * to curated genre aliases before the caller falls back to a search-backed shelf.
+ */
+internal fun resolveLanguageGenreStyle(language: String, styles: List<ShelfItem>): ShelfItem? {
+    val normalized = language.trim().lowercase()
+    if (normalized.isEmpty()) return null
+    val browsable = styles.filter { !it.browseId.isNullOrBlank() }
+    if (browsable.isEmpty()) return null
+
+    // 1. Direct exact or substring match on the language label itself.
+    browsable.firstOrNull { it.title.trim().equals(normalized, ignoreCase = true) }?.let { return it }
+    browsable.firstOrNull { it.title.lowercase().contains(normalized) }?.let { return it }
+
+    // 2. Curated regional genre aliases for languages that YTM doesn't label by language name.
+    val aliases = when (normalized) {
+        "english" -> listOf("pop", "indie & alternative", "rock", "hip-hop", "r&b & soul")
+        "spanish" -> listOf("latin", "pop")
+        "korean" -> listOf("k-pop", "pop")
+        "japanese" -> listOf("j-pop", "anime", "pop")
+        "french" -> listOf("pop", "indie & alternative")
+        "german" -> listOf("pop", "dance & electronic")
+        "portuguese" -> listOf("latin", "pop")
+        "hindi" -> listOf("hindi", "indian pop", "bollywood")
+        "punjabi" -> listOf("punjabi", "desi hip-hop")
+        else -> emptyList()
+    }
+    for (alias in aliases) {
+        browsable.firstOrNull { it.title.trim().equals(alias, ignoreCase = true) }?.let { return it }
+        browsable.firstOrNull { it.title.lowercase().contains(alias) }?.let { return it }
+    }
+    return null
+}
+

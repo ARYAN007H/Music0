@@ -381,9 +381,43 @@ pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, 
         return Ok(cached);
     }
     let cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
-    // Phase 1 Cross-Source Fast Path: check if JioSaavn CDN has an exact match
-    // for this YouTube track before waiting on Piped/InnerTube/yt-dlp extraction.
-    if !track.title.trim().is_empty() {
+    // Interactive playback: race JioSaavn cross-source CDN vs InnerTube/Piped
+    // direct-URL fast path in parallel so the fastest upstream wins instead of
+    // blocking 3–6 s sequentially on a JioSaavn miss before YouTube starts.
+    if interactive && !track.title.trim().is_empty() {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<PathBuf, String>>();
+        let t_saavn = track.clone();
+        let tx_saavn = tx.clone();
+        let _ = std::thread::Builder::new()
+            .name("musico-race-saavn".into())
+            .spawn(move || {
+                let res = super::saavn::try_cross_source_resolve(&t_saavn)
+                    .ok_or_else(|| "saavn cross-source miss".to_string());
+                let _ = tx_saavn.send(res);
+            });
+        let vid_direct = track.video_id.clone();
+        let tx_direct = tx;
+        let _ = std::thread::Builder::new()
+            .name("musico-race-direct".into())
+            .spawn(move || {
+                let _guard = video_lock(&vid_direct);
+                if let Some(hit) = cached_file(&vid_direct) {
+                    let _ = tx_direct.send(Ok(hit));
+                    return;
+                }
+                let res = super::sources::try_fast_path(&vid_direct);
+                if res.is_ok() {
+                    prune_cache(cache_cap_bytes());
+                }
+                let _ = tx_direct.send(res);
+            });
+        for _ in 0..2 {
+            if let Ok(Ok(path)) = rx.recv() {
+                write_track_sidecar(&path, track);
+                return Ok(path);
+            }
+        }
+    } else if !track.title.trim().is_empty() {
         if let Some(saavn_path) = super::saavn::try_cross_source_resolve(track) {
             return Ok(saavn_path);
         }
@@ -494,25 +528,82 @@ where
         return start_loopback(opened, track.song_id(), "mp4", on_finalized);
     }
 
-    // YouTube track: check JioSaavn cross-source fast stream first.
-    if !track.title.trim().is_empty() {
-        if let Some(cross) = super::saavn::try_cross_source_open_stream(track) {
-            match cross {
-                super::saavn::CrossSourceStream::Cached(hit) => {
-                    return Ok(hit.display().to_string());
-                }
-                super::saavn::CrossSourceStream::Opened(matched, opened) => {
-                    if let Ok(url) = start_loopback(opened, matched.song_id(), "mp4", on_finalized) {
-                        return Ok(url);
-                    }
-                    // If loopback startup failed after consuming `on_finalized`, fall back to whole-file resolve.
-                    return resolve_track(track, true).map(|p| p.display().to_string());
-                }
-            }
-        }
+    // YouTube track: race JioSaavn cross-source CDN vs InnerTube/Piped direct
+    // streaming in parallel so whichever opens first starts playing immediately.
+    enum StreamRaceHit {
+        Saavn(super::saavn::CrossSourceStream),
+        Direct(super::sources::OpenedAudioStream),
     }
 
-    // YouTube direct-URL streaming fast path (InnerTube direct / Piped / Invidious).
+    if !track.title.trim().is_empty() {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<StreamRaceHit, String>>();
+        let t_saavn = track.clone();
+        let tx_saavn = tx.clone();
+        let _ = std::thread::Builder::new()
+            .name("musico-stream-race-saavn".into())
+            .spawn(move || {
+                let res = super::saavn::try_cross_source_open_stream(&t_saavn)
+                    .map(StreamRaceHit::Saavn)
+                    .ok_or_else(|| "saavn miss".to_string());
+                let _ = tx_saavn.send(res);
+            });
+        let vid_direct = track.video_id.clone();
+        let tx_direct = tx;
+        let _ = std::thread::Builder::new()
+            .name("musico-stream-race-direct".into())
+            .spawn(move || {
+                let res = super::sources::try_fast_path_open_stream(&vid_direct)
+                    .map(StreamRaceHit::Direct);
+                let _ = tx_direct.send(res);
+            });
+
+        let mut last_err = String::new();
+        for _ in 0..2 {
+            match rx.recv() {
+                Ok(Ok(StreamRaceHit::Saavn(super::saavn::CrossSourceStream::Cached(hit)))) => {
+                    return Ok(hit.display().to_string());
+                }
+                Ok(Ok(StreamRaceHit::Saavn(super::saavn::CrossSourceStream::Opened(
+                    matched,
+                    opened,
+                )))) => {
+                    return match start_loopback(opened, matched.song_id(), "mp4", on_finalized) {
+                        Ok(url) => Ok(url),
+                        Err(_) => resolve_track(track, true).map(|p| p.display().to_string()),
+                    };
+                }
+                Ok(Ok(StreamRaceHit::Direct(opened))) => {
+                    let ext = cache_ext_for_content_type(&opened.content_type);
+                    return match start_loopback(opened, track.video_id.clone(), ext, on_finalized) {
+                        Ok(url) => Ok(url),
+                        Err(e) => {
+                            log::info!(
+                                "stream loopback failed for {} ({e}) — falling back to whole-file resolve",
+                                track.video_id
+                            );
+                            resolve_with(
+                                &track.video_id,
+                                1,
+                                PLAY_RESOLVE_BUDGET,
+                                Some(PLAY_RESOLVE_BUDGET),
+                            )
+                            .map(|p| p.display().to_string())
+                        }
+                    };
+                }
+                Ok(Err(e)) => last_err = e,
+                Err(_) => break,
+            }
+        }
+        log::info!(
+            "parallel stream race exhausted for {} ({last_err}) — falling back to yt-dlp",
+            track.video_id
+        );
+        return resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
+            .map(|p| p.display().to_string());
+    }
+
+    // Untitled YouTube track: direct-URL streaming fast path only.
     match super::sources::try_fast_path_open_stream(&track.video_id) {
         Ok(opened) => {
             let ext = cache_ext_for_content_type(&opened.content_type);

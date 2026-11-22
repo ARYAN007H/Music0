@@ -16,14 +16,15 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+use rand::RngCore;
+
 /// Bytes buffered into `.part` before `start_session` hands the loopback URL
-/// back to the player. Small enough to start audio in < 1–2 s while catching
-/// immediate upstream 403 / empty-body failures before playback begins.
-pub(crate) const INITIAL_READY_BYTES: u64 = 64 * 1024;
+/// back to the player. 32 KiB carries MP4/WebM headers for fast audio start
+/// (< 1 s) while still catching immediate upstream 403 / empty-body failures.
+pub(crate) const INITIAL_READY_BYTES: u64 = 32 * 1024;
 /// How long `start_session` waits for the initial ready threshold before
 /// declaring the upstream stalled and failing over.
 pub(crate) const INITIAL_READY_TIMEOUT: Duration = Duration::from_secs(12);
@@ -199,7 +200,29 @@ pub(crate) struct StreamSessionConfig {
 pub(crate) struct LoopbackStreamServer {
     port: u16,
     sessions: Arc<Mutex<HashMap<String, Arc<StreamSession>>>>,
-    next_id: AtomicU64,
+}
+
+/// Generates a 128-bit (32 lowercase hex chars) unguessable session token from
+/// the OS CSPRNG so local processes cannot predict stream URLs.
+pub(crate) fn generate_session_token() -> String {
+    let mut bytes = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let mut hex = String::with_capacity(32);
+    for b in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut hex, "{b:02x}");
+    }
+    hex
+}
+
+/// Pre-binds the loopback HTTP range server asynchronously at core startup so
+/// the first track play never pays socket/thread boot latency.
+pub(crate) fn prewarm() {
+    let _ = std::thread::Builder::new()
+        .name("musico-stream-prewarm".into())
+        .spawn(|| {
+            let _ = global_server();
+        });
 }
 
 impl LoopbackStreamServer {
@@ -229,11 +252,7 @@ impl LoopbackStreamServer {
             .map_err(|e| format!("spawn stream server thread: {e}"))?;
 
         log::info!("loopback stream server listening on 127.0.0.1:{port}");
-        Ok(Self {
-            port,
-            sessions,
-            next_id: AtomicU64::new(1),
-        })
+        Ok(Self { port, sessions })
     }
 
     pub(crate) fn port(&self) -> u16 {
@@ -259,18 +278,7 @@ impl LoopbackStreamServer {
         if let Some(parent) = cfg.part_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create cache dir: {e}"))?;
         }
-        let token = format!(
-            "s{}_{}",
-            self.next_id.fetch_add(1, Ordering::Relaxed),
-            cfg.final_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("track")
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-                .take(48)
-                .collect::<String>()
-        );
+        let token = generate_session_token();
 
         let session = Arc::new(StreamSession::new(
             cfg.part_path.clone(),
@@ -978,5 +986,19 @@ mod tests {
         assert!(err.contains("suspiciously small"), "got: {err}");
         assert!(!part_path.exists(), "failed .part removed");
         assert!(!final_path.exists(), "no corrupt final file");
+    }
+
+    #[test]
+    fn stream_tokens_are_random_and_unpredictable() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let tok = generate_session_token();
+            assert_eq!(tok.len(), 32, "expected 32 hex chars, got {}", tok.len());
+            assert!(
+                tok.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+                "token must be lowercase hex: {tok}"
+            );
+            assert!(seen.insert(tok), "duplicate CSPRNG token generated");
+        }
     }
 }

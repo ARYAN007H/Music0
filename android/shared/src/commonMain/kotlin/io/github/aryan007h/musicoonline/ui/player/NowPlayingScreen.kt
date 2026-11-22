@@ -774,18 +774,24 @@ private fun LivingBreathingArtwork(
     )
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        // Diffused cover-tinted glow aura behind artwork
-        Canvas(Modifier.fillMaxSize(1.18f)) {
+        // Diffused cover-tinted glow aura behind artwork (bounded inside canvas so edges stay invisible)
+        Canvas(Modifier.fillMaxSize(1.22f)) {
             if (size.minDimension <= 0f) return@Canvas
             val safeAura = auraAlpha.coerceIn(0f, 1f)
+            val center = Offset(size.width / 2f, size.height * 0.52f)
+            val radius = (size.minDimension * 0.48f).coerceAtLeast(1f)
             drawCircle(
                 brush = Brush.radialGradient(
-                    0f to atmosphere.orbPrimary.copy(alpha = safeAura),
-                    0.55f to atmosphere.glow.copy(alpha = safeAura * 0.35f),
-                    1f to Color.Transparent,
-                    center = Offset(size.width / 2f, size.height * 0.56f),
-                    radius = (size.minDimension * 0.56f).coerceAtLeast(1f),
+                    0.00f to atmosphere.orbPrimary.copy(alpha = safeAura),
+                    0.28f to atmosphere.orbPrimary.copy(alpha = safeAura * 0.62f),
+                    0.54f to atmosphere.glow.copy(alpha = safeAura * 0.24f),
+                    0.78f to atmosphere.glow.copy(alpha = safeAura * 0.05f),
+                    1.00f to Color.Transparent,
+                    center = center,
+                    radius = radius,
                 ),
+                center = center,
+                radius = radius,
             )
         }
 

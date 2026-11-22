@@ -12,8 +12,9 @@ The streaming layer uses the same public technique as Metrolist / InnerTune /
 RiMusic (InnerTube + direct-URL resolvers + yt-dlp). It lives here, **not** in
 the offline Musico release, and is intended for personal use.
 
-**Status:** v0.8.1 (`v0.8.1-online`) · Linux · macOS · Windows · Android
-(signed APK from CI) · installable mobile PWA.
+**Status:** v0.9.6-cmp (in development; latest release `v0.9.5`) · Compose
+Multiplatform (Android + Desktop JVM) · Tauri Desktop (Linux · macOS · Windows)
+· installable mobile PWA.
 
 <p align="center">
   <img src="docs/screenshots/home-dark.png" width="48%" alt="Musico Online — Home, dark theme: YouTube Music shelves with the transport pill"/>
@@ -52,9 +53,13 @@ the offline Musico release, and is intended for personal use.
 - **Playback depth** — gapless playback, crossfade, EQ, loudness
   normalization, AutoEQ profiles, and a local recommender v2 that learns from
   listens, skips, likes, artists, context, and audio features.
-- **Native everywhere it can be** — MPRIS on Linux, SMTC on Windows,
-  MPNowPlayingInfoCenter on macOS, and a no-build UI that runs in the system
-  webview.
+- **Playlist import** — bring playlists from public Spotify or Apple Music
+  links, or exported CSV (Exportify / TuneMyMusic / Soundiiz), JSON, and
+  M3U/M3U8 files with live track matching and an unmatched summary.
+- **Native everywhere it can be** — shared Material 3 Expressive Compose
+  Multiplatform app on Android (Media3 ExoPlayer + AudioFX EQ) and Desktop JVM
+  (Rust `musico_playback` + 10-band DSP EQ), plus Tauri desktop with MPRIS on
+  Linux, SMTC on Windows, and MPNowPlayingInfoCenter on macOS.
 
 ## Install
 
@@ -141,6 +146,38 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 cargo tauri build --target universal-apple-darwin
 ```
 
+### Desktop Compose App (Compose Multiplatform)
+
+The Material 3 Expressive UI shared with Android also runs natively on Desktop
+(Linux, macOS, Windows) via `android/desktopApp`, backed by the same Rust core
+(`libmusico_online_lib.so` / `.dylib` / `.dll`) over JNI.
+
+- **CI bundles:** `.github/workflows/desktop-core-so.yml` and the release
+  workflow compile the native Rust JNI library for Linux, macOS, and Windows
+  and package it alongside the Compose Desktop distribution so it loads
+  automatically with zero extra configuration.
+- **Running locally from source:** build the Rust shared library first, then
+  launch the Gradle `:desktopApp` target. If the library isn't in the default
+  `target/release` path (or when testing a custom build), point the app at it
+  with `MUSICO_NATIVE_LIB`:
+
+```sh
+# 1. Build the Rust JNI library
+cargo build --release -p musico-online --lib
+
+# 2. Run the Compose Desktop app (Java 17+)
+cd android
+MUSICO_NATIVE_LIB=../target/release/libmusico_online_lib.so ./gradlew :desktopApp:run
+# macOS:   MUSICO_NATIVE_LIB=../target/release/libmusico_online_lib.dylib
+# Windows: set MUSICO_NATIVE_LIB=..\target\release\musico_online_lib.dll
+```
+
+To create a native desktop installer/package from `android/`:
+
+```sh
+./gradlew :desktopApp:packageDistributionForCurrentOS
+```
+
 ### Flatpak
 
 A Flatpak build lives in [`flatpak/`](flatpak). It bundles `yt-dlp` inside the
@@ -218,6 +255,9 @@ cargo test --workspace
 npm test
 npm run build
 
+# Shared Compose Multiplatform unit tests (JVM)
+(cd android && ./gradlew :shared:desktopTest)
+
 # Opt-in live network tests
 cargo test -p musico-online live_ -- --ignored --nocapture
 ```
@@ -243,8 +283,9 @@ Browser suites and the WCAG contrast gate are documented in
 ## Project layout
 
 ```text
-src-tauri/            Tauri app: IPC commands, state, online stack, platform glue
-musico_playback/      Audio engine: decoder, CPAL output, queue, DSP
+android/              Compose Multiplatform app (:shared UI/ViewModel, :app Android, :desktopApp JVM)
+src-tauri/            Rust core + JNI bridge (`mobile.rs`), Tauri IPC, online stack, platform glue
+musico_playback/      Audio engine: decoder, CPAL output, queue, 10-band DSP EQ
 musico_recommender/   Local recommender + sled persistence
 frontend/             No-build UI: classic scripts + vendored Preact/htm shell
 src/engine/           TypeScript engine for the web/PWA preview

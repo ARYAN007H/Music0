@@ -41,9 +41,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
+import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
+import io.github.aryan007h.musicoonline.ui.components.TrackListSkeleton
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -55,6 +58,7 @@ import io.github.aryan007h.musicoonline.ui.theme.pressable
  */
 @Composable
 fun SearchScreen(
+    atmosphere: ArtworkAtmosphere,
     query: String,
     submittedQuery: String,
     searching: Boolean,
@@ -78,18 +82,25 @@ fun SearchScreen(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .musicoTopInset(),
-    ) {
-        SearchField(
-            query = query,
-            searching = searching,
-            onQueryChange = onQueryChange,
-            onSubmit = onSubmit,
-            focusRequester = focusRequester,
+    Box(Modifier.fillMaxSize()) {
+        AmbientTopWash(
+            atmosphere = atmosphere,
+            height = 240.dp,
+            intensity = 0.18f,
+            modifier = Modifier.align(Alignment.TopCenter),
         )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .musicoTopInset(),
+        ) {
+            SearchField(
+                query = query,
+                searching = searching,
+                onQueryChange = onQueryChange,
+                onSubmit = onSubmit,
+                focusRequester = focusRequester,
+            )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -134,7 +145,7 @@ fun SearchScreen(
                         EmptyState(
                             icon = Icons.Filled.Search,
                             title = "Search the catalog",
-                            subtitle = "Songs, albums, artists — straight from the core's YouTube Music engine",
+                            subtitle = "Find songs, albums, artists, and playlists",
                         )
                     }
                 }
@@ -156,14 +167,7 @@ fun SearchScreen(
                 }
             } else if (searching && results.isEmpty()) {
                 item(key = "loading") {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 40.dp),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
+                    TrackListSkeleton(count = 7, modifier = Modifier.padding(top = 8.dp))
                 }
             } else if (results.isNotEmpty()) {
                 item(key = "results-header") {
@@ -198,6 +202,7 @@ fun SearchScreen(
                     )
                 }
             }
+        }
         }
     }
 }

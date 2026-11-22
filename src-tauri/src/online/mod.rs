@@ -36,6 +36,7 @@ pub mod lrclib;
 pub mod lyrics;
 pub mod models;
 pub mod parse;
+pub mod playlist_import;
 pub mod radio;
 pub mod saavn;
 pub mod search;

@@ -789,6 +789,22 @@ fn extract_visitor_data(text: &str) -> Option<String> {
 /// fresh, `Err(cooldown deadline)` after both probes failed.
 type VisitorCache = Option<Result<(String, Instant), Instant>>;
 
+/// Pre-warms the dedicated HTTP/2 source client and InnerTube `visitorData`
+/// token in a background thread at app launch so the first track play skips
+/// TLS initialization and visitor bootstrap latency.
+pub(crate) fn prewarm_async() {
+    let _ = std::thread::Builder::new()
+        .name("musico-sources-prewarm".into())
+        .spawn(|| {
+            if crate::config::AppSettings::load().offline_mode {
+                return;
+            }
+            if let Some(client) = SOURCE_CLIENT.as_ref() {
+                let _ = visitor_data(client, Instant::now() + Duration::from_secs(6));
+            }
+        });
+}
+
 /// Cached visitor bootstrap; `None` when both probes failed recently.
 fn visitor_data(
     client: &reqwest::blocking::Client,

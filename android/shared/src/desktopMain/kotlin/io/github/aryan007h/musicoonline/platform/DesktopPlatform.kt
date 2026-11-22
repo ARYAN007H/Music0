@@ -1,6 +1,8 @@
 package io.github.aryan007h.musicoonline.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.toArgb
@@ -27,7 +29,9 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import java.awt.Color as AwtColor
 import java.awt.Desktop
+import java.awt.FileDialog
 import java.awt.Font
+import java.awt.Frame
 import java.awt.GradientPaint
 import java.awt.Graphics2D
 import java.awt.RadialGradientPaint
@@ -36,6 +40,7 @@ import java.awt.geom.Point2D
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import java.io.File
+import java.io.FilenameFilter
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -91,7 +96,7 @@ object DesktopPlatformHost {
 class DesktopPlatformUpdater : PlatformUpdater {
     private val json = Json { ignoreUnknownKeys = true }
 
-    override fun currentVersion(): String = "1.0.0-desktop"
+    override fun currentVersion(): String = "0.9.6-cmp"
 
     override suspend fun check(): UpdateInfo = withContext(Dispatchers.IO) {
         val reply = MusicoCore.call("app.update.check")
@@ -486,3 +491,49 @@ private fun renderDesktopPoster(
     g.dispose()
     return img
 }
+
+private const val MAX_DESKTOP_PLAYLIST_IMPORT_BYTES = 4L * 1024L * 1024L
+
+@Composable
+actual fun rememberPlaylistFilePicker(
+    onPicked: (fileName: String, content: String) -> Unit,
+    onError: (String) -> Unit,
+): () -> Unit {
+    val scope = rememberCoroutineScope()
+    return remember(scope, onPicked, onError) {
+        {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val dialog = FileDialog(null as Frame?, "Import playlist (CSV, JSON, M3U)", FileDialog.LOAD)
+                        dialog.filenameFilter = FilenameFilter { _, name ->
+                            val lower = name.lowercase()
+                            lower.endsWith(".csv") ||
+                                lower.endsWith(".json") ||
+                                lower.endsWith(".m3u") ||
+                                lower.endsWith(".m3u8")
+                        }
+                        dialog.isVisible = true
+                        val dir = dialog.directory
+                        val file = dialog.file
+                        dialog.dispose()
+                        if (dir == null || file == null) {
+                            null
+                        } else {
+                            val selected = File(dir, file)
+                            if (selected.length() > MAX_DESKTOP_PLAYLIST_IMPORT_BYTES) {
+                                error("Playlist file is too large (max 4 MB).")
+                            }
+                            selected.name to selected.readText(Charsets.UTF_8)
+                        }
+                    }
+                }
+                result.fold(
+                    onSuccess = { pair -> if (pair != null) onPicked(pair.first, pair.second) },
+                    onFailure = { e -> onError(e.message ?: "Couldn't read playlist file.") },
+                )
+            }
+        }
+    }
+}
+

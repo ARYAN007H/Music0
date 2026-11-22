@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -57,47 +59,60 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
     override val gaplessAdvanced: SharedFlow<String> = _gaplessAdvanced
 
     private var controller: MediaController? = null
+    private val obtainMutex = Mutex()
     private var pollJob: Job? = null
     private var stagedNextTrack: OnlineTrack? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private suspend fun obtain(): MediaController =
-        controller ?: withContext(Dispatchers.Main) {
-            val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-            MediaController.Builder(context, token).buildAsync().await().also { c ->
-                controller = c
-                c.addListener(object : Player.Listener {
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        _isPlaying.value = isPlaying
-                    }
+    init {
+        // Pre-bind PlaybackService on app launch so the first track tap doesn't
+        // pay Media3 service-connection startup latency.
+        scope.launch {
+            runCatching { obtain() }
+        }
+    }
 
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        _isBuffering.value = playbackState == Player.STATE_BUFFERING
-                        if (playbackState == Player.STATE_ENDED) {
-                            _trackEnded.tryEmit(Unit)
+    private suspend fun obtain(): MediaController {
+        controller?.let { return it }
+        return obtainMutex.withLock {
+            controller ?: withContext(Dispatchers.Main) {
+                val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+                MediaController.Builder(context, token).buildAsync().await().also { c ->
+                    controller = c
+                    c.addListener(object : Player.Listener {
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            _isPlaying.value = isPlaying
                         }
-                    }
 
-                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        _positionMs.value = 0
-                        _durationMs.value = 0
-                        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem != null) {
-                            val transitionedId = mediaItem.mediaId
-                            val staged = stagedNextTrack
-                            if (staged != null && staged.videoId == transitionedId) {
-                                _nowPlaying.value = staged
-                                stagedNextTrack = null
-                                if (c.currentMediaItemIndex > 0) {
-                                    c.removeMediaItem(0)
-                                }
-                                _gaplessAdvanced.tryEmit(transitionedId)
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            _isBuffering.value = playbackState == Player.STATE_BUFFERING
+                            if (playbackState == Player.STATE_ENDED) {
+                                _trackEnded.tryEmit(Unit)
                             }
                         }
-                    }
-                })
-                startPolling()
+
+                        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                            _positionMs.value = 0
+                            _durationMs.value = 0
+                            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem != null) {
+                                val transitionedId = mediaItem.mediaId
+                                val staged = stagedNextTrack
+                                if (staged != null && staged.videoId == transitionedId) {
+                                    _nowPlaying.value = staged
+                                    stagedNextTrack = null
+                                    if (c.currentMediaItemIndex > 0) {
+                                        c.removeMediaItem(0)
+                                    }
+                                    _gaplessAdvanced.tryEmit(transitionedId)
+                                }
+                            }
+                        }
+                    })
+                    startPolling()
+                }
             }
         }
+    }
 
     private fun startPolling() {
         if (pollJob?.isActive == true) return

@@ -63,6 +63,8 @@ import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.DetailPageSkeleton
+import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.components.ShelfCard
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
@@ -96,6 +98,7 @@ fun DetailScreen(
     onPlayTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
+    onRetry: (() -> Unit)? = null,
     onTrackLongClick: (OnlineTrack) -> Unit = {},
 ) {
     val page = entry.page
@@ -175,10 +178,8 @@ fun DetailScreen(
                 label = "detailBody",
             ) { (loading, error, p) ->
                 when {
-                    loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
-                    error != null -> ErrorState(message = error, onRetry = null)
+                    loading -> DetailPageSkeleton()
+                    error != null -> ErrorState(message = error, onRetry = onRetry)
                     p == null -> Box(Modifier.fillMaxSize())
                     else -> DetailBody(
                         entry = entry,
@@ -262,31 +263,25 @@ private fun DetailBody(
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        0f to Color.Transparent,
-                                        0.45f to Color.Transparent,
-                                        1f to Color(0xD80A0A12),
-                                    ),
-                                ),
+                                .background(musicoScrimBrush(Color(0xFF0A0A12), maxAlpha = 0.86f, startFraction = 0.22f)),
                         )
                         Column(
                             Modifier
                                 .align(Alignment.BottomStart)
-                                .padding(18.dp),
+                                .padding(20.dp),
                         ) {
                             if (subtitle.isNotBlank()) {
                                 Text(
                                     subtitle.uppercase(),
-                                    style = Musico.type.section,
-                                    fontSize = 11.sp,
+                                    style = Musico.type.overline,
                                     color = Musico.extras.mint,
                                     maxLines = 2,
                                 )
+                                Spacer(Modifier.height(4.dp))
                             }
                             Text(
                                 entry.title,
-                                style = Musico.type.display.copy(fontSize = 28.sp),
+                                style = Musico.type.headline,
                                 color = Color.White,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,

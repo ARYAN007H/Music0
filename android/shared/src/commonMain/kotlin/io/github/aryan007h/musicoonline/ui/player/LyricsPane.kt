@@ -617,10 +617,14 @@ private fun FlowingVerseCinema(
                     drawContent()
                     drawRect(
                         brush = Brush.verticalGradient(
-                            0.0f to Color.Transparent,
-                            0.11f to Color.Black,
+                            0.00f to Color.Transparent,
+                            0.04f to Color.Black.copy(alpha = 0.28f),
+                            0.09f to Color.Black.copy(alpha = 0.78f),
+                            0.14f to Color.Black,
                             0.84f to Color.Black,
-                            1.0f to Color.Transparent,
+                            0.90f to Color.Black.copy(alpha = 0.76f),
+                            0.96f to Color.Black.copy(alpha = 0.24f),
+                            1.00f to Color.Transparent,
                         ),
                         blendMode = BlendMode.DstIn,
                     )

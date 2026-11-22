@@ -121,3 +121,10 @@ expect suspend fun shareLyricCard(
     lines: List<String>,
     atmosphere: ArtworkAtmosphere,
 ): Result<String>
+
+@Composable
+expect fun rememberPlaylistFilePicker(
+    onPicked: (fileName: String, content: String) -> Unit,
+    onError: (String) -> Unit,
+): () -> Unit
+

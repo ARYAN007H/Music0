@@ -22,12 +22,17 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.OpenableColumns
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -42,7 +47,9 @@ import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.player.MobileEqualizer
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Calendar
@@ -439,3 +446,75 @@ private fun renderAndroidPoster(
     )
     return bmp
 }
+
+private const val MAX_PLAYLIST_IMPORT_BYTES = 4 * 1024 * 1024
+
+@Composable
+actual fun rememberPlaylistFilePicker(
+    onPicked: (fileName: String, content: String) -> Unit,
+    onError: (String) -> Unit,
+): () -> Unit {
+    val scope = rememberCoroutineScope()
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val ctx = AndroidPlatformHost.requireContext()
+                    val resolver = ctx.contentResolver
+                    val displayName = resolver.query(
+                        uri,
+                        arrayOf(OpenableColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    }?.takeIf { it.isNotBlank() } ?: (uri.lastPathSegment ?: "playlist.csv")
+
+                    val rawBytes = resolver.openInputStream(uri)?.use { input ->
+                        val out = ByteArrayOutputStream()
+                        val buf = ByteArray(16 * 1024)
+                        var total = 0
+                        while (true) {
+                            val read = input.read(buf)
+                            if (read <= 0) break
+                            total += read
+                            if (total > MAX_PLAYLIST_IMPORT_BYTES) {
+                                error("Playlist file is too large (max 4 MB).")
+                            }
+                            out.write(buf, 0, read)
+                        }
+                        out.toByteArray()
+                    } ?: error("Couldn't open the selected file.")
+
+                    displayName to rawBytes.decodeToString()
+                }
+            }
+            result.fold(
+                onSuccess = { (name, text) -> onPicked(name, text) },
+                onFailure = { e -> onError(e.message ?: "Couldn't read playlist file.") },
+            )
+        }
+    }
+    return remember(launcher) {
+        {
+            runCatching {
+                launcher.launch(
+                    arrayOf(
+                        "text/*",
+                        "application/json",
+                        "audio/x-mpegurl",
+                        "application/vnd.apple.mpegurl",
+                        "*/*",
+                    ),
+                )
+            }.onFailure { e ->
+                onError(e.message ?: "Couldn't open file picker.")
+            }
+        }
+    }
+}
+

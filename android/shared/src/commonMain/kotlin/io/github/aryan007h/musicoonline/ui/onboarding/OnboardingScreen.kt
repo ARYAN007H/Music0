@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -78,6 +79,7 @@ fun OnboardingScreen(
     onFinish: (languages: List<String>, artists: List<String>) -> Unit,
     onDismiss: () -> Unit,
     onArtistQuery: (String) -> Unit,
+    onImportPlaylist: () -> Unit = {},
 ) {
     var step by remember { mutableStateOf(0) }
     var selectedLangs by remember { mutableStateOf(setOf<String>()) }
@@ -87,16 +89,28 @@ fun OnboardingScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .musicoTopInset()
-            .navigationBarsPadding()
-            .imePadding(),
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.TopCenter,
     ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .align(Alignment.TopCenter)
+                .musicoWash(
+                    primary = Musico.extras.primary,
+                    secondary = Musico.extras.support,
+                    glow = Musico.extras.mint,
+                    intensity = 0.24f,
+                ),
+        )
         Column(
             Modifier
                 .fillMaxSize()
-                .widthIn(max = 640.dp),
+                .widthIn(max = 640.dp)
+                .musicoTopInset()
+                .navigationBarsPadding()
+                .imePadding(),
         ) {
             Row(
                 Modifier
@@ -267,10 +281,12 @@ fun OnboardingScreen(
                 }
             }
 
-            Box(
+            Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 val enabled = if (step == 0) true else pickedArtists.size >= 3
                 Surface(
@@ -297,6 +313,14 @@ fun OnboardingScreen(
                             textAlign = TextAlign.Center,
                         )
                     }
+                }
+                TextButton(onClick = onImportPlaylist) {
+                    Text(
+                        "Import a playlist",
+                        style = Musico.type.caption,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }

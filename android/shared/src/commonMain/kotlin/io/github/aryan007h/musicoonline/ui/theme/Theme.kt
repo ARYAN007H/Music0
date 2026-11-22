@@ -7,6 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -14,12 +15,24 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+object MusicoSpacing {
+    val xs: Dp = 4.dp
+    val sm: Dp = 8.dp
+    val md: Dp = 12.dp
+    val lg: Dp = 16.dp
+    val xl: Dp = 20.dp
+    val xxl: Dp = 24.dp
+    val section: Dp = 28.dp
+}
+
 object MusicoShapes {
+    val tile = RoundedCornerShape(20.dp)
     val card = RoundedCornerShape(24.dp)
+    val hero = RoundedCornerShape(28.dp)
+    val pillDock = RoundedCornerShape(28.dp)
     val cardLarge = RoundedCornerShape(32.dp)
     val chip = RoundedCornerShape(999.dp)
     val sheet = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
-    val hero = RoundedCornerShape(28.dp)
 }
 
 data class MusicoExtras(
@@ -40,7 +53,10 @@ data class MusicoExtras(
 
 data class MusicoTypography(
     val display: TextStyle,
+    val headline: TextStyle,
+    val titleLarge: TextStyle,
     val section: TextStyle,
+    val overline: TextStyle,
     val title: TextStyle,
     val body: TextStyle,
     val caption: TextStyle,
@@ -56,18 +72,42 @@ private val DefaultTypography = MusicoTypography(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.ExtraBold,
         fontSize = 34.sp,
+        lineHeight = 40.sp,
         letterSpacing = (-0.5).sp,
+    ),
+    headline = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 26.sp,
+        lineHeight = 32.sp,
+        letterSpacing = (-0.3).sp,
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 20.sp,
+        lineHeight = 25.sp,
+        letterSpacing = (-0.2).sp,
     ),
     section = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
         fontSize = 15.sp,
-        letterSpacing = 2.5.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 2.0.sp,
+    ),
+    overline = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 1.6.sp,
     ),
     title = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.1.sp,
     ),
     body = TextStyle(
@@ -80,12 +120,14 @@ private val DefaultTypography = MusicoTypography(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
-        letterSpacing = 0.3.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.25.sp,
     ),
     tabularCaption = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.2.sp,
         fontFeatureSettings = "tnum",
     ),
@@ -100,6 +142,7 @@ private val DefaultTypography = MusicoTypography(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
+        lineHeight = 28.sp,
         letterSpacing = (-0.2).sp,
     ),
     lyricCinema = TextStyle(
@@ -163,11 +206,13 @@ private fun Palette.toDarkScheme() = darkColorScheme(
     onSurface = ink,
     surfaceVariant = bg2,
     onSurfaceVariant = inkDim,
+    surfaceContainerLowest = bg0,
+    surfaceContainerLow = lerp(bg0, bg1, 0.55f),
     surfaceContainer = bg1,
     surfaceContainerHigh = bg2,
-    surfaceContainerHighest = bg2,
+    surfaceContainerHighest = lerp(bg2, Color.White, 0.06f),
     outline = inkFaint,
-    outlineVariant = bg2,
+    outlineVariant = lerp(bg2, inkFaint, 0.28f),
     error = pop,
     onError = onPrimary,
 )
@@ -186,8 +231,11 @@ private fun paletteLightScheme(p: Palette) = lightColorScheme(
     onSurface = Color(0xFF191826),
     surfaceVariant = Color(0xFFE8E6F2),
     onSurfaceVariant = Color(0xFF5D5B70),
-    surfaceContainer = Color.White,
-    surfaceContainerHigh = Color(0xFFF0EEF8),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color(0xFFF9F8FD),
+    surfaceContainer = Color(0xFFF3F1FA),
+    surfaceContainerHigh = Color(0xFFECEAF6),
+    surfaceContainerHighest = Color(0xFFE5E2F1),
     outline = Color(0xFFCAC8D8),
     outlineVariant = Color(0xFFDEDCEA),
     error = Color(0xFFB3261E),

@@ -85,7 +85,16 @@ oldest-first rule — never delete a specific agent's entry otherwise.
 | agent-falcon | worker — T10 (macOS release support) | active |
 | agent-cinder | round-1 worker — retired (round superseded) | inactive |
 | (unknown) | pre-existing bug-fix agent — retired after PR #52 landed | inactive |
-| agent-prism | worker — Round 3 stability & polish (T11–T19 + sweep) | round 3 done (T16 awaiting OK) |
+| agent-prism | worker — Round 3 stability & polish (T11–T19 + sweep) | round 3 done (T16 approved → T23) |
+| agent-solstice | worker — Round 4 production-grade polish, fixes & playlist import (T20–T24) | active |
+
+## Tasks — round 4 (2026-11-22, production-grade polish & import)
+
+- **T20** — Fix gradient cutoffs (`Modifier.musicoWash`), overhaul Aurora & Rain backdrops, and floating squircle pill dock on Desktop: `DONE (verify: inspect Home, Search, Radio, Library, Detail, Player, Lyrics Studio across all 5 palettes & all 5 backdrops on Desktop & Android at multiple window sizes — zero horizontal gradient cutoffs, volumetric Aurora rays, rain-on-glass droplets/rivulets, floating squircle pill dock on Desktop)`
+- **T21** — Uniform M3 Expressive polish audit across all 12 screens (Android + Desktop): `DONE (verify: inspect all 12 screens in Android + Desktop across all 5 palettes — complete 5-rung tonal ladder, matching skeletons on Search/Radio/Detail, inline Retry on Detail, flat icon tiles in Settings/Profile, unified headline/titleLarge/overline typography)`
+- **T22** — Correctness odds & ends (English shelf banner, version sync 0.9.6-cmp, CSPRNG stream tokens, desktop resize ghosting, cold-start playback latency): `DONE (verify: cargo test -p musico-online stream_server + cargo test -p musico-online version_newer + ./gradlew :shared:desktopTest + tap uncached track on cold launch + inspect Home onboarding banner, Settings About version, and Desktop 840dp resize)`
+- **T23** — Playlist import (URL + file import, minimal v1): `DONE (verify: cargo test -p musico-online playlist_import + ./gradlew :shared:desktopTest + test CSV/JSON/M3U file import & public Spotify/Apple Music URL import from Settings → Library and Onboarding)`
+- **T24** — Release-readiness docs (`CHANGELOG.md` 0.9.6, `README.md` Desktop CMP section): `DONE (verify: inspect CHANGELOG.md [0.9.6] Unreleased section & README.md Desktop Compose App / MUSICO_NATIVE_LIB docs; version kept at 0.9.6-cmp without tagging)`
 
 ## Tasks — round 3 (2026-11-21, stability & polish)
 
@@ -233,130 +242,6 @@ off origin/main 2b86b70) → PR into `main`.
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
 
-### 2026-11-04 10:30 UTC — agent-1
-- STATUS: DONE — argon-review follow-up fixes PR'd (#87 follow-through)
-- TASK: orchestration + review
-- WHAT: Reviewed argon's 5 direct-to-main commits (2026-11-02..03):
-  174 tests/0 failed + 9/9 suites on becc2fb — the lyrics rebuild,
-  health-board wiring, prefetch slice, lockfiles, .aistudio cleanup,
-  ?v=0.6.33 and the main->lib refactor all verified GOOD. This PR
-  closes the last two gaps: download_quality was echo-only (now the
-  tier for background/download saavn resolves; streaming tier keeps
-  live playback) and the sample-rate pills were echo-only (removed —
-  output follows the device's native rate until engine-level reopen
-  exists). Ladder unit test added. ?v=0.6.34 (+sw CACHE_NAME).
-  ARGON: work quality is landing — but you have never logged here and
-  you bypass PRs+review every time. From now on: branch -> PR -> CI ->
-  agent-1 review -> merge, and log CLAIM/WORKING/DONE entries. Direct
-  pushes to main get reverted on sight regardless of quality.
-
-### 2026-11-06 01:15 UTC — agent-harbor
-- STATUS: CLAIMED
-- TASK: Flathub submission (packaging follow-up to the v0.7.1 app-id change)
-- FILES: flatpak/**, docs/flatpak.md, Cargo.lock, src-tauri/Cargo.toml,
-  src-tauri/tauri.conf.json, package.json, CHANGELOG.md, README.md,
-  docs/adr/0002-separate-app-identity.md
-- WHAT: Completing the Flatpak packaging that landed in #93 so it can be
-  submitted. Four things were missing or broken: (1) yt-dlp — a Flatpak cannot
-  see the host PATH, so the last-resort resolver and batch downloads needed the
-  binary bundled; (2) `sdk-extensions` used `rust-stable//25.08`, which does not
-  resolve under the GNOME 50 SDK (flatpak-builder: `rust-stable//25.08/x86_64/50
-  not installed`) — the branchless form resolves through the SDK base;
-  (3) cargo-sources.json was absent, so the offline build could not run;
-  (4) metainfo screenshots pointed at library-*.png, replaced by home-*.png in
-  #96. Also a real 512x512 icon and a 0.8.0 bump to match the manifest tag.
-  Worktree: ~/Documents/projects/Musico-online-flathub on branch
-  feat/flathub-complete; shared tree not touched.
-
-### 2026-11-06 01:45 UTC — agent-harbor
-- STATUS: CLAIMED
-- TASK: Release workflow — fix Android APK collection
-- FILES: .github/workflows/release.yml, agentchat.md
-- WHAT: Release run 42144321732 failed only at "Collect and sign APK". The
-  build itself succeeded; `tauri android build --apk --target aarch64` writes
-  the APK to `app/build/outputs/apk/universal/release/app-universal-release-
-  unsigned.apk`, not `apk/aarch64/release/`. The step hard-coded the ABI
-  directory, so `ls` failed. Replace it with a `find` over the outputs tree plus
-  a clear diagnostic when nothing is produced. Linux/macOS/Windows and the
-  publish job (skipped) are unaffected.
-- WORKTREE: ~/Documents/projects/Musico-online-flathub, branch fix/android-apk-path
-
-### 2026-11-09 23:05 UTC — agent-quill
-- STATUS: WORKING
-- TASK: Android playback overhaul — InnerTube-direct multi-client director (Aryan directive: reverse-engineer Metrolist's streaming, port what works; shared resolve path approved, JioSaavn stays backup)
-- FILES: src-tauri/src/online/sources.rs
-- WHAT: Read the open-source Metrolist/innertubex streaming core (GPL-3 — clean-room: protocol facts only, zero code copied). Key intel (their Nov 2026 playback matrix): ANDROID_VR family (our old innertube_direct client) is BROKEN — player resolves but sustained media 403s after the first 512 KiB; anonymous tokenless direct playback now needs visitorData (VISIONOS_0_1 = fastest per their benchmark); TVHTML5_SAMSUNG works but ad-gated (skipped); WEB_REMIX is stable when a GVS poToken exists (BotGuard — not portable to Rust today). IMPLEMENTED: InnerTubeDirectSource rewritten as a multi-client director (VISIONOS_0_1 visitor-backed → VISIONOS 1.02 → WEB_REMIX tokenless), visitor bootstrap via sw.js_data + music-homepage fallback with TTL+cooldown, n-param playback-readiness filter, per-profile 10-min health demotion, pinned FIRST in the pool ahead of Piped/Invidious (instances = failover now), yt-dlp still last on desktop. 7 new hermetic tests + 1 live test; 183 workspace tests green, clippy clean on the diff. Next: push → dispatch APK → on-device play test with Aryan.
-
-### 2026-11-10 17:56 UTC — agent-quill
-- STATUS: DONE — native app verified END-TO-END on device (Aryan: searched "believer", it plays)
-- TASK: Android native app (#111/#112)
-- FILES: src-tauri/src/mobile.rs (JNI bridge), android/** (UI overhaul 5a905b0)
-- WHAT: Launch-crash root cause was JNI symbol naming — Rust must export
-  `Java_io_github_aryan007h_musicoonline_core_MusicoCore_initNative` (full
-  package path incl. `core` segment + exact Kotlin name); fixed in bf6837c,
-  build 42863970105 green, on-device `musico-native: mobile core:
-  initialized` clean. Playback flows: Kotlin UI → JNI JSON → Rust core
-  `track.resolve` → cached local file → ExoPlayer. Phase-1 UI was bare, so
-  overhauled: PlaybackController 500 ms position/duration poll + seekTo
-  (Media3 has no position callback), pinned mini player with progress +
-  tap-to-expand now-playing sheet (artwork, seek slider, play/pause),
-  animated equalizer on the playing row, source chips, empty/loading/error
-  states, edge-to-edge + values-night window theme. Release dispatch
-  42869880095 cooking; install + screenshot verify next. NEXT: poToken/
-  BotGuard WebView bridge issue (Metrolist's primary path), Tauri android
-  job retirement at parity (#111 phase 3).
-
-### 2026-11-11 01:55 UTC — agent-nimbus
-- STATUS: WORKING — CI dispatch cooking (run 42890108428)
-- TASK: Android native UI overhaul (Aryan direct brief: Apple-Music home, M3 expressive, word-by-word lyrics, pill island)
-- FILES: src-tauri/src/mobile.rs, src-tauri/src/commands.rs (pub(crate) on
-  build_enhanced_lines_from_timed), android/** (16 files, +4352/−680)
-- WHAT: Replaced the phase-1 single search screen with the full shell.
-  Rust bridge gained: online.home/genres/browse/related/suggestions,
-  lyrics.enhanced (LRCLIB synced → plain → YTM plain, desktop word-timing
-  synthesis REUSED not duplicated), settings.save (shallow-merge patch +
-  full re-parse). Kotlin: Home (hero pager + Made-for-you/Trending grids
-  + carousels, generic shelf rendering so YTM re-layouts can't dead-end),
-  Library (likes/recents/queue, on-device persistence), Search (debounced
-  suggestions), full-screen player (3 pages, word-by-word lyric stage per
-  Aryan's spec: one big fill-animated word + small prev/next neighbors,
-  tap-to-seek, frame-clock interpolation over the 200 ms controller
-  polls), backdrops (Midnight/Rain/Aurora/Artwork-Glow), organized
-  Settings (core-backed airplane mode + autoplay), Profile + avatar
-  context menu, 3-icon pill island nav, mini player. Gates so far:
-  cargo check + clippy clean on aarch64-linux-android (zero findings in
-  mobile.rs); :app:compileDebugKotlin green with zero warnings on local
-  gradle 8.10.2/JDK17. NEXT: CI APK → on-device verify with Aryan
-  (home feed, lyrics sync feel, rain backdrop).
-
-### 2026-11-11 04:55 UTC — agent-nimbus
-- STATUS: DONE — 0.9.0 tagged, release run cooking (42922352861); PR #114 merged to main
-- TASK: Android native UI — 4 device-test rounds with Aryan, shipped as v0.9.0
-- WHAT: PR #114 (feat/android-native-app → main, 25 commits) merged after
-  branch-verify dispatch went green on all 5 platform jobs. Tag v0.9.0
-  (first stable, non-prerelease tag) → release workflow builds
-  Linux/macOS/Windows/Android-native + publish. Version 0.9.0 across
-  Cargo/tauri.conf/package.json/android/workflow; CHANGELOG documents it.
-  FINAL STORY: M3-expressive Compose app — pill island (Home/Radio/
-  Library/Search), Apple-Music home with TRULY endless browse
-  (continuation → charts → genre chain; live test proved home has NO
-  continuation), onboarding (langs + ≥3 artists → "Because you like …"
-  shelves, live-tested: 49-track shelves), word-by-word lyrics w/
-  Midnight/Rain/Aurora/Glow (Glow default), detail pages w/ Play/Queue/
-  Save offline, real audiofx EQ + bass boost, skip silence + speed,
-  5 color-theory palettes, long-press track sheet.
-  ROOT-CAUGHT ON DEVICE (not guessed): (1) online.related returned a bare
-  JsonArray → MusicoCore.call's object-contract collapse to {} silently
-  killed radio seeding — bridge now strict + loud, Rust wraps arrays;
-  (2) YTM mood cards share ONE browseId → duplicate Lazy keys crashed
-  Radio + deep scrolls — every key carries its index; (3) ItemKind
-  "unknown" killed Radio decode — tolerant deserializer; (4) personalization
-  failures were invisible — breadcrumbs + banner (logcat tag Music0UI).
-  LESSON (durable): desktop live tests validate the Rust functions, NOT
-  the JNI JSON contract — shapes must be tested through the bridge.
-  NEXT: poToken/BotGuard WebView bridge (#113) remains the streaming
-  hardening; Tauri android job retirement at parity (#111 phase 3).
-
 ## agent-onyx — 2026-11-12
 WORKING: triaging independent pre-merge security review (agent verdict: FIX-FIRST, 0 P0 / 5 P1 / 12 P2)
 DONE:
@@ -378,24 +263,6 @@ DONE:
 - Floating pills fix (from #117) + notifications confirmed working on-device
 - release.yml: dispatch inputs now override versionCode/versionName (test rig)
 NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9.2→0.9.3 through the real flow
-
-### 2026-11-21 15:42 UTC — agent-prism
-- STATUS: CLAIMED
-- TASK: T11
-- FILES: src-tauri/src/online/{stream_server,stream,sources,saavn,mod}.rs, src-tauri/src/mobile.rs, android/app/src/main/AndroidManifest.xml, android/app/src/main/res/xml/network_security_config.xml, android/shared/src/{androidMain,commonMain,desktopTest}/**
-- WHAT: I'm agent-prism, claiming task T11: stream-while-download loopback HTTP range server over `.part` (keeping cached Airplane-Mode short-circuit + atomic rename/size-verify), honest resolve errors with title + Retry toast (no silent skip on user-tapped tracks), and indeterminate resolve progress in the mini player.
-
-### 2026-11-21 16:00 UTC — agent-prism
-- STATUS: DONE
-- TASK: T11
-- FILES: src-tauri/src/online/{stream_server,stream,sources,saavn,mod}.rs, src-tauri/src/mobile.rs, android/app/src/main/{AndroidManifest.xml,res/xml/network_security_config.xml}, android/shared/src/androidMain/.../PlaybackController.kt, android/shared/src/commonMain/.../{MusicViewModel.kt,MusicoApp.kt}, android/shared/src/desktopTest/.../SharedCoreTests.kt
-- WHAT: Implemented loopback HTTP/1.1 range-request server (`stream_server.rs` + 4 hermetic tests) pumping upstream audio into `.part` with 64 KiB startup gate and atomic rename/size-verify; preserved cached Airplane-Mode short-circuit; wired `allowStream` on mobile `track.resolve` + loopback-only cleartext config + Media3 HTTP URI support; added `ResolveFailurePolicy` (with desktopTest coverage) so user-tapped resolve failures show a title + Retry toast instead of silently swapping tracks; added indeterminate `LinearProgressIndicator` in MiniPlayer & DesktopDockedPlayerBar. Verify: `cargo test -p musico-online stream_server`, `./gradlew :shared:desktopTest`, and on-device tap of uncached + unavailable tracks.
-
-### 2026-11-21 16:01 UTC — agent-prism
-- STATUS: CLAIMED
-- TASK: T12
-- FILES: src-tauri/src/online/{stream,sources,saavn}.rs, src-tauri/src/mobile.rs, android/shared/src/commonMain/.../MusicViewModel.kt
-- WHAT: Claiming task T12: sidecar `.meta.json` metadata written at download time (excluded from audio listings, deleted on prune/clear) + one-time rate-limited online enrichment for legacy stems cached in sled, with offline fallback to stem.
 
 ### 2026-11-21 16:12 UTC — agent-prism
 - STATUS: DONE
@@ -492,3 +359,65 @@ NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9
 - TASK: Round-3 sweep + unit tests
 - FILES: android/shared/src/commonMain/.../{onboarding/OnboardingScreen,ui/MusicViewModel}.kt, android/shared/src/desktopMain/.../platform/DesktopPlayback.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt
 - WHAT: Fixed 3 additional bugs found during sweep: (1) `OnboardingScreen` artist search `LazyColumn` keyed by raw `it.videoId` (crash risk on duplicate/blank IDs) → `itemsIndexed` with index-disambiguated keys; (2) `MusicViewModel.search` lacked a cancellable `searchJob`, and `searchArtists`/`onQueryChange`/`search` could let stale/cancelled coroutines overwrite state or flip loading spinners via `runCatching` swallowing `CancellationException`; (3) `DesktopPlayback.playFile` left `_isBuffering = true` on native error (`try/finally` fix) and `release()` cancelled `scope` immediately after launching `player.stop` (now stops engine cleanly with a 300 ms timeout before `scope.cancel()`). Added unit tests in `SharedCoreTests.kt` for T14 (`snapCacheCapMb`), T15 (`mapFiveBandsToTenDb` + Desktop EQ prefs persistence), T17 (count/downloads formatters), and T18 (`safeCornerDp`/`safePositiveScale`). Static checks passed across all 26 Kotlin + 7 Rust + 2 XML modified files (no `cargo`/`gradle` in container). Verify: `cargo test --workspace` and `./gradlew :shared:desktopTest`.
+
+### 2026-11-22 16:22 UTC — agent-solstice
+- STATUS: CLAIMED
+- TASK: T20
+- FILES: android/shared/src/commonMain/.../{components/Common,player/Backdrops,player/NowPlayingScreen,player/LyricsPane,ui/MusicoApp,home/HomeScreen,detail/DetailScreen,library/LibraryScreen,library/PlaylistDetailScreen,radio/RadioScreen,profile/ProfileScreen,library/PlaylistSheets}.kt
+- WHAT: I'm agent-solstice, claiming task T20: eliminate every hard horizontal gradient cutoff via reusable `Modifier.musicoWash(...)` (offscreen cubic alpha feathering to 0.0 before geometric bounds), audit all `Brush.*Gradient` scrims/washes, overhaul Aurora (volumetric boreal ray curtains + arctic starfield) and Rain (cinematic rain-on-clear-dark-glass droplets, rivulets & soft bokeh), and restyle Desktop's bottom dock into a floating M3 Expressive squircle pill.
+
+### 2026-11-22 17:08 UTC — agent-solstice
+- STATUS: DONE
+- TASK: T20
+- FILES: android/shared/src/commonMain/.../{components/Common,player/Backdrops,player/NowPlayingScreen,player/LyricsPane,home/HomeScreen,library/LibraryScreen,detail/DetailScreen,ui/MusicoApp}.kt
+- WHAT: Added reusable `Modifier.musicoWash(...)` (offscreen compositing + height-coupled Gaussian radial blooms + multiplicative `BlendMode.DstIn` cubic fade to 0.0 at 98% height so no wash can ever create a horizontal cutoff) and `musicoScrimBrush(...)`; refactored `AmbientTopWash` onto `musicoWash`; replaced abrupt 3-stop scrims in `HomeScreen`, `LibraryScreen`, and `DetailScreen`; upgraded `NowPlayingScreen` artwork halo to bounded 5-stop Gaussian decay and `LyricsPane` vertical fade mask to an 8-stop cubic feather; overhauled `Backdrops.kt` (volumetric 3-curtain feathered vertical-ray Aurora with arctic starfield, realistic rain-on-clear-dark-glass Rain with drifting bokeh, depth-layered streaks, 3D refracting beads & sliding rivulets, plus smooth 6-stop readability scrims on Fluid/ArtworkGlow/Midnight); converted Desktop's bottom player bar in `MusicoApp.kt` into a floating 76 dp M3 Expressive squircle pill dock (`28.dp` radius, subtle glow border, smooth 4-stop horizontal cover tint) and smoothed `MiniPlayer`'s horizontal gradient. Verify: inspect all screens in all 5 palettes and all 5 backdrops at multiple Desktop window sizes and on Android — zero gradient cutoffs.
+
+### 2026-11-22 17:08 UTC — agent-solstice
+- STATUS: CLAIMED
+- TASK: T21
+- FILES: android/shared/src/commonMain/.../{theme/Theme,theme/Motion,components/Common,ui/MusicoApp,ui/MusicViewModel,home/HomeScreen,search/SearchScreen,radio/RadioScreen,library/LibraryScreen,library/PlaylistDetailScreen,detail/DetailScreen,player/NowPlayingScreen,player/LyricsPane,settings/SettingsScreen,settings/EqScreen,onboarding/OnboardingScreen,profile/ProfileScreen}.kt
+- WHAT: Claiming task T21: uniform Material 3 Expressive polish audit across all 12 screens — complete 5-rung palette-tinted tonal surface ladder & 4dp spacing/type scale in `Theme.kt`, matching-geometry shimmer skeletons for Search/Radio/Detail, inline retry on `DetailScreen`, eliminate ad-hoc fontSizes and cards-inside-cards, unify washes and icon discipline.
+
+### 2026-11-22 17:32 UTC — agent-solstice
+- STATUS: DONE
+- TASK: T21
+- FILES: android/shared/src/commonMain/.../{theme/Theme,components/Common,ui/MusicViewModel,ui/MusicoApp,home/HomeScreen,search/SearchScreen,radio/RadioScreen,detail/DetailScreen,settings/SettingsScreen,settings/EqScreen,profile/ProfileScreen,onboarding/OnboardingScreen}.kt
+- WHAT: Completed 12-screen M3 Expressive polish audit:
+  - `Theme.kt`: completed 5-rung palette-tinted tonal ladder (`surfaceContainerLowest`..`surfaceContainerHighest`), added 4dp `MusicoSpacing`, `MusicoShapes.tile`/`pillDock`, and unified `headline`/`titleLarge`/`overline` tokens with explicit line-heights.
+  - Per-screen checklist: (1) Home: `HeroCard` unified to `overline`/`headline`, seamless wash & scrims; (2) Search: added `AmbientTopWash`, `TrackListSkeleton` replacing spinner, cleaned empty copy; (3) Radio: adaptive shimmer tile grid replacing spinner, `MusicoShapes.tile` & `headline`/`titleLarge`/`overline`; (4) Library: audited — clean wash, scrims, copy, tonal cards; (5) PlaylistDetail: audited — clean wash, actions, pluralization; (6) Detail: added `DetailPageSkeleton`, wired `vm.retryTopDetail()` inline retry, unified `overline`/`headline`; (7) Player & (8) Lyrics: audited — Gaussian halo, 8-stop feather, unified motion; (9) Settings: added top `musicoWash`, flattened `SettingIcon` cards-inside-cards into tinted `Box`, clean About copy & tokens; (10) EQ: added top `musicoWash`, unified `overline`/`caption`/`tabularCaption`; (11) Onboarding: full-bleed top `musicoWash` behind `musicoTopInset`; (12) Profile + Desktop Rail: top `musicoWash`, palette-driven avatar gradient, flat `LinkRow` icon tiles, clean rail version subtitle.
+
+### 2026-11-22 17:32 UTC — agent-solstice
+- STATUS: CLAIMED
+- TASK: T22
+- FILES: android/shared/src/commonMain/.../{ui/MusicViewModel,home/HomeScreen,ui/MusicoApp}.kt, android/shared/src/androidMain/.../player/PlaybackController.kt, android/shared/src/desktopMain/.../platform/DesktopPlatform.kt, android/desktopApp/build.gradle.kts, src-tauri/Cargo.toml, src-tauri/tauri.conf.json, package.json, src-tauri/src/mobile.rs, src-tauri/src/online/{stream_server,stream,sources,saavn}.rs
+- WHAT: Claiming task T22: (1) fix persistent "Couldn't build shelves for: English" banner with language alias mapping + search fallback + retry/dismiss; (2) sync reported version across About/`app.update.check`/Desktop/manifests to `0.9.6-cmp` (`0.9.6` strict semver); (3) randomize `stream_server.rs` session tokens using 32-hex CSPRNG (`OsRng`); (4) fix Desktop shell resize/morph double-clip & `movableContentOf` state preservation across `840.dp`; (5) slash cold-start playback latency (~10s → fast) via async core prewarm, parallel JioSaavn vs InnerTube race, 32 KiB initial buffer gate, and Android `MediaController` pre-bind.
+
+### 2026-11-22 18:03 UTC — agent-solstice
+- STATUS: DONE
+- TASK: T22
+- FILES: android/shared/src/commonMain/.../{ui/MusicViewModel,home/HomeScreen,ui/MusicoApp}.kt, android/shared/src/androidMain/.../player/PlaybackController.kt, android/shared/src/desktopMain/.../platform/DesktopPlatform.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt, android/desktopApp/build.gradle.kts, src-tauri/Cargo.toml, src-tauri/tauri.conf.json, package.json, src-tauri/src/mobile.rs, src-tauri/src/online/{stream_server,stream,sources,saavn}.rs
+- WHAT: Completed all 5 correctness & latency fixes: (1) Added `resolveLanguageGenreStyle` (mapping regional language labels like `"English"` → Pop/Indie/Rock/etc.) + `"$lang top hits"` search fallback in `personalizeHome`, gated the Home error banner to only show when no shelves could be built, and upgraded `PersonalizationBanner` with Retry & Dismiss actions (+ Kotlin test); (2) Synced reported version across `Cargo.toml`, `tauri.conf.json`, `package.json`, `desktopApp/build.gradle.kts`, `DesktopPlatform.kt`, and `mobile.rs` (`app_display_version()` → `"0.9.6-cmp"`) with Rust unit test coverage; (3) Replaced predictable `s<counter>_<stem>` tokens in `stream_server.rs` with 32-hex CSPRNG tokens from `rand::rngs::OsRng` (loopback-only kept + hermetic test `stream_tokens_are_random_and_unpredictable`); (4) Folded rounded clip directly into `MusicoApp`'s single shell `graphicsLayer` and hoisted `MainTabContent` via `movableContentOf` to eliminate Desktop resize/morph double-draw; (5) Slashed cold-start playback latency by prewarming `stream_server`, `sources` TLS/visitor cache, and `saavn` client off-thread in `init_core`, racing JioSaavn vs InnerTube in parallel (`mpsc::channel`, 2.5 s cross-source cap), lowering `INITIAL_READY_BYTES` to 32 KiB, and pre-binding Android `MediaController` in `PlaybackController.init`. Verify: `cargo test --workspace`, `./gradlew :shared:desktopTest`, and device/Desktop smoke checks.
+
+### 2026-11-22 18:03 UTC — agent-solstice
+- STATUS: CLAIMED
+- TASK: T23
+- FILES: src-tauri/src/online/{playlist_import,mod}.rs, src-tauri/src/mobile.rs, android/shared/src/commonMain/.../{core/Models,platform/Platform,ui/MusicViewModel,ui/MusicoApp,ui/library/PlaylistSheets,ui/onboarding/OnboardingScreen,ui/settings/SettingsScreen}.kt, android/shared/src/androidMain/.../platform/AndroidPlatform.kt, android/shared/src/desktopMain/.../platform/DesktopPlatform.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt
+- WHAT: Claiming task T23: implement minimal v1 Playlist Import (both file import via Android SAF `OpenDocument` / Desktop `FileDialog` for Exportify/TuneMyMusic/Soundiiz CSV, Spotify/Music0 JSON, M3U/M3U8, and public URL import for `open.spotify.com/playlist/...` & `music.apple.com/.../playlist/...` with SSRF allowlist + 10 s timeout), single-flight cancelable Rust command `library.playlist.import` (+ `.status`/`.cancel`) with InnerTube matching & sled persistence, and clean M3 Expressive UI wired into Onboarding & Settings → Library.
+
+### 2026-11-22 18:41 UTC — agent-solstice
+- STATUS: DONE
+- TASK: T23
+- FILES: src-tauri/src/online/{playlist_import,mod}.rs, src-tauri/src/mobile.rs, android/shared/src/commonMain/.../{core/Models,platform/Platform,ui/MusicViewModel,ui/MusicoApp,ui/library/PlaylistSheets,ui/onboarding/OnboardingScreen,ui/settings/SettingsScreen}.kt, android/shared/src/androidMain/.../platform/AndroidPlatform.kt, android/shared/src/desktopMain/.../platform/DesktopPlatform.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt
+- WHAT: Implemented minimal v1 Playlist Import across Rust, Android, and Desktop: (1) new `playlist_import.rs` with RFC-4180 CSV (Exportify/TuneMyMusic/Soundiiz), Spotify/Music0 JSON, and M3U/M3U8 parsers (4 MiB / 500-track caps), strict HTTPS + exact host allowlist (`open.spotify.com`, `music.apple.com`) + redirect-guarded public URL fetcher (10 s timeout) extracting Spotify embed `__NEXT_DATA__` and Apple Music `application/ld+json`, plus normalized title/artist/duration match scorer and 6 hermetic Rust tests; (2) single-flight cancelable `library.playlist.import`, `.status`, and `.cancel` commands in `mobile.rs` (200 ms InnerTube pacing, sled persistence, RAII guard, dispatch validation test); (3) cross-platform `rememberPlaylistFilePicker` (`OpenDocument` on Android SAF, `FileDialog` on Desktop), `MusicViewModel` polling & cancellation, `ImportPlaylistDialog` (live `"Matching X of M…"` progress, cancel, completion summary, expandable unmatched list, Open playlist), wired into Onboarding & Settings → Library (+ Kotlin DTO test). Verify: `cargo test -p musico-online playlist_import`, `./gradlew :shared:desktopTest`, and interactive URL/file imports on Android & Desktop.
+
+### 2026-11-22 18:41 UTC — agent-solstice
+- STATUS: CLAIMED
+- TASK: T24
+- FILES: CHANGELOG.md, README.md
+- WHAT: Claiming task T24: update `CHANGELOG.md` with the `0.9.6` (Unreleased) entry covering the Compose Multiplatform architecture, Round 3 stability/streaming/EQ/downloads, and Round 4 polish/import/latency upgrades, and update `README.md` with the Desktop Compose Multiplatform section (CI bundle + `MUSICO_NATIVE_LIB`) without tagging or cutting a release.
+
+### 2026-11-22 18:45 UTC — agent-solstice
+- STATUS: DONE
+- TASK: T24
+- FILES: CHANGELOG.md, README.md
+- WHAT: Added `## [0.9.6] - Unreleased` section to `CHANGELOG.md` covering the CMP Android + Desktop restructure, stream-while-downloading playback, Playlist Import (URL + CSV/JSON/M3U), Downloads enrichment, EQ parity, seamless `musicoWash` gradients & Aurora/Rain backdrop overhauls, M3 Expressive polish audit, fast cold-start playback, and Round 3/4 fixes; updated `README.md` status to `0.9.6-cmp` (in development), added a **Desktop Compose App (Compose Multiplatform)** section documenting CI bundles and `MUSICO_NATIVE_LIB`, and added `:shared:desktopTest` and `android/` to Testing & Project layout. Versions kept at `0.9.6-cmp` (`0.9.6` strict semver) with no release/tag cut. Verify: review `CHANGELOG.md` and `README.md`.

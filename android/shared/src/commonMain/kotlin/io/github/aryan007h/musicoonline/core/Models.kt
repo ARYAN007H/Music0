@@ -296,3 +296,30 @@ data class UpdateInfo(
     val assetDigest: String? = null,
     val notes: String = "",
 )
+
+// ── Playlist import (mirror src-tauri/src/mobile.rs library.playlist.import) ─
+
+@Serializable
+data class UnmatchedImportTrack(
+    val title: String = "",
+    val artist: String = "",
+)
+
+@Serializable
+data class PlaylistImportResult(
+    val playlistId: String = "",
+    val name: String = "",
+    val total: Int = 0,
+    val matched: Int = 0,
+    val unmatched: List<UnmatchedImportTrack> = emptyList(),
+    val cancelled: Boolean = false,
+)
+
+@Serializable
+data class PlaylistImportStatus(
+    val active: Boolean = false,
+    val name: String = "",
+    val current: Int = 0,
+    val total: Int = 0,
+)
+

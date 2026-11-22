@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 
@@ -68,12 +69,25 @@ fun EqScreen(onBack: () -> Unit) {
         onDispose { PlatformEqualizer.removeListener(listener) }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .musicoTopInset()
-            .navigationBarsPadding(),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(240.dp)
+                .align(Alignment.TopCenter)
+                .musicoWash(
+                    primary = Musico.extras.primary,
+                    secondary = Musico.extras.support,
+                    glow = Musico.extras.mint,
+                    intensity = 0.20f,
+                ),
+        )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .musicoTopInset()
+                .navigationBarsPadding(),
+        ) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -123,8 +137,7 @@ fun EqScreen(onBack: () -> Unit) {
         ) {
             Text(
                 "PRESETS",
-                style = Musico.type.section,
-                fontSize = 11.sp,
+                style = Musico.type.overline,
                 color = Musico.extras.inkDim,
                 modifier = Modifier.padding(start = 24.dp, top = 14.dp, bottom = 8.dp),
             )
@@ -139,7 +152,7 @@ fun EqScreen(onBack: () -> Unit) {
                     FilterChip(
                         selected = eq.presetName == preset.name,
                         onClick = { PlatformEqualizer.applyPresetGain(preset.curve, preset.name) },
-                        label = { Text(preset.name, fontSize = 12.sp) },
+                        label = { Text(preset.name, style = Musico.type.caption) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -209,6 +222,7 @@ fun EqScreen(onBack: () -> Unit) {
                 }
             }
         }
+        }
     }
 }
 
@@ -259,13 +273,12 @@ private fun BandSlider(
         Spacer(Modifier.height(6.dp))
         Text(
             label,
-            fontSize = 10.sp,
+            style = Musico.type.caption,
             color = Musico.extras.inkDim,
         )
         Text(
             "${value / 100}",
             style = Musico.type.tabularCaption,
-            fontSize = 10.sp,
             color = if (enabled) Musico.extras.mint else Musico.extras.inkFaint,
         )
     }

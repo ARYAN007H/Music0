@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
@@ -62,6 +63,7 @@ import io.github.aryan007h.musicoonline.core.UpdateInfo
 import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.Palette
@@ -97,6 +99,7 @@ fun SettingsScreen(
     onClearCache: () -> Unit,
     onRefreshCache: () -> Unit,
     onOpenEq: () -> Unit,
+    onImportPlaylist: () -> Unit = {},
     updateInfo: UpdateInfo?,
     updateChecking: Boolean,
     updateDownloading: Boolean,
@@ -107,14 +110,27 @@ fun SettingsScreen(
 ) {
     LaunchedEffect(Unit) { onRefreshCache() }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .musicoTopInset()
-            .navigationBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(260.dp)
+                .align(Alignment.TopCenter)
+                .musicoWash(
+                    primary = Musico.extras.primary,
+                    secondary = Musico.extras.support,
+                    glow = Musico.extras.mint,
+                    intensity = 0.20f,
+                ),
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .musicoTopInset()
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
         item(key = "header") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
@@ -244,10 +260,36 @@ fun SettingsScreen(
                     }
                     Text(
                         "OPEN",
-                        style = Musico.type.caption,
-                        fontSize = 11.sp,
+                        style = Musico.type.overline,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+
+        item(key = "group-library") {
+            SettingsGroup(title = "Library") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .pressable(onClick = onImportPlaylist, pressedScale = 0.98f)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingIcon(Icons.Filled.PlaylistAdd)
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Import playlist", style = Musico.type.title, color = MaterialTheme.colorScheme.onBackground)
+                        Text(
+                            "Spotify or Apple Music link, or CSV / JSON / M3U file",
+                            style = Musico.type.caption,
+                            color = Musico.extras.inkDim,
+                        )
+                    }
+                    Text(
+                        "IMPORT",
+                        style = Musico.type.overline,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -426,11 +468,12 @@ fun SettingsScreen(
                 InfoSettingRow(
                     icon = Icons.Filled.Palette,
                     title = "Music0",
-                    subtitle = (if (isDesktopPlatform) "Compose Desktop over Musico Rust core" else "Compose Multiplatform over Musico Rust core") +
+                    subtitle = (if (isDesktopPlatform) "Desktop" else "Android") +
                         (coreVersion?.let { " · v$it" } ?: ""),
                 )
             }
         }
+    }
     }
 }
 
@@ -512,7 +555,7 @@ private fun FilterChipPlain(label: String, selected: Boolean, enabled: Boolean, 
     ) {
         Text(
             label,
-            fontSize = 12.sp,
+            style = Musico.type.caption,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -562,16 +605,18 @@ private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun SettingIcon(icon: ImageVector) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.size(40.dp),
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(9.dp),
+            modifier = Modifier.size(20.dp),
         )
     }
 }

@@ -12,6 +12,78 @@ containing a hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [0.9.6] - Unreleased
+
+Compose Multiplatform (CMP) unification across **Android** and **Desktop JVM**
+sharing one Material 3 Expressive `:shared` UI and the same Rust core over JNI,
+plus streaming playback, playlist import, and a full fit-and-finish sweep.
+(Current build version: `0.9.6-cmp`; not yet tagged or released.)
+
+### Added (Android & Desktop CMP)
+
+- **Compose Multiplatform desktop app (`android/desktopApp` + `:shared`):**
+  Android and Desktop now share one Material 3 Expressive UI, ViewModel,
+  palettes, Lyrics Studio, Library, and Rust JNI bridge (`musico_online_lib`),
+  with a native Rust `musico_playback` audio backend on Desktop and Media3
+  ExoPlayer on Android.
+- **Stream-while-downloading playback:** a loopback-only HTTP/1.1 range server
+  (`127.0.0.1`, 32-hex CSPRNG session tokens) streams audio from `.part` files
+  as bytes arrive (32 KiB startup gate) before atomically renaming into the
+  disk cache; already-cached tracks still short-circuit immediately in Airplane
+  Mode.
+- **Playlist Import (URL + File):** import playlists from public Spotify
+  (`open.spotify.com/playlist/...`) and Apple Music
+  (`music.apple.com/.../playlist/...`) links, or from exported CSV (Exportify,
+  TuneMyMusic, Soundiiz), JSON (Spotify / Music0), and M3U/M3U8 files via
+  Android SAF `OpenDocument` or Desktop `FileDialog`. Runs as a single-flight,
+  cancelable Rust job (`library.playlist.import`) with live `"Matching X of M…"`
+  progress, InnerTube track matching, sled persistence, and an expandable list
+  of unmatched tracks. Reachable from **Settings → Library** and **Onboarding**.
+- **Downloads metadata enrichment:** companion `{stem}.meta.json` sidecars are
+  written at download time and pruned alongside audio; legacy cache files are
+  enriched in the background (rate-limited, cached in sled, with offline
+  fallback).
+- **Equalizer parity:** Android AudioFX equalizer now reliably attaches on
+  session changes and track transitions with read-back diagnostics; Desktop
+  maps the 5-band UI + bass boost onto the 10-band Rust biquad DSP equalizer
+  and persists settings across restarts.
+- **Desktop floating squircle pill dock:** the widescreen bottom player floats
+  cleanly above content with cover-tinted wash, inline resolve progress, volume
+  control, and quick Lyrics Studio / Queue access.
+
+### Changed & Polished (Android & Desktop CMP)
+
+- **Seamless gradients & backdrop overhaul:** introduced reusable
+  `Modifier.musicoWash(...)` (offscreen cubic alpha feathering to 0.0 before
+  bounds) and `musicoScrimBrush(...)` to eliminate hard horizontal gradient
+  cutoffs across every screen, palette, and window size; overhauled **Aurora**
+  (volumetric 3-curtain boreal rays + starfield) and **Rain** (realistic rain
+  on dark glass with bokeh, tapered streaks, droplets, and sliding rivulets).
+- **Uniform Material 3 Expressive audit:** completed the 5-rung palette-tinted
+  tonal surface ladder, 4 dp spacing tokens, and unified typography scale across
+  all 12 screens; added matching-geometry shimmer skeletons on Search, Radio,
+  and Detail, inline Retry on Detail, and flattened nested cards in Settings
+  and Profile.
+- **Faster cold-start playback:** core startup pre-warms the loopback stream
+  server, TLS/visitor caches, and JioSaavn client off-thread; interactive track
+  resolution races JioSaavn and InnerTube in parallel; Android pre-binds
+  `MediaController` during startup.
+
+### Fixed (Android & Desktop CMP)
+
+- **Persistent `"Couldn't build shelves for: English"` banner:** added
+  `resolveLanguageGenreStyle` regional genre-alias mapping + search-backed
+  shelf fallback, gated the Home banner so it only appears when no shelves can
+  be built, and added Retry & Dismiss controls.
+- **Version consistency:** synchronized reported versions across About,
+  `app.update.check`, Desktop rail, and package manifests (`0.9.6-cmp` / `0.9.6`).
+- **Stability & edge-to-edge fixes:** clamped dynamic spring corners/scales to
+  prevent negative-corner crashes, unified top cutouts via `musicoTopInset()`,
+  fixed the Settings stream-cache slider drag/snap behavior, stopped Desktop
+  keyboard shortcuts from hijacking focused text inputs, preserved tab state
+  across the 840 dp resize breakpoint (`movableContentOf`), and eliminated
+  silent track swapping when a user-tapped track fails to resolve.
+
 ## [0.9.5] - 2026-11-12
 
 ### Fixed (Android native)

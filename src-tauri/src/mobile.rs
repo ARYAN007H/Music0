@@ -67,6 +67,33 @@ struct IndexJob {
 
 static INDEX_TX: OnceLock<Mutex<mpsc::Sender<IndexJob>>> = OnceLock::new();
 
+#[derive(Clone, Default)]
+struct ImportProgress {
+    active: bool,
+    name: String,
+    current: usize,
+    total: usize,
+}
+
+static IMPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static IMPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
+static IMPORT_PROGRESS: OnceLock<Mutex<ImportProgress>> = OnceLock::new();
+
+fn import_progress_lock() -> &'static Mutex<ImportProgress> {
+    IMPORT_PROGRESS.get_or_init(|| Mutex::new(ImportProgress::default()))
+}
+
+struct ImportRunGuard;
+impl Drop for ImportRunGuard {
+    fn drop(&mut self) {
+        if let Ok(mut p) = import_progress_lock().lock() {
+            p.active = false;
+        }
+        IMPORT_CANCELLED.store(false, Ordering::SeqCst);
+        IMPORT_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
+
 const TREE_TRACK_META: &str = "mobile:track_meta";
 const TREE_VID_TO_SONG: &str = "mobile:vid_to_song";
 const TREE_SONG_TO_VID: &str = "mobile:song_to_vid";
@@ -283,11 +310,30 @@ fn init_core(files: &str, cache: &str) {
         let _ = builder.try_init();
     }
     // Apply persisted stream-cache cap before any downloads/prunes happen.
-    let saved_cap_mb = crate::config::AppSettings::load().online_cache_mb.unwrap_or(0);
+    let settings = crate::config::AppSettings::load();
+    let saved_cap_mb = settings.online_cache_mb.unwrap_or(0);
     crate::online::stream::set_cache_cap_override_mb(u64::from(saved_cap_mb));
     // Warm the recommender DB early so first Library/Home calls are instant.
     if let Err(e) = recommender() {
         log::warn!("mobile core: recommender bootstrap deferred: {e}");
+    }
+    // Pre-warm loopback stream server and upstream TLS/visitor caches off-thread
+    // so the very first track tap resolves in ~1-2 s instead of cold-starting TLS.
+    crate::online::stream_server::prewarm();
+    if !settings.offline_mode {
+        crate::online::sources::prewarm_async();
+        let _ = std::thread::Builder::new()
+            .name("musico-saavn-prewarm".into())
+            .spawn(crate::online::saavn::prewarm_client);
+    }
+}
+
+/// Single source of truth for reported app version across About, Desktop Rail,
+/// `ping`, and `app.update.check` (matches Android `versionName = "0.9.6-cmp"`).
+fn app_display_version() -> &'static str {
+    match option_env!("MUSICO_VERSION_OVERRIDE") {
+        Some(v) if !v.trim().is_empty() => v.trim(),
+        _ => concat!(env!("CARGO_PKG_VERSION"), "-cmp"),
     }
 }
 
@@ -329,7 +375,7 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
 
     match cmd {
         "ping" => Ok(serde_json::json!({
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": app_display_version(),
             "core": "rust-mobile",
             "initialized": MOBILE_INITIALIZED.load(Ordering::Acquire),
         })),
@@ -531,6 +577,147 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 rec.playlist_move_track(id, from, to).map_err(|e| e.to_string())?;
                 Ok(serde_json::json!({ "moved": true }))
             })
+        }
+
+        // ── Playlist Import (T23: URL + CSV/JSON/M3U, single-flight cancelable) ─
+        "library.playlist.import.status" => {
+            let snap = import_progress_lock()
+                .lock()
+                .map(|p| p.clone())
+                .unwrap_or_default();
+            Ok(serde_json::json!({
+                "active": snap.active,
+                "name": snap.name,
+                "current": snap.current,
+                "total": snap.total,
+            }))
+        }
+
+        "library.playlist.import.cancel" => {
+            IMPORT_CANCELLED.store(true, Ordering::SeqCst);
+            Ok(serde_json::json!({ "cancelling": true }))
+        }
+
+        "library.playlist.import" => {
+            ensure_online()?;
+            if IMPORT_ACTIVE
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return Err("Another playlist import is already in progress.".into());
+            }
+            IMPORT_CANCELLED.store(false, Ordering::SeqCst);
+            let _guard = ImportRunGuard;
+
+            let mode = args
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .ok_or("missing mode")?;
+
+            if let Ok(mut p) = import_progress_lock().lock() {
+                p.active = true;
+                p.name = if mode == "url" {
+                    "Fetching playlist…".into()
+                } else {
+                    "Reading file…".into()
+                };
+                p.current = 0;
+                p.total = 0;
+            }
+
+            let parsed = match mode {
+                "url" => {
+                    let url = args
+                        .get("url")
+                        .and_then(|v| v.as_str())
+                        .ok_or("missing url")?;
+                    crate::online::playlist_import::fetch_public_playlist_url(url)?
+                }
+                "file" => {
+                    let file_name = args
+                        .get("fileName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("playlist.csv");
+                    let content = args
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .ok_or("missing content")?;
+                    crate::online::playlist_import::parse_playlist_file(file_name, content)?
+                }
+                _ => return Err("unsupported import mode (expected 'url' or 'file')".into()),
+            };
+
+            let total = parsed.tracks.len();
+            if let Ok(mut p) = import_progress_lock().lock() {
+                p.active = true;
+                p.name = parsed.name.clone();
+                p.current = 0;
+                p.total = total;
+            }
+
+            let mut matched_tracks: Vec<crate::online::OnlineTrack> = Vec::new();
+            let mut unmatched: Vec<crate::online::playlist_import::UnmatchedTrack> = Vec::new();
+            let mut cancelled = false;
+
+            for (idx, wanted) in parsed.tracks.iter().enumerate() {
+                if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+                    cancelled = true;
+                    break;
+                }
+                if let Ok(mut p) = import_progress_lock().lock() {
+                    p.current = idx + 1;
+                }
+
+                let query = if wanted.artist.is_empty() {
+                    wanted.title.clone()
+                } else {
+                    format!("{} {}", wanted.title, wanted.artist)
+                };
+
+                let matched = crate::online::search(&query, false, None)
+                    .ok()
+                    .and_then(|page| {
+                        crate::online::playlist_import::pick_best_match(wanted, &page.tracks)
+                    });
+
+                if let Some(track) = matched {
+                    matched_tracks.push(track);
+                } else {
+                    unmatched.push(crate::online::playlist_import::UnmatchedTrack {
+                        title: wanted.title.clone(),
+                        artist: wanted.artist.clone(),
+                    });
+                }
+
+                if idx + 1 < total && !IMPORT_CANCELLED.load(Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+
+            let playlist_id = if matched_tracks.is_empty() {
+                String::new()
+            } else {
+                with_recommender(|rec| {
+                    let pl = rec
+                        .playlist_create(&parsed.name)
+                        .map_err(|e| e.to_string())?;
+                    for track in &matched_tracks {
+                        remember_track_meta(rec, track);
+                        let pl_track = playlist_track_from_online(track);
+                        let _ = rec.playlist_add_track(&pl.id, pl_track);
+                    }
+                    Ok(pl.id)
+                })?
+            };
+
+            Ok(serde_json::json!({
+                "playlistId": playlist_id,
+                "name": parsed.name,
+                "total": total,
+                "matched": matched_tracks.len(),
+                "unmatched": unmatched,
+                "cancelled": cancelled,
+            }))
         }
 
         // ── Catalog Library & Metadata-Complete Likes ────────────────────
@@ -1183,10 +1370,7 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         // ── In-app updater ───────────────────────────────────────────────
         "app.update.check" => {
             const RELEASES_API: &str = "https://api.github.com/repos/ARYAN007H/Music0/releases/latest";
-            let current = match option_env!("MUSICO_VERSION_OVERRIDE") {
-                Some(v) if !v.trim().is_empty() => v.trim(),
-                _ => env!("CARGO_PKG_VERSION"),
-            };
+            let current = app_display_version();
             let client = reqwest::blocking::Client::builder()
                 .user_agent(format!("Music0-Android/{current}"))
                 .connect_timeout(std::time::Duration::from_secs(5))
@@ -1629,6 +1813,7 @@ mod tests {
         let pong = dispatch("ping", "{}").expect("ping should succeed");
         assert_eq!(pong["core"], "rust-mobile");
         assert_eq!(pong["initialized"], true);
+        assert_eq!(pong["version"], app_display_version());
         assert!(dispatch("does.not.exist", "{}").is_err());
     }
 
@@ -1730,6 +1915,8 @@ mod tests {
     #[test]
     fn version_newer_compares_semver() {
         assert!(version_newer("0.9.5", "0.9.6"));
+        assert!(version_newer("0.9.6-cmp", "0.9.7"));
+        assert!(!version_newer("0.9.6-cmp", "0.9.6"));
         assert!(version_newer("0.9.5", "1.0.0"));
         assert!(!version_newer("1.0.0", "0.9.9"));
         assert!(!version_newer("0.9.5", "0.9.5"));
@@ -1782,5 +1969,28 @@ mod tests {
         let _ = std::fs::remove_file(&with_sidecar);
         let _ = std::fs::remove_file(with_sidecar.with_extension("meta.json"));
         let _ = std::fs::remove_file(&legacy_stem);
+    }
+
+    #[test]
+    fn playlist_import_status_cancel_and_validation_dispatch() {
+        ensure_test_core();
+        let status = dispatch("library.playlist.import.status", "{}").expect("status");
+        assert_eq!(status["active"], false);
+
+        let cancel = dispatch("library.playlist.import.cancel", "{}").expect("cancel");
+        assert_eq!(cancel["cancelling"], true);
+
+        // Unsupported mode and disallowed URLs must fail cleanly without panicking.
+        assert!(dispatch("library.playlist.import", r#"{"mode":"bogus"}"#).is_err());
+        assert!(dispatch(
+            "library.playlist.import",
+            r#"{"mode":"url","url":"http://127.0.0.1/playlist/1234567890"}"#
+        )
+        .is_err());
+        assert!(dispatch(
+            "library.playlist.import",
+            r#"{"mode":"file","fileName":"empty.csv","content":""}"#
+        )
+        .is_err());
     }
 }

@@ -60,6 +60,9 @@ pub const SEARCH_MERGE_LIMIT: usize = 10;
 // silently covers nothing. 6 s is still well inside the interactive
 // resolve budget (saavn is the first stage).
 const API_TIMEOUT: Duration = Duration::from_secs(6);
+/// Tight timeout for best-effort cross-source lookup while racing InnerTube
+/// Direct so a slow JioSaavn lookup never drags cold-start playback.
+const CROSS_SOURCE_SEARCH_TIMEOUT: Duration = Duration::from_millis(2_500);
 /// Background resolve budget, mirroring stream.rs's 2 × 120 s total.
 const RESOLVE_BUDGET: Duration = Duration::from_secs(240);
 /// Interactive resolve budget, mirroring `stream::PLAY_RESOLVE_BUDGET`.
@@ -81,6 +84,11 @@ static API_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 });
+
+/// Warms the JioSaavn HTTP client's TLS root store off the UI/play path.
+pub(crate) fn prewarm_client() {
+    let _ = LazyLock::force(&API_CLIENT);
+}
 
 /// API base with `MUSICO_SAAVN_API` override applied (trailing `/` trimmed
 /// so both `https://host/api.php` and `https://host/api.php/` work).
@@ -184,6 +192,10 @@ struct ArtistJson {
 /// timeout, parse, shape drift) returns an empty vec — saavn is a bonus
 /// source merged after the YT results and must never poison them (#54).
 pub fn search_songs(query: &str, limit: usize) -> Vec<OnlineTrack> {
+    search_songs_with_timeout(query, limit, API_TIMEOUT)
+}
+
+fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<OnlineTrack> {
     let q = query.trim();
     if q.is_empty() || limit == 0 {
         return Vec::new();
@@ -193,7 +205,7 @@ pub fn search_songs(query: &str, limit: usize) -> Vec<OnlineTrack> {
     let resp = API_CLIENT
         .get(&url)
         .query(&[("q", q), ("n", n.as_str()), ("p", "1")])
-        .timeout(API_TIMEOUT)
+        .timeout(timeout)
         .send();
     let body = match resp {
         Ok(r) if r.status().is_success() => r.text().ok(),
@@ -450,7 +462,7 @@ pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossS
         }
     }
     for query in queries {
-        let candidates = search_songs(&query, 6);
+        let candidates = search_songs_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
         let matched = candidates
             .into_iter()
             .filter(|c| {
@@ -506,7 +518,7 @@ pub(crate) fn try_cross_source_resolve(track: &OnlineTrack) -> Option<PathBuf> {
     }
 
     for query in queries {
-        let candidates = search_songs(&query, 6);
+        let candidates = search_songs_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
         // Identity anchors: bidirectional ALPHANUMERIC title containment
         // (punctuation variants — "(feat. Toaka)" vs "feat. Toaka" — must
         // not break the match) + artist-word overlap. Duration is a

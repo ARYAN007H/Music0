@@ -57,6 +57,7 @@ import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
+import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
@@ -645,13 +646,7 @@ private fun SmartMixCard(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1f to Color(0xD90A0A14),
-                        ),
-                    ),
+                    .background(musicoScrimBrush(Color(0xFF0A0A14), maxAlpha = 0.86f, startFraction = 0.26f)),
             )
             Column(
                 Modifier

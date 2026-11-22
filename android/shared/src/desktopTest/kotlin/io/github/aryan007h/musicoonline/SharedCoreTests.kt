@@ -4,12 +4,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.CoreException
 import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
+import io.github.aryan007h.musicoonline.core.PlaylistImportResult
+import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
+import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformPrefs
 import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
 import io.github.aryan007h.musicoonline.platform.mapFiveBandsToTenDb
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.ResolveFailureAction
 import io.github.aryan007h.musicoonline.ui.ResolveFailurePolicy
+import io.github.aryan007h.musicoonline.ui.resolveLanguageGenreStyle
 import io.github.aryan007h.musicoonline.ui.library.formatDownloadsSummary
 import io.github.aryan007h.musicoonline.ui.library.formatSongCount
 import io.github.aryan007h.musicoonline.ui.library.formatTrackCount
@@ -20,6 +24,7 @@ import io.github.aryan007h.musicoonline.ui.settings.snapCacheCapMb
 import io.github.aryan007h.musicoonline.ui.theme.Palette
 import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
 import io.github.aryan007h.musicoonline.ui.theme.safePositiveScale
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
@@ -223,5 +228,53 @@ class SharedCoreTests {
         assertEquals(0.01f, safePositiveScale(-0.5f), 1e-6f)
         assertEquals(0.01f, safePositiveScale(0f), 1e-6f)
         assertEquals(0.96f, safePositiveScale(0.96f), 1e-6f)
+    }
+
+    @Test
+    fun resolveLanguageGenreStyleMapsRegionalLanguagesToGenreCards() {
+        val styles = listOf(
+            ShelfItem(title = "Pop", browseId = "FEmusic_moods_and_genres_category", params = "pop"),
+            ShelfItem(title = "K-Pop", browseId = "FEmusic_moods_and_genres_category", params = "kpop"),
+            ShelfItem(title = "Hindi", browseId = "FEmusic_moods_and_genres_category", params = "hindi"),
+            ShelfItem(title = "Unbrowsable English", browseId = null),
+        )
+        assertEquals("Pop", resolveLanguageGenreStyle("English", styles)?.title)
+        assertEquals("K-Pop", resolveLanguageGenreStyle("Korean", styles)?.title)
+        assertEquals("Hindi", resolveLanguageGenreStyle("Hindi", styles)?.title)
+        assertNull(resolveLanguageGenreStyle("Esperanto", styles))
+    }
+
+    @Test
+    fun playlistImportDtosDecodeWirePayload() {
+        val json = Json { ignoreUnknownKeys = true }
+        val res = json.decodeFromString(
+            PlaylistImportResult.serializer(),
+            """
+            {
+              "playlistId": "pl_123",
+              "name": "Late Night Drives",
+              "total": 10,
+              "matched": 8,
+              "unmatched": [
+                {"title": "Rare Demo", "artist": "Indie Band"}
+              ],
+              "cancelled": false
+            }
+            """.trimIndent(),
+        )
+        assertEquals("pl_123", res.playlistId)
+        assertEquals("Late Night Drives", res.name)
+        assertEquals(10, res.total)
+        assertEquals(8, res.matched)
+        assertEquals(1, res.unmatched.size)
+        assertEquals("Rare Demo", res.unmatched.first().title)
+
+        val status = json.decodeFromString(
+            PlaylistImportStatus.serializer(),
+            """{"active":true,"name":"Late Night Drives","current":4,"total":10}""",
+        )
+        assertTrue(status.active)
+        assertEquals(4, status.current)
+        assertEquals(10, status.total)
     }
 }

@@ -62,6 +62,7 @@ import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
+import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.components.SectionHeader
 import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
@@ -110,6 +111,8 @@ fun HomeScreen(
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit = { _, _ -> },
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
+    onRetryPersonalization: (() -> Unit)? = null,
+    onDismissPersonalizationError: (() -> Unit)? = null,
     currentTrackId: String?,
     isPlaying: Boolean = false,
 ) {
@@ -125,7 +128,12 @@ fun HomeScreen(
                 error != null && shelves.isEmpty() && smartMixes.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
                 loading && shelves.isEmpty() && smartMixes.isEmpty() -> HomeSkeleton()
                 else -> Column {
-                    PersonalizationBanner(personalizing, personalizationError)
+                    PersonalizationBanner(
+                        personalizing = personalizing,
+                        error = personalizationError,
+                        onRetry = onRetryPersonalization,
+                        onDismiss = onDismissPersonalizationError,
+                    )
                     HomeFeed(
                         displayName = displayName,
                         shelves = shelves,
@@ -150,7 +158,12 @@ fun HomeScreen(
 }
 
 @Composable
-private fun PersonalizationBanner(personalizing: Boolean, error: String?) {
+private fun PersonalizationBanner(
+    personalizing: Boolean,
+    error: String?,
+    onRetry: (() -> Unit)?,
+    onDismiss: (() -> Unit)?,
+) {
     when {
         personalizing -> Row(
             Modifier
@@ -170,12 +183,45 @@ private fun PersonalizationBanner(personalizing: Boolean, error: String?) {
                 color = Musico.extras.inkDim,
             )
         }
-        error != null -> Text(
-            error,
-            style = Musico.type.caption,
-            color = Musico.extras.coral,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-        )
+        error != null -> Surface(
+            shape = MusicoShapes.tile,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    error,
+                    style = Musico.type.caption,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (onRetry != null) {
+                    Text(
+                        "Retry",
+                        style = Musico.type.caption,
+                        fontWeight = FontWeight.Bold,
+                        color = Musico.extras.mint,
+                        modifier = Modifier.pressable(onClick = onRetry, pressedScale = 0.92f),
+                    )
+                }
+                if (onDismiss != null) {
+                    Text(
+                        "Dismiss",
+                        style = Musico.type.caption,
+                        color = Musico.extras.inkDim,
+                        modifier = Modifier.pressable(onClick = onDismiss, pressedScale = 0.92f),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -580,13 +626,7 @@ private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1f to Color(0xD90A0A14),
-                        ),
-                    ),
+                    .background(musicoScrimBrush(Color(0xFF0A0A14), maxAlpha = 0.86f, startFraction = 0.26f)),
             )
             Column(
                 Modifier
@@ -712,13 +752,7 @@ private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = 
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.50f to Color.Transparent,
-                        1f to Color(0xD40A0A12),
-                    ),
-                ),
+                .background(musicoScrimBrush(Color(0xFF0A0A12), maxAlpha = 0.85f, startFraction = 0.24f)),
         )
         Row(
             Modifier
@@ -731,17 +765,14 @@ private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = 
                 if (item.subtitle.isNotBlank()) {
                     Text(
                         item.subtitle.uppercase(),
-                        style = Musico.type.section,
-                        fontSize = 11.sp,
-                        letterSpacing = 2.sp,
+                        style = Musico.type.overline,
                         color = Musico.extras.mint,
                     )
                     Spacer(Modifier.height(4.dp))
                 }
                 Text(
                     item.title,
-                    style = Musico.type.display,
-                    fontSize = 26.sp,
+                    style = Musico.type.headline,
                     color = Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.ListeningStatsReply
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
+import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 
@@ -71,14 +72,27 @@ fun ProfileScreen(
     var editing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf(displayName) }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .musicoTopInset()
-            .navigationBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(260.dp)
+                .align(Alignment.TopCenter)
+                .musicoWash(
+                    primary = Musico.extras.primary,
+                    secondary = Musico.extras.support,
+                    glow = Musico.extras.mint,
+                    intensity = 0.22f,
+                ),
+        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .musicoTopInset()
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
         item(key = "header") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
@@ -104,8 +118,8 @@ fun ProfileScreen(
                         .background(
                             Brush.linearGradient(
                                 listOf(
-                                    Color(0xFF7C5CFF),
-                                    Color(0xFF53F2C4),
+                                    Musico.extras.primary,
+                                    Musico.extras.mint,
                                 ),
                             ),
                         ),
@@ -120,7 +134,7 @@ fun ProfileScreen(
                 Spacer(Modifier.height(14.dp))
                 Text(
                     displayName,
-                    style = Musico.type.display.copy(fontSize = 26.sp),
+                    style = Musico.type.headline,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 TextButton(onClick = { editing = true; draft = displayName }) {
@@ -164,8 +178,7 @@ fun ProfileScreen(
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             "TASTE PROFILE",
-                            style = Musico.type.section,
-                            fontSize = 11.sp,
+                            style = Musico.type.overline,
                             color = Musico.extras.mint,
                         )
                         val mins = ((listeningStats?.totalListenedSecs ?: 0L) / 60L).coerceAtLeast(0L)
@@ -205,12 +218,13 @@ fun ProfileScreen(
                     )
                     LinkRow(
                         icon = Icons.Filled.History,
-                        title = "About the engine",
-                        subtitle = "Musico Rust core" + (coreVersion?.let { " · v$it" } ?: ""),
+                        title = "About Music0",
+                        subtitle = coreVersion?.let { "Version $it" } ?: "Music0",
                         onClick = {},
                     )
                 }
             }
+        }
         }
     }
 
@@ -258,7 +272,7 @@ private fun StatCard(icon: ImageVector, value: String, label: String, modifier: 
         ) {
             Icon(icon, contentDescription = null, tint = Musico.extras.mint, modifier = Modifier.size(22.dp))
             Spacer(Modifier.height(8.dp))
-            Text(value, style = Musico.type.display.copy(fontSize = 26.sp), color = MaterialTheme.colorScheme.onBackground)
+            Text(value, style = Musico.type.headline, color = MaterialTheme.colorScheme.onBackground)
             Text(label, style = Musico.type.caption, color = Musico.extras.inkDim)
         }
     }
@@ -274,12 +288,14 @@ private fun LinkRow(icon: ImageVector, title: String, subtitle: String, onClick:
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.size(40.dp),
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(9.dp))
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.size(14.dp))
         Column(Modifier.weight(1f)) {
