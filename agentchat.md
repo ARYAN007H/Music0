@@ -80,6 +80,7 @@ oldest-first rule — never delete a specific agent's entry otherwise.
 
 | Agent | Role | Status |
 |---|---|---|
+| **Aryan** | coordinator — product owner: all product decisions, merges & releases; relays between chats | active |
 | agent-1 | lead — orchestration + T3 (stream source fast path) | active |
 | agent-ember | worker — T4 (JioSaavn) + #61 lyrics — both landed | round complete |
 | agent-falcon | worker — T10 (macOS release support) | active |
@@ -421,3 +422,14 @@ NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9
 - TASK: T24
 - FILES: CHANGELOG.md, README.md
 - WHAT: Added `## [0.9.6] - Unreleased` section to `CHANGELOG.md` covering the CMP Android + Desktop restructure, stream-while-downloading playback, Playlist Import (URL + CSV/JSON/M3U), Downloads enrichment, EQ parity, seamless `musicoWash` gradients & Aurora/Rain backdrop overhauls, M3 Expressive polish audit, fast cold-start playback, and Round 3/4 fixes; updated `README.md` status to `0.9.6-cmp` (in development), added a **Desktop Compose App (Compose Multiplatform)** section documenting CI bundles and `MUSICO_NATIVE_LIB`, and added `:shared:desktopTest` and `android/` to Testing & Project layout. Versions kept at `0.9.6-cmp` (`0.9.6` strict semver) with no release/tag cut. Verify: review `CHANGELOG.md` and `README.md`.
+
+### 2026-11-22 21:35 UTC — Aryan (logged via Bella, review assistant)
+- STATUS: DECISION LOG (retroactive, recorded so the bus has them)
+- TASK: —
+- WHAT: Product decisions attributed to their owner, Aryan: (1) Round-2 palette naming (Nebula/Ocean/Ember/Forest/Mono) was Aryan's spec — the "Palette.NEBULA case mismatch" fix corrected an agent test reference, not the design; (2) Tauri retirement + v1.0.0 direction is Aryan's explicit decision (2026-11-21), executed in PR #132 `fix/retire-tauri-compose-v1` stacked on #131; (3) T16 playlist import: BOTH URL + file paths, v1-simple (implemented in #131 per this approval); (4) Release policy unchanged: v0.9.5 stays Latest — no v1.0.0 tag until Aryan says so. Process note going forward: ALL product decisions (Aryan's included) must be logged here when they are made, not retroactively.
+
+### 2026-11-22 21:55 UTC — Aryan (logged via Bella, review assistant)
+- STATUS: TASKS POSTED — round 5 (much-needed + polish)
+- TASK: T25 (MUCH NEEDED — instant-start playback) + T26 (backdrop v2)
+- FILES: src-tauri/src/online/{stream.rs,stream_server.rs,sources.rs}, musico_core paths after rename, android/shared/.../DesktopPlayback.kt, PlaybackController.kt, player/Backdrops.kt
+- WHAT: Aryan's report + directives, verbatim intent: **T25 — "songs are taking like 10 secs to load from cold start; I think it's resolving the whole track first then starting to play. It should start playing the second the first 5 secs are available — buffer in between if the user has slow internet, but the start should be instant, just like other big music companies."** T11's loopback pump (64 KiB startup gate) should already give instant start — so MEASURE where the ~10 s actually goes before coding: (a) does the DESKTOP `DesktopPlayback.playFile` path use `resolve_track_streaming`/loopback URL at all, or does it still block on whole-file `track.resolve` → play local file? (b) resolve-chain latency: Piped/Invidious serial failover can burn seconds before the pump starts — parallelize/first-success, cache last-good instance, and pre-resolve the NEXT track while the current one plays. Target: click-to-audio < 2.5 s cold, < 1 s warm, on both platforms; instrument timings (log click→resolved→first-byte→audio) and add a hermetic test for the startup-gate behavior. **T26 — "the Fluid water effect looks AI-generated; we want a clean rain-on-clear-glass look"**: replace/upgrade the Fluid backdrop with a rain-on-glass effect. Evaluate implementation honestly and pick with a bundle-size budget: bundled seamless MP4 loop (Android: Media3 video composable is trivial; Desktop: no first-party video composable in CMP — evaluate a community player lib vs a Skia/AGSL-style rain shader port vs divergent implementations) — report findings in the Log BEFORE implementing, then implement behind the existing backdrop picker (Fluid → Rain on glass, other backdrops unchanged).
