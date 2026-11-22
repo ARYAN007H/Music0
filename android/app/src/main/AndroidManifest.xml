@@ -16,6 +16,7 @@
         android:theme="@style/Theme.Musico"
         android:allowBackup="true"
         android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="true">
 
         <activity

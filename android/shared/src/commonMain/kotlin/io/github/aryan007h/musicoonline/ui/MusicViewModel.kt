@@ -32,6 +32,7 @@ import io.github.aryan007h.musicoonline.platform.PlatformPrefs
 import io.github.aryan007h.musicoonline.platform.PlatformUpdater
 import io.github.aryan007h.musicoonline.platform.currentLocalHour
 import io.github.aryan007h.musicoonline.platform.currentTimeMillis
+import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.platform.prefetchArtworkImage
 import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
@@ -78,6 +79,35 @@ enum class AppTab { HOME, RADIO, LIBRARY, SEARCH }
 
 enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE, DETAIL, COLLECTION, EQ, ONBOARD }
 
+/** Decision matrix when `track.resolve` fails for a queue entry (T11). */
+enum class ResolveFailureAction {
+    /** Show an actionable error toast with track title + Retry; never swap tracks. */
+    SHOW_RETRY_TOAST,
+    /** Background / autoplay transition may advance to the next entry. */
+    AUTO_SKIP,
+    /** Stop auto-skipping after consecutive background failures. */
+    STOP_AUTO_SKIP,
+}
+
+object ResolveFailurePolicy {
+    fun decide(
+        userInitiated: Boolean,
+        isOffline: Boolean,
+        hasMultipleInQueue: Boolean,
+        consecutiveAutoSkips: Int,
+        maxAutoSkips: Int = 3,
+    ): ResolveFailureAction {
+        if (userInitiated || isOffline || !hasMultipleInQueue) {
+            return ResolveFailureAction.SHOW_RETRY_TOAST
+        }
+        return if (consecutiveAutoSkips >= maxAutoSkips) {
+            ResolveFailureAction.STOP_AUTO_SKIP
+        } else {
+            ResolveFailureAction.AUTO_SKIP
+        }
+    }
+}
+
 /**
  * Shared Compose Multiplatform ViewModel driving both Android & Desktop JVM:
  * - Full sled-backed Library (user playlists CRUD/reorder, metadata-complete
@@ -123,6 +153,7 @@ class MusicViewModel(
         val durationMs: Long = 0,
         val volume: Float = 1f,
         val resolvingId: String? = null,
+        val resolvingTrack: OnlineTrack? = null,
         // Queue
         val queue: List<OnlineTrack> = emptyList(),
         val queueIndex: Int = -1,
@@ -219,10 +250,12 @@ class MusicViewModel(
     private var resolveJob: Job? = null
     private var consecutiveAutoSkips = 0
     private var suggestJob: Job? = null
+    private var searchJob: Job? = null
     private var autoplayExtendJob: Job? = null
     private var prefetchJob: Job? = null
     private var personalizeJob: Job? = null
     private var artistSearchJob: Job? = null
+    private var downloadsEnrichJob: Job? = null
 
     // Listen telemetry for closed-loop Rust recommender
     private var telemetryTrack: OnlineTrack? = null
@@ -345,7 +378,7 @@ class MusicViewModel(
         }
     }
 
-    private suspend fun refreshDownloadsInternal() {
+    private suspend fun refreshDownloadsInternal(allowEnrich: Boolean = true) {
         runCatching {
             val reply = MusicoCore.call("library.downloads.list")
             json.decodeFromJsonElement(DownloadsListReply.serializer(), reply)
@@ -355,6 +388,24 @@ class MusicViewModel(
                     downloads = dl.downloads,
                     downloadsTotalBytes = dl.totalBytes,
                 )
+            }
+            if (allowEnrich && !_state.value.coreSettingsOffline) {
+                val hasLegacyStems = dl.downloads.any { item ->
+                    item.track.title.isBlank() ||
+                        (item.track.title == item.track.videoId && item.track.artist == "Offline track")
+                }
+                if (hasLegacyStems && downloadsEnrichJob?.isActive != true) {
+                    downloadsEnrichJob = scope.launch(Dispatchers.IO) {
+                        val enriched = runCatching {
+                            val res = MusicoCore.call("library.downloads.enrich")
+                            res["enriched"]?.toString()?.trim('"')?.toIntOrNull() ?: 0
+                        }.getOrDefault(0)
+                        if (enriched > 0) {
+                            refreshDownloadsInternal(allowEnrich = false)
+                            refreshSmartMixesInternal()
+                        }
+                    }
+                }
             }
         }
     }
@@ -1111,7 +1162,10 @@ class MusicViewModel(
         }
     }
 
-    fun setCacheCap(mb: Int) = saveCoreSetting("online_cache_mb", JsonPrimitive(mb))
+    fun setCacheCap(mb: Int) {
+        _state.update { it.copy(coreSettingsCacheMb = mb) }
+        saveCoreSetting("online_cache_mb", JsonPrimitive(mb))
+    }
 
     fun setStreamingQuality(quality: String) = saveCoreSetting("streaming_quality", JsonPrimitive(quality))
 
@@ -1244,7 +1298,7 @@ class MusicViewModel(
         }
         queueTracks = queueTracks + tracks
         _state.update { it.copy(queue = queueTracks) }
-        fail("Added ${tracks.size} songs to the queue")
+        fail("Added ${tracks.size} song${if (tracks.size == 1) "" else "s"} to the queue")
     }
 
     fun saveDetailOffline(entry: DetailPageState) {
@@ -1281,7 +1335,7 @@ class MusicViewModel(
                 refreshDownloadsInternal()
                 refreshSmartMixesInternal()
             }
-            fail("Saved ${tracks.size} songs offline")
+            fail("Saved ${tracks.size} song${if (tracks.size == 1) "" else "s"} offline")
         }
     }
 
@@ -1294,7 +1348,11 @@ class MusicViewModel(
         track.thumbnail?.let { put("thumbnail", it) }
         put("source", track.source)
         track.artistBrowseId?.let { put("artistBrowseId", it) }
-        if (background) put("background", true)
+        if (background) {
+            put("background", true)
+        } else if (!isDesktopPlatform) {
+            put("allowStream", true)
+        }
     }
 
     private fun trackToJson(track: OnlineTrack) = buildJsonObject {
@@ -1337,7 +1395,8 @@ class MusicViewModel(
         _state.update { it.copy(searchQuery = query) }
         suggestJob?.cancel()
         if (query.isBlank()) {
-            _state.update { it.copy(suggestions = emptyList()) }
+            searchJob?.cancel()
+            _state.update { it.copy(suggestions = emptyList(), searching = false) }
             return
         }
         suggestJob = scope.launch {
@@ -1348,14 +1407,16 @@ class MusicViewModel(
                     buildJsonObject { put("query", query) },
                 )
                 json.decodeFromJsonElement(SuggestionsReply.serializer(), reply).suggestions
-            }.onSuccess { s -> _state.update { it.copy(suggestions = s) } }
+            }.onSuccess { s ->
+                if (isActive) _state.update { it.copy(suggestions = s) }
+            }
         }
     }
 
     fun searchArtists(query: String) {
         artistSearchJob?.cancel()
         if (query.isBlank()) {
-            _state.update { it.copy(artistResults = emptyList()) }
+            _state.update { it.copy(artistResults = emptyList(), artistSearching = false) }
             return
         }
         artistSearchJob = scope.launch {
@@ -1367,15 +1428,23 @@ class MusicViewModel(
                     MusicoCore.call("online.search", buildJsonObject { put("query", query) }),
                 )
             }.fold(
-                onSuccess = { page -> _state.update { it.copy(artistSearching = false, artistResults = page.tracks.take(12)) } },
-                onFailure = { _state.update { it.copy(artistSearching = false) } },
+                onSuccess = { page ->
+                    if (!isActive) return@fold
+                    _state.update { it.copy(artistSearching = false, artistResults = page.tracks.take(12)) }
+                },
+                onFailure = { e ->
+                    if (e is CancellationException) return@fold
+                    _state.update { it.copy(artistSearching = false) }
+                },
             )
         }
     }
 
     fun search(query: String = _state.value.searchQuery.trim()) {
         if (query.isEmpty()) return
-        scope.launch {
+        suggestJob?.cancel()
+        searchJob?.cancel()
+        searchJob = scope.launch {
             _state.update { it.copy(searching = true, searchQuery = query, searchSubmitted = query, error = null) }
             runCatching {
                 val reply = MusicoCore.call(
@@ -1385,6 +1454,7 @@ class MusicViewModel(
                 json.decodeFromJsonElement(SearchResultPage.serializer(), reply)
             }.fold(
                 onSuccess = { page ->
+                    if (!isActive) return@fold
                     _state.update {
                         it.copy(
                             searching = false,
@@ -1396,6 +1466,8 @@ class MusicViewModel(
                     pushRecentSearch(query)
                 },
                 onFailure = { e ->
+                    if (e is CancellationException) return@fold
+                    if (!isActive) return@fold
                     _state.update { it.copy(searching = false) }
                     fail(e.userMessage())
                 },
@@ -1426,7 +1498,7 @@ class MusicViewModel(
 
     fun next() {
         flushTelemetry(completedNaturally = false)
-        advance(1)
+        advance(1, userInitiated = true)
     }
 
     fun previous() {
@@ -1434,11 +1506,11 @@ class MusicViewModel(
             scope.launch { playback.seekTo(0) }
         } else {
             flushTelemetry(completedNaturally = false)
-            advance(-1)
+            advance(-1, userInitiated = true)
         }
     }
 
-    private fun advance(delta: Int) {
+    private fun advance(delta: Int, userInitiated: Boolean = true) {
         val queue = queueTracks
         if (queue.isEmpty()) return
         var target = queuePosition + delta
@@ -1452,7 +1524,7 @@ class MusicViewModel(
         if (target < 0) target = 0
         queuePosition = target
         _state.update { it.copy(queueIndex = target) }
-        resolveAndPlay(queue[target])
+        resolveAndPlay(queue[target], userInitiated = userInitiated)
     }
 
     private fun onTrackEnded() {
@@ -1460,7 +1532,7 @@ class MusicViewModel(
         if (!_state.value.coreSettingsAutoplay && queuePosition >= queueTracks.size - 1) {
             return
         }
-        advance(1)
+        advance(1, userInitiated = false)
     }
 
     private fun onGaplessTransition(videoId: String) {
@@ -1475,6 +1547,7 @@ class MusicViewModel(
             it.copy(
                 queueIndex = nextIdx,
                 resolvingId = null,
+                resolvingTrack = null,
                 lyricOffsetMs = lyricOffsets[nextTrack.videoId] ?: 0L,
             )
         }
@@ -1488,7 +1561,7 @@ class MusicViewModel(
         flushTelemetry(completedNaturally = false)
         queuePosition = index
         _state.update { it.copy(queueIndex = index) }
-        resolveAndPlay(queueTracks[index])
+        resolveAndPlay(queueTracks[index], userInitiated = true)
     }
 
     fun removeFromQueue(index: Int) {
@@ -1506,7 +1579,7 @@ class MusicViewModel(
         }
     }
 
-    private fun resolveAndPlay(track: OnlineTrack) {
+    private fun resolveAndPlay(track: OnlineTrack, userInitiated: Boolean = true) {
         playGeneration += 1L
         val gen = playGeneration
         resolveJob?.cancel()
@@ -1514,7 +1587,9 @@ class MusicViewModel(
             _state.update {
                 it.copy(
                     resolvingId = track.videoId,
+                    resolvingTrack = track,
                     error = null,
+                    undoActionLabel = null,
                     lyricOffsetMs = lyricOffsets[track.videoId] ?: 0L,
                 )
             }
@@ -1525,16 +1600,15 @@ class MusicViewModel(
                 onSuccess = { resolved ->
                     if (!isActive || playGeneration != gen) return@fold
                     consecutiveAutoSkips = 0
-                    _state.update { it.copy(resolvingId = null) }
+                    _state.update { it.copy(resolvingId = null, resolvingTrack = null) }
                     playback.playFile(resolved.path, track)
                     onTrackActivated(track)
                 },
                 onFailure = { e ->
                     if (e is CancellationException) return@fold
                     if (!isActive || playGeneration != gen) return@fold
-                    _state.update { it.copy(resolvingId = null) }
-                    fail(e.userMessage())
-                    maybeSkipFailed(track, e)
+                    _state.update { it.copy(resolvingId = null, resolvingTrack = null) }
+                    handleResolveFailure(track, e, userInitiated)
                 },
             )
         }
@@ -1641,17 +1715,35 @@ class MusicViewModel(
         }
     }
 
-    private fun maybeSkipFailed(failed: OnlineTrack, error: Throwable) {
+    private fun handleResolveFailure(failed: OnlineTrack, error: Throwable, userInitiated: Boolean) {
         val message = error.userMessage()
-        if (_state.value.coreSettingsOffline || message.contains("Offline", ignoreCase = true)) return
-        if (queueTracks.size <= 1 || queuePosition !in queueTracks.indices) return
-        if (queueTracks.getOrNull(queuePosition)?.videoId != failed.videoId) return
-        if (consecutiveAutoSkips >= MAX_AUTO_SKIPS) {
-            fail("Several songs in a row couldn't play — auto-skip stopped")
-            return
+        val offline = _state.value.coreSettingsOffline || message.contains("Offline", ignoreCase = true)
+        val canAdvance = queueTracks.size > 1 &&
+            queuePosition in queueTracks.indices &&
+            queueTracks.getOrNull(queuePosition)?.videoId == failed.videoId
+
+        when (
+            ResolveFailurePolicy.decide(
+                userInitiated = userInitiated,
+                isOffline = offline,
+                hasMultipleInQueue = canAdvance,
+                consecutiveAutoSkips = consecutiveAutoSkips,
+                maxAutoSkips = MAX_AUTO_SKIPS,
+            )
+        ) {
+            ResolveFailureAction.SHOW_RETRY_TOAST -> {
+                val title = failed.title.ifEmpty { "track" }
+                pendingUndoAction = { resolveAndPlay(failed, userInitiated = true) }
+                showUndoableMessage("Couldn't play “$title”", "Retry")
+            }
+            ResolveFailureAction.STOP_AUTO_SKIP -> {
+                fail("Several songs in a row couldn't play — auto-skip stopped")
+            }
+            ResolveFailureAction.AUTO_SKIP -> {
+                consecutiveAutoSkips += 1
+                skipFailedTrack(failed)
+            }
         }
-        consecutiveAutoSkips += 1
-        skipFailedTrack(failed)
     }
 
     private fun prefetchUpcoming() {
@@ -1707,7 +1799,7 @@ class MusicViewModel(
         queuePosition = queuePosition.coerceAtMost(queueTracks.size - 1)
         _state.update { it.copy(queue = queueTracks, queueIndex = queuePosition) }
         fail("Couldn't play “${failed.title.ifEmpty { "track" }}” — skipped to the next song")
-        resolveAndPlay(queueTracks[queuePosition])
+        resolveAndPlay(queueTracks[queuePosition], userInitiated = false)
     }
 
     fun onTogglePlayback() {

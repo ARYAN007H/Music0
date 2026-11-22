@@ -33,8 +33,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -100,6 +101,7 @@ import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
 import io.github.aryan007h.musicoonline.ui.components.LikeButton
 import io.github.aryan007h.musicoonline.ui.components.TrackActionSheet
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.detail.DetailScreen
 import io.github.aryan007h.musicoonline.ui.home.HomeScreen
 import io.github.aryan007h.musicoonline.ui.library.AddToPlaylistSheet
@@ -108,6 +110,7 @@ import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.library.LibraryScreen
 import io.github.aryan007h.musicoonline.ui.library.PlaylistDetailScreen
 import io.github.aryan007h.musicoonline.ui.library.PlaylistMosaicArtwork
+import io.github.aryan007h.musicoonline.ui.library.formatSongCount
 import io.github.aryan007h.musicoonline.ui.onboarding.OnboardingScreen
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.player.NowPlayingScreen
@@ -151,7 +154,7 @@ fun MusicoApp(
 
     LaunchedEffect(state.errorSeq) {
         if (state.error != null) {
-            delay(if (state.undoActionLabel != null) 5000 else 4000)
+            delay(if (state.undoActionLabel != null) 6500 else 4000)
             vm.dismissError()
         }
     }
@@ -228,11 +231,12 @@ fun MusicoApp(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        scaleX = shellScale
-                        scaleY = shellScale
+                        val safeScale = shellScale.coerceAtLeast(0.01f)
+                        scaleX = safeScale
+                        scaleY = safeScale
                         translationX = shellShift.toPx()
                     }
-                    .clip(RoundedCornerShape(shellRadius)),
+                    .clip(RoundedCornerShape(shellRadius.coerceAtLeast(0.dp))),
             ) {
                 if (isWidescreen) {
                     // ── Widescreen Desktop / Tablet Shell ────────────────────────
@@ -277,11 +281,10 @@ fun MusicoApp(
                     }
                 } else {
                     // ── Compact Phone Shell ──────────────────────────────────────
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding(),
-                    ) {
+                    // Backgrounds & AmbientTopWash bleed edge-to-edge behind the
+                    // status bar/cutout; each screen applies `musicoTopInset()`
+                    // to its foreground content so top-edge behavior is identical.
+                    Column(Modifier.fillMaxSize()) {
                         MainTabContent(
                             state = state,
                             atmosphere = activeAtmosphere,
@@ -296,9 +299,10 @@ fun MusicoApp(
                             .fillMaxWidth(),
                     ) {
                         var lastTrack by remember { mutableStateOf<OnlineTrack?>(null) }
-                        state.nowPlaying?.let { lastTrack = it }
+                        val activeMiniTrack = state.resolvingTrack ?: state.nowPlaying
+                        activeMiniTrack?.let { lastTrack = it }
                         AnimatedVisibility(
-                            visible = state.nowPlaying != null,
+                            visible = activeMiniTrack != null,
                             enter = slideInVertically(MusicoMotion.spatial()) { it } +
                                 fadeIn(tween(MusicoMotion.MED)),
                             exit = slideOutVertically(
@@ -310,7 +314,7 @@ fun MusicoApp(
                                     state = state,
                                     track = track,
                                     atmosphere = activeAtmosphere,
-                                    onExpand = { vm.openPlayer(0) },
+                                    onExpand = { if (state.nowPlaying != null) vm.openPlayer(0) },
                                     onToggle = vm::onTogglePlayback,
                                     onNext = vm::next,
                                     onPrevious = vm::previous,
@@ -333,7 +337,7 @@ fun MusicoApp(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = shellDim)),
+                        .background(Color.Black.copy(alpha = shellDim.coerceIn(0f, 1f))),
                 )
             }
 
@@ -349,7 +353,7 @@ fun MusicoApp(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .statusBarsPadding()
+                    .musicoTopInset()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Surface(
@@ -672,10 +676,10 @@ fun MusicoApp(
                 }
             }
 
-            // ── Bottom Toast with Optional Undo Action ───────────────────
+            // ── Bottom Toast with Optional Action (Undo / Retry) ─────────
             val toastLift = when {
                 isWidescreen -> 100.dp
-                state.nowPlaying != null && state.overlay == AppOverlay.NONE -> 152.dp
+                (state.nowPlaying != null || state.resolvingTrack != null) && state.overlay == AppOverlay.NONE -> 152.dp
                 else -> 92.dp
             }
             AnimatedVisibility(
@@ -706,6 +710,9 @@ fun MusicoApp(
                             style = Musico.type.body,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         state.undoActionLabel?.let { label ->
                             Text(
@@ -978,7 +985,7 @@ private fun DesktopNavigationRail(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                "${pl.tracks.size} songs",
+                                formatSongCount(pl.tracks.size),
                                 style = Musico.type.tabularCaption,
                                 fontSize = 10.sp,
                                 color = Musico.extras.inkDim,
@@ -1100,7 +1107,7 @@ private fun DesktopDockedPlayerBar(
     onLikeToggle: () -> Unit,
     onVolumeChange: (Float) -> Unit,
 ) {
-    val track = state.nowPlaying
+    val track = state.resolvingTrack ?: state.nowPlaying
     val smoothPosition = rememberSmoothPositionMs(
         polledPositionMs = state.positionMs,
         isPlaying = state.isPlaying,
@@ -1134,14 +1141,25 @@ private fun DesktopDockedPlayerBar(
                     ),
                 ),
         ) {
-            // Hairline top border
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .align(Alignment.TopCenter)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-            )
+            // Hairline top border or indeterminate resolve progress
+            if (state.resolvingId != null) {
+                LinearProgressIndicator(
+                    color = atmosphere.glow,
+                    trackColor = atmosphere.glow.copy(alpha = 0.16f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.5.dp)
+                        .align(Alignment.TopCenter),
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .align(Alignment.TopCenter)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                )
+            }
 
             Row(
                 Modifier
@@ -1294,7 +1312,11 @@ private fun DesktopDockedPlayerBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    IconButton(onClick = onOpenLyrics, enabled = track != null) {
+                    IconButton(
+                        onClick = onOpenLyrics,
+                        enabled = track != null,
+                        modifier = Modifier.size(36.dp),
+                    ) {
                         Icon(
                             Icons.Filled.Lyrics,
                             contentDescription = "Open Lyrics Studio",
@@ -1302,7 +1324,11 @@ private fun DesktopDockedPlayerBar(
                             modifier = Modifier.size(20.dp),
                         )
                     }
-                    IconButton(onClick = onOpenQueue, enabled = track != null) {
+                    IconButton(
+                        onClick = onOpenQueue,
+                        enabled = track != null,
+                        modifier = Modifier.size(36.dp),
+                    ) {
                         Icon(
                             Icons.Filled.QueueMusic,
                             contentDescription = "Open Queue",
@@ -1320,6 +1346,7 @@ private fun DesktopDockedPlayerBar(
                                 onVolumeChange(lastNonZeroVol.coerceAtLeast(0.2f))
                             }
                         },
+                        modifier = Modifier.size(36.dp),
                     ) {
                         Icon(
                             if (state.volume <= 0.01f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
@@ -1336,7 +1363,9 @@ private fun DesktopDockedPlayerBar(
                             activeTrackColor = Musico.extras.mint,
                             inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
                         ),
-                        modifier = Modifier.width(104.dp),
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .widthIn(min = 56.dp, max = 104.dp),
                     )
                 }
             }
@@ -1484,15 +1513,25 @@ private fun MiniPlayer(
                     }
                 }
             }
-            val fraction = if (state.durationMs > 0) {
-                (smoothPosition.toFloat() / state.durationMs).coerceIn(0f, 1f)
-            } else 0f
-            Box(
-                Modifier
-                    .fillMaxWidth(fraction)
-                    .height(3.dp)
-                    .background(atmosphere.glow, RoundedCornerShape(2.dp)),
-            )
+            if (state.resolvingId != null) {
+                LinearProgressIndicator(
+                    color = atmosphere.glow,
+                    trackColor = atmosphere.glow.copy(alpha = 0.16f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                )
+            } else {
+                val fraction = if (state.durationMs > 0) {
+                    (smoothPosition.toFloat() / state.durationMs).coerceIn(0f, 1f)
+                } else 0f
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction)
+                        .height(3.dp)
+                        .background(atmosphere.glow, RoundedCornerShape(2.dp)),
+                )
+            }
         }
     }
 }
@@ -1661,12 +1700,12 @@ private fun PillItem(
                 tint = tint,
                 modifier = Modifier
                     .size(24.dp)
-                    .scale(iconScale),
+                    .scale(iconScale.coerceAtLeast(0.01f)),
             )
             AnimatedVisibility(visible = selected) {
                 Spacer(Modifier.width(8.dp))
             }
-            Box(Modifier.width(labelWidth)) {
+            Box(Modifier.width(labelWidth.coerceAtLeast(0.dp))) {
                 if (selected) {
                     Text(
                         dest.label,

@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -91,6 +90,7 @@ import io.github.aryan007h.musicoonline.core.EnhancedLyrics
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.LikeButton
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -258,6 +258,8 @@ private fun WidescreenSplitNowPlaying(
     Column(
         Modifier
             .fillMaxSize()
+            .musicoTopInset()
+            .navigationBarsPadding()
             .padding(horizontal = 36.dp, vertical = 20.dp),
     ) {
         // Minimal studio top bar
@@ -534,7 +536,7 @@ private fun CompactPagerNowPlaying(
         Modifier
             .fillMaxSize()
             .graphicsLayer { translationY = animDragOffset.coerceAtLeast(0f) }
-            .statusBarsPadding()
+            .musicoTopInset()
             .navigationBarsPadding(),
     ) {
         AnimatedVisibility(
@@ -691,7 +693,7 @@ private fun CompactPagerNowPlaying(
                         Box(
                             Modifier
                                 .padding(horizontal = 4.dp)
-                                .size(width = dotWidth, height = 5.dp)
+                                .size(width = dotWidth.coerceAtLeast(0.dp), height = 5.dp)
                                 .clip(CircleShape)
                                 .background(dotColor),
                         )
@@ -722,7 +724,7 @@ private fun CompactPagerNowPlaying(
                             Icons.Filled.Repeat,
                             contentDescription = if (repeatAll) "Repeat on" else "Repeat off",
                             tint = if (repeatAll) atmosphere.glow else Color.White.copy(alpha = 0.72f),
-                            modifier = Modifier.scale(repeatScale),
+                            modifier = Modifier.scale(repeatScale.coerceAtLeast(0.01f)),
                         )
                     }
                     TransportButton(onClick = onPrevious, size = 38.dp) {
@@ -774,13 +776,15 @@ private fun LivingBreathingArtwork(
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         // Diffused cover-tinted glow aura behind artwork
         Canvas(Modifier.fillMaxSize(1.18f)) {
+            if (size.minDimension <= 0f) return@Canvas
+            val safeAura = auraAlpha.coerceIn(0f, 1f)
             drawCircle(
                 brush = Brush.radialGradient(
-                    0f to atmosphere.orbPrimary.copy(alpha = auraAlpha),
-                    0.55f to atmosphere.glow.copy(alpha = auraAlpha * 0.35f),
+                    0f to atmosphere.orbPrimary.copy(alpha = safeAura),
+                    0.55f to atmosphere.glow.copy(alpha = safeAura * 0.35f),
                     1f to Color.Transparent,
                     center = Offset(size.width / 2f, size.height * 0.56f),
-                    radius = size.minDimension * 0.56f,
+                    radius = (size.minDimension * 0.56f).coerceAtLeast(1f),
                 ),
             )
         }
@@ -789,8 +793,9 @@ private fun LivingBreathingArtwork(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = breathScale
-                    scaleY = breathScale
+                    val safeBreath = breathScale.coerceAtLeast(0.01f)
+                    scaleX = safeBreath
+                    scaleY = safeBreath
                 }
                 .shadow(
                     elevation = if (isPlaying) 28.dp else 10.dp,
@@ -1044,8 +1049,9 @@ private fun BigPlayButton(
         Modifier
             .size(size)
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                val safeScale = scale.coerceAtLeast(0.01f)
+                scaleX = safeScale
+                scaleY = safeScale
             }
             .clip(CircleShape)
             .background(Color.White)

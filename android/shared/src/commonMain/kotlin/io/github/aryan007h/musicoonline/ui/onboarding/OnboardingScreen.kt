@@ -25,11 +25,10 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -60,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -88,7 +88,7 @@ fun OnboardingScreen(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .musicoTopInset()
             .navigationBarsPadding()
             .imePadding(),
         contentAlignment = Alignment.TopCenter,
@@ -113,7 +113,7 @@ fun OnboardingScreen(
                     Box(
                         Modifier
                             .padding(end = 6.dp)
-                            .size(width = dotWidth, height = 8.dp)
+                            .size(width = dotWidth.coerceAtLeast(0.dp), height = 8.dp)
                             .clip(CircleShape)
                             .background(if (step == i) MaterialTheme.colorScheme.primary else Musico.extras.inkFaint),
                     )
@@ -228,7 +228,7 @@ fun OnboardingScreen(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             contentPadding = PaddingValues(bottom = 20.dp),
                         ) {
-                            items(artistResults, key = { it.videoId }) { track ->
+                            itemsIndexed(artistResults, key = { idx, t -> "oa-${t.videoId}-$idx" }) { _, track ->
                                 val already = pickedArtists.any { it.videoId == track.videoId }
                                 Row(
                                     Modifier

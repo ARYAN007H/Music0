@@ -89,8 +89,9 @@ fun Modifier.pressScale(
         label = "pressScale",
     )
     graphicsLayer {
-        scaleX = scale
-        scaleY = scale
+        val safe = safePositiveScale(scale)
+        scaleX = safe
+        scaleY = safe
     }
 }
 
@@ -132,6 +133,7 @@ fun Modifier.shimmer(highlight: Color = Color.White.copy(alpha = 0.30f)): Modifi
         label = "shimmerProgress",
     )
     drawBehind {
+        if (size.width <= 0f || size.height <= 0f) return@drawBehind
         val x = (progress * 2f - 0.6f) * size.width
         drawRect(
             brush = Brush.linearGradient(
@@ -159,8 +161,9 @@ fun Modifier.breathing(
         label = "breathingScale",
     )
     graphicsLayer {
-        scaleX = scale
-        scaleY = scale
+        val safe = safePositiveScale(scale)
+        scaleX = safe
+        scaleY = safe
     }
 }
 
@@ -185,10 +188,16 @@ fun Modifier.staggerIn(
         label = "staggerY",
     )
     graphicsLayer {
-        this.alpha = alpha
+        this.alpha = alpha.coerceIn(0f, 1f)
         translationY = y.toPx()
     }
 }
+
+/** Clamps spring-animated corner radii so Compose never sees a negative CornerSize. */
+fun safeCornerDp(radius: Dp): Dp = radius.coerceAtLeast(0.dp)
+
+/** Clamps spring-animated scale factors strictly positive to prevent inverted geometry. */
+fun safePositiveScale(scale: Float): Float = scale.coerceAtLeast(0.01f)
 
 // ── Cross-platform Haptics ────────────────────────────────────────────────
 

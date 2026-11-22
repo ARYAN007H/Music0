@@ -3,6 +3,7 @@ package io.github.aryan007h.musicoonline.player
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -30,10 +31,30 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         MobileEqualizer.attach(this)
+        val initialSessionId = player.audioSessionId
+        if (initialSessionId != C.AUDIO_SESSION_ID_UNSET && initialSessionId > 0) {
+            MobileEqualizer.onAudioSessionId(initialSessionId)
+        }
         PlaybackPrefs.attach(player)
         player.addListener(object : Player.Listener {
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 MobileEqualizer.onAudioSessionId(audioSessionId)
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val sid = player.audioSessionId
+                if (sid != C.AUDIO_SESSION_ID_UNSET && sid > 0) {
+                    MobileEqualizer.ensureApplied(sid, reason = "media-transition")
+                }
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    val sid = player.audioSessionId
+                    if (sid != C.AUDIO_SESSION_ID_UNSET && sid > 0) {
+                        MobileEqualizer.ensureApplied(sid, reason = "playing-started")
+                    }
+                }
             }
         })
         mediaSession = MediaSession.Builder(this, player).build()

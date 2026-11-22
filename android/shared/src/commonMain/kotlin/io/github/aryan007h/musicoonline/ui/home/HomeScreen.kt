@@ -62,10 +62,13 @@ import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.components.SectionHeader
 import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
 import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.library.PlaylistMosaicArtwork
+import io.github.aryan007h.musicoonline.ui.library.formatSongCount
+import io.github.aryan007h.musicoonline.ui.library.formatTrackCount
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -117,28 +120,30 @@ fun HomeScreen(
             intensity = 0.24f,
             modifier = Modifier.align(Alignment.TopCenter),
         )
-        when {
-            error != null && shelves.isEmpty() && smartMixes.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
-            loading && shelves.isEmpty() && smartMixes.isEmpty() -> HomeSkeleton()
-            else -> Column {
-                PersonalizationBanner(personalizing, personalizationError)
-                HomeFeed(
-                    displayName = displayName,
-                    shelves = shelves,
-                    smartMixes = smartMixes,
-                    playlists = playlists,
-                    recentlyPlayed = recentlyPlayed,
-                    likedCount = likedCount,
-                    downloadsCount = downloadsCount,
-                    styleItems = styleItems,
-                    moreLoading = moreLoading,
-                    onOpenItem = onOpenItem,
-                    onOpenCollection = onOpenCollection,
-                    onOpenTrack = onOpenTrack,
-                    onLoadMore = onLoadMore,
-                    currentTrackId = currentTrackId,
-                    isPlaying = isPlaying,
-                )
+        Box(Modifier.fillMaxSize().musicoTopInset()) {
+            when {
+                error != null && shelves.isEmpty() && smartMixes.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
+                loading && shelves.isEmpty() && smartMixes.isEmpty() -> HomeSkeleton()
+                else -> Column {
+                    PersonalizationBanner(personalizing, personalizationError)
+                    HomeFeed(
+                        displayName = displayName,
+                        shelves = shelves,
+                        smartMixes = smartMixes,
+                        playlists = playlists,
+                        recentlyPlayed = recentlyPlayed,
+                        likedCount = likedCount,
+                        downloadsCount = downloadsCount,
+                        styleItems = styleItems,
+                        moreLoading = moreLoading,
+                        onOpenItem = onOpenItem,
+                        onOpenCollection = onOpenCollection,
+                        onOpenTrack = onOpenTrack,
+                        onLoadMore = onLoadMore,
+                        currentTrackId = currentTrackId,
+                        isPlaying = isPlaying,
+                    )
+                }
             }
         }
     }
@@ -182,7 +187,7 @@ private sealed interface QuickPickEntry {
     data class Liked(val count: Int) : QuickPickEntry {
         override val key = "qp-liked"
         override val title = "Liked Songs"
-        override val subtitle = "$count songs"
+        override val subtitle = formatSongCount(count)
     }
 
     data class Downloads(val count: Int) : QuickPickEntry {
@@ -194,7 +199,7 @@ private sealed interface QuickPickEntry {
     data class PlaylistPick(val playlist: UserPlaylist) : QuickPickEntry {
         override val key = "qp-pl-${playlist.id}"
         override val title = playlist.name
-        override val subtitle = "${playlist.tracks.size} songs"
+        override val subtitle = formatSongCount(playlist.tracks.size)
     }
 
     data class MixPick(val mix: SmartMix) : QuickPickEntry {
@@ -597,7 +602,7 @@ private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    "${mix.tracks.size} songs",
+                    formatTrackCount(mix.tracks.size),
                     style = Musico.type.tabularCaption,
                     color = Musico.extras.mint,
                 )
@@ -680,7 +685,7 @@ private fun HeroCarousel(
                 Box(
                     Modifier
                         .padding(horizontal = 3.dp)
-                        .size(width = dotWidth, height = 6.dp)
+                        .size(width = dotWidth.coerceAtLeast(0.dp), height = 6.dp)
                         .clip(CircleShape)
                         .background(dotColor),
                 )

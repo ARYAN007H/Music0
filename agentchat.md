@@ -85,6 +85,19 @@ oldest-first rule — never delete a specific agent's entry otherwise.
 | agent-falcon | worker — T10 (macOS release support) | active |
 | agent-cinder | round-1 worker — retired (round superseded) | inactive |
 | (unknown) | pre-existing bug-fix agent — retired after PR #52 landed | inactive |
+| agent-prism | worker — Round 3 stability & polish (T11–T19 + sweep) | round 3 done (T16 awaiting OK) |
+
+## Tasks — round 3 (2026-11-21, stability & polish)
+
+- **T11** — Streaming playback + honest resolve errors: `DONE (verify: cargo test -p musico-online stream_server + ./gradlew :shared:desktopTest + device play uncached/broken track)`
+- **T12** — Downloads list raw IDs enrichment + sidecar metadata: `DONE (verify: cargo test -p musico-online sidecar + downloads_list_uses_sidecar + parse_video_details_meta)`
+- **T13** — Unified edge-to-edge insets across all screens: `DONE (verify: inspect top-edge on Home/Search/Radio/Library/Detail/PlaylistDetail/NowPlaying/Settings/EQ/Onboarding/Profile on phone + desktop)`
+- **T14** — Stream-cache slider smooth local drag + 256 MB snap: `DONE (verify: ./gradlew :shared:desktopTest + drag stream-cache slider smoothly on phone/desktop)`
+- **T15** — Equalizer effectiveness (Android audiofx + Desktop DSP persistence): `DONE (verify: cargo test -p musico-playback eq::tests + ./gradlew :shared:desktopTest + logcat Music0EQ on Android + Desktop EQ relaunch)`
+- **T16** — Playlist import entry points (proposal first, await Aryan OK): `BLOCKED — awaiting Aryan's OK (see QUESTION in Log)`
+- **T17** — Copy fixes (Smart Mixes pluralization + Downloads pinned card): `DONE (verify: ./gradlew :shared:desktopTest + inspect Smart Mixes & Downloads card)`
+- **T18** — Negative corner size crash clamp + dynamic shape/size audit: `DONE (verify: ./gradlew :shared:desktopTest + rapid open/close Player & tab switches on Desktop/Android)`
+- **T19** — Desktop general sweep (shortcuts, resize, HiDPI, core banner): `DONE (verify: ./gradlew :shared:desktopTest + desktop resize <900px, type in Search/Rename, check shortcuts & core-warning banner)`
 
 ## Tasks — round 2 (2026-11-01)
 
@@ -219,273 +232,6 @@ off origin/main 2b86b70) → PR into `main`.
 - P2: view transitions, skeletons, `/` `l` `q` shortcuts, track title in
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
-
-### 2026-11-01 20:45 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T8 (#60)
-- WHAT: 9/9 suites on the review fixes. Pushing to PR #71.
-
-### 2026-11-01 21:00 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T6 merge support (PR #70)
-- WHAT: Merge resolved (knob.js was the only real conflict — your branch
-  off 7df99bf pre-dates #66/#71; everything else auto-merged). Review
-  verdict approve-with-nits; applied: artist link scoped to yt/saavn
-  (local songs stay plain text — no silent YT search), drag reorder on a
-  custom MIME type, queue_play_at mock clamped, queue index doc on the
-  commands. 164 tests green. Running 9 suites.
-
-### 2026-11-02 09:10 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T6 merge support (PR #70)
-- WHAT: 9/9 suites on the resolved tree (two suite14 failures were an
-  unverified-server artifact — passed on rerun against a verified
-  server). Pushing merge + review fixes to PR #70.
-
-### 2026-11-02 09:40 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T9 = #63 + #64 + #65 (one polish PR, three commits)
-- FILES: musico_recommender/src/lib.rs, src-tauri/src/{commands,main}.rs, frontend/{js/app.js,js/core/shell.js,css/*}, scripts/*
-- WHAT: #63 backend (recent_liked_artist + recommended_for_home command,
-  None when no anchor) + Home shelf; #64 dl badges widened to detail/lib
-  rows (machinery already existed); #65: / l q shortcuts, window title,
-  180ms view fades (reduced-motion safe), home skeletons. Running 9
-  suites on 0.6.27.
-
-### 2026-11-02 09:55 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T9 (#63/#64/#65)
-- WHAT: 164 workspace tests + 9/9 suites green on the polish batch.
-  PR #72 open, CI green, review dispatched. After merge: version bump
-  0.5.0 -> 0.6.0 (tauri.conf.json + Cargo.toml) via PR, tag
-  v0.6.0-online (release.yml builds on tags), local rebuild + relaunch.
-  EMBER: when #61 lands it rides the release train too — same flow.
-
-### 2026-11-02 09:55 UTC — agent-1
-- STATUS: DONE — round 3 shipped + v0.6.0-online RELEASED
-- TASK: orchestration
-- WHAT: PR #72 MERGED (c74026d) after review fixes; version bumped to
-  0.6.0 via PR #73; TAG v0.6.0-online pushed — release workflow built
-  the artifacts (9m13s, published as pre-release). Local app rebuilt
-  from the pristine worktree and relaunched on 0.6.0. Round 3 totals:
-  6 PRs (#67-#72), every docs/ux-review.md item landed, 165 workspace
-  tests, 9/9 suites. EMBER: #61 rides the next tag whenever it lands.
-
-### 2026-11-01 19:25 UTC — agent-ember
-- STATUS: CLAIMED — #61 LRCLIB synced lyrics
-- TASK: #61
-- FILES: (none yet)
-- WHAT: My ember worktree was swept AGAIN (3rd time — likely the v0.6.0
-  pristine-rebuild cleanup). Recreated off origin/main 2b86b70 on
-  feat/lrclib-lyrics. REQUEST: release cleanups should spare
-  ~/.cache/musico-worktrees/ember — it is my persistent per-task
-  worktree. ENDPOINT LIVE-VERIFIED: lrclib.net /api/get
-  (artist+track+duration) → exact hit with syncedLyrics LRC + plainLyrics
-  (Believer id 379, 204 s); /api/get without duration also 200;
-  /api/search candidates have DRIFTING durations (233/289/205 vs real
-  204) → the search fallback MUST filter to a ±2 s window, nearest wins.
-  Plan: online/lrclib.rs (tolerant LRC parse — multi-timestamp lines,
-  [offset] tag, metadata skip), online_synced_lyrics command
-  (ensure_online gated = no network offline), frontend tries synced
-  FIRST for yt:/saavn songs through the EXISTING karaoke machinery
-  (lyricLines + updateLyricsHighlight already tick-driven), falls back
-  to unsynced YTM text / LRCLIB plain / no-lyrics.
-
-### 2026-11-02 10:20 UTC — agent-1
-- STATUS: WORKING — round 4 opened (Aryan feedback)
-- TASK: orchestration
-- WHAT: Ember claimed #61 — hands off online/lyrics, I take everything
-  else. Round 4 from Aryan's live feedback: (1) Favorites must show
-  liked ONLINE songs (currently local-only — bug), (2) real modals for
-  playlist create/rename (window.prompt is janky), (3) Home hero
-  rotation (same MJ poster forever — deterministic sh0 pick + stale
-  cache), (4) empty-state/onboarding pass for Radio / Made for You /
-  Recently Added, (5) header text overlap on Home. Filing issues,
-  implementing in one round-4 branch.
-
-### 2026-11-02 10:45 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: round 4 (#74-#77), one branch feat/round4-ux
-- FILES: frontend/js/core/shell.js, frontend/js/bridge.js, frontend/index.html, frontend/css/{am-clean,online}.css
-- WHAT: #74 Favorites now lists liked ONLINE songs (refs persisted at
-  like-time, reconciled against backend liked_ids, source-aware play).
-  #75 real preact modal for playlist create/rename (window.prompt dead).
-  #76 hero + radio seed rotate hourly through the shelf. #77 Made-for-You
-  falls back to the home feed's personalized shelf + guidance, Recently
-  Added / Radio get actionable empty states, empty status collapses.
-  ?v=0.6.28. Running 9 suites.
-
-### 2026-11-02 11:00 UTC — agent-1
-- STATUS: WORKING — SUITE LOCK released
-- TASK: round 4
-- WHAT: 9/9 suites on 0.6.28. Pushing feat/round4-ux (4 commits, one per
-  issue).
-
-### 2026-11-01 19:45 UTC — agent-ember
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: #61
-- FILES: (tests only)
-- WHAT: Port was held by ANOTHER leftover server (4th occurrence —
-  likely the round-4 run's; killed before starting mine). Server
-  curl-verified (lrclib code + 0.6.28). 8/9 on first pass; the library
-  "search filters" fail is the KNOWN pre-existing flake — 3/3 on rerun
-  per the house protocol. Lock released on next entry.
-
-### 2026-11-01 19:50 UTC — agent-ember
-- STATUS: DONE — #61
-- TASK: #61 LRCLIB synced lyrics
-- FILES: PR #79 (feat/lrclib-lyrics → main, closes #61) — commit 1de0357,
-  6 files, +418/−34
-- WHAT: Karaoke highlight for online songs. Gates: 169 workspace tests /
-  0 failed, clippy clean, suites 9/9 effective (library flake 3/3 on
-  rerun), live test green end-to-end (Believer → 45 synced lines through
-  the Rust path; both match rungs verified). Verify: play any mainstream
-  online song → Lyrics button → lines highlight with playback (±200 ms);
-  obscure/instrumental songs fall back to unsynced YTM text; saavn
-  tracks get karaoke too; airplane mode = no fetch attempts. Rides the
-  next release tag per your 09:55 note.
-### 2026-11-01 20:45 UTC — agent-falcon
-- STATUS: CLAIMED — T10 (macOS release support)
-- TASK: T10
-- FILES: (none yet)
-- WHAT: Back from round-1 retirement per Aryan's direct assignment: ship +
-  feel native on macOS. Spec in the T10 block above. Worktree
-  ~/.cache/musico-worktrees/mac-release, branch feat/mac-release off
-  origin/main 2b86b70. agent-1: review request follows the PR. MERGE NOTE:
-  my branch predates open PRs #78/#79 — expected conflicts in index.html/
-  shell.js/CSS (yours per rules); my edits are additive regions + one
-  attribute added to SlimTopBar's header tag + the is-mac <script> in head.
-  Clock note: my `date -u` says 2026-11-01 — the 2026-11-02 labels in
-  recent entries above came from a skewed clock; file order is
-  authoritative.
-
-### 2026-11-01 21:15 UTC — agent-falcon
-- STATUS: WORKING — spec change from Aryan (relayed live)
-- TASK: T10
-- FILES: frontend/css/{topbar,native}.css, frontend/index.html,
-  frontend/js/core/shell.js, src-tauri/{tauri.conf.json,src/main.rs,
-  capabilities/default.json}, scripts/browser_shell_test.mjs
-- WHAT: Aryan clarified the design: NO extra title bar on ANY platform; the
-  window controls live in the sidebar's top-left, above the "Music" brand.
-  Implemented: #app grid → full-height sidebar ("sidebar topbar"/"sidebar
-  content"); mac = native traffic lights via Overlay + trafficLightPosition
-  (20,20) over a click-through drag strip (pointer-events none); Windows =
-  decorations removed at runtime + drawn min/max/close (shell.js
-  WindowChrome → __TAURI__ window API; ACL += window minimize/
-  toggle-maximize/close — identifier-verified against tauri 2.12.5 source);
-  Linux = system decorations kept, strip display:none. macos.css draft
-  replaced by native.css; ?v= 0.6.28. Shell suite: +13 asserts across
-  stubbed mac/win pages (platform stubbed pre-paint via addInitScript).
-  Next: cargo test + clippy + 9 suites, then PR.
-
-### 2026-11-02 12:30 UTC — agent-1
-- STATUS: DONE — round 4 + #61 LANDED (both merged after review)
-- TASK: orchestration
-- WHAT: PR #78 MERGED (d67092e) — #74 Favorites shows liked ONLINE
-  songs, #75 real modal (window.prompt gone), #76 hero/radio rotate
-  hourly, #77 actionable empty states. PR #79 MERGED (3a38cdc) —
-  ember's LRCLIB synced lyrics + karaoke highlight; review P0 fixed:
-  frontend sent duration_secs, Tauri maps args to camelCase so the
-  duration silently deserialized to None and the whole gate was dead
-  over IPC. Both verdicts were request-changes; ALL findings applied
-  (71b2eac, 314bcad) — each branch cargo 165 + 9/9 suites, merge
-  result 170 tests + 9/9. Issues #61 + #74-#77 closed with landing
-  comments. index.html ?v resolution: app.js/bridge.js ride 0.6.29,
-  rest 0.6.28. FALCON: T10 noted — your PR will meet main at
-  d67092e+; expect index.html/shell.js/CSS conflicts (mine per
-  rules); ping at PR open and I take the merge. NEXT: 0.6.1 release
-  train (bump PR → tag v0.6.1-online → workflow → local rebuild).
-
-### 2026-11-01 21:40 UTC — agent-falcon
-- STATUS: WORKING — SUITE LOCK taken
-- TASK: T10
-- FILES: (tests only)
-- WHAT: Gates so far: cargo test --workspace 165 passed / 0 failed /
-  12 ignored (matches agent-1's baseline exactly); clippy zero errors —
-  OPS NOTE: this machine's clippy is now 1.99 and DENIES never_loop in
-  musico_playback/src/decoder.rs:291 (pre-existing on main, for+break) —
-  the whole workspace clippy was un-runnable until I replaced it with
-  visuals().first() (behavior-identical, flagged in the PR); remaining
-  recommender/playback/online warnings are pre-existing 1.99 lints in
-  regions this diff never touches. Now running all 9 suites on an
-  absolute --directory server + curl verification.
-
-### 2026-11-01 21:55 UTC — agent-falcon
-- STATUS: WORKING — SUITE LOCK released
-- TASK: T10
-- WHAT: 9/9 suites PASS (shell suite now 36 asserts — 13 new T10 ones:
-  stubbed mac + windows pages via addInitScript platform override; server
-  was absolute --directory + curl-verified, double-killed, port verified
-  free). Committing feat/mac-release → PR next; agent-1 review request
-  follows.
-
-### 2026-11-01 22:25 UTC — agent-falcon
-- STATUS: WORKING — SUITE LOCK taken (2nd pass)
-- TASK: T10
-- WHAT: Merged origin/main (v0.6.1-online: #78/#79 + gitignore fix) into
-  feat/mac-release b6d62cb — only index.html conflicted (kept native.css
-  link + chrome-root div; ?v= unified at 0.6.30 since 0.6.29 is burned by
-  the lyrics P0 fix and my shell.js/topbar.css contents changed). Merged
-  tree: cargo test 170/0/13 (canonical; 2 of 6 runs had ONE intermittent
-  failure + 2-test shortfall — audio-device-contention pattern with the
-  live app, 5 straight green after; NOT from this diff), clippy zero
-  errors. Re-running 9 suites on the merged frontend.
-
-### 2026-11-01 22:40 UTC — agent-falcon
-- STATUS: DONE — T10 (review requested)
-- TASK: T10
-- FILES: PR #84 (feat/mac-release → main, closes #83) — 3 commits:
-  bb57dbe (clippy gate fix) + 48279c4 (T10) + b6d62cb (merge of
-  v0.6.1-online, ?v= unified 0.6.30), 13 files, ~+500/−40
-- WHAT: macOS release support + native window chrome per Aryan's
-  clarified spec: NO extra title bar on any platform; controls in the
-  sidebar top-left above the brand (mac = native traffic lights via
-  Overlay + hiddenTitle + trafficLightPosition; Windows = decorations
-  removed at runtime + drawn min/max/close; Linux = system bar kept,
-  strip hidden). Full-height sidebar grid (LCD spans content column
-  only). Native mac App/Edit/View/Window menu (⌘C/⌘V/⌘A). SF Pro stack.
-  release.yml macos universal job (native mac test run type-checks the
-  cfg(macos) code). Gates on the MERGED tree: cargo 170/0/13, clippy
-  zero errors, suites 9/9 (library "search filters" flake passed 3/3
-  rerun per protocol; shell suite now 36 asserts). agent-1: REQUESTING
-  REVIEW on PR #84 — no merge conflicts remain (I merged main in; PR
-  should show MERGEABLE). Aryan: on-Mac + on-Windows verification needs
-  real hardware — CI builds the dmg; windows resize = tao undecorated
-  hit-test (no snap-layouts flyout), noted in README + PR body.
-
-### 2026-11-01 21:52 UTC — agent0 (opencode)
-- STATUS: CLAIMED
-- TASK: Apple Music desktop redesign (Aryan direct request)
-- FILES: frontend/index.html, frontend/css/**, frontend/js/** (additive)
-- WHAT: I'm opencode, aka agent0, working on the full Apple Music desktop
-  1:1 redesign in the TEST BRANCH `test/apple-music-redesign` (off main,
-  shared tree is mine for this task — no other agent should edit while I
-  work). Scope: AM chrome + glass materials, sidebar/toolbar, home/detail/
-  library/settings/now-playing, player bar, dark + light. All existing
-  commands/IDs/browser suites stay working. Will log WORKING/DONE + suite
-  results here. — agent0
-
-### 2026-11-01 22:45 UTC — agent-1
-- STATUS: DONE — T10 merged after review; hub updated
-- TASK: orchestration
-- WHAT: PR #84 MERGED (54de8e5) after independent review verdict
-  request-changes. Review P1-1: core:window:allow-start-dragging is NOT
-  in core:window:default for tauri 2.12.5 — every drag region silently
-  no-op'd; granted explicitly + regions upgraded to ="deep" (verified
-  against 2.12.5 drag.js; topbar-logo's bare attr dropped — it
-  short-circuited deep topbar dragging; shell assert updated). P1-2:
-  cfg(macos) code compiled by nothing — release.yml gains
-  workflow_dispatch (publish gated to tags) and the dispatched macos
-  job ran cargo test NATIVELY green + built the universal dmg before
-  merge (local aarch64 cross-check is impossible on Linux — objc2
-  needs the mac SDK). P2s: native.css dup rules merged, README notes
-  the Windows launch flash, unused LyricLine re-export dropped.
-  ?v=0.6.31. Also corrected my own misread: there never was a
-  duplicate runs-on in publish; the first dispatch's publish job
-  failed harmlessly ("requires a tag", nothing created) and that is
-  what the gate now prevents. AGENT0: claim logged — shared tree is
-  yours; I built this hub update in a separate worktree and touched
-  nothing of yours. 9/9 suites ran ONLY on my own trees tonight.
 
 ### 2026-11-04 10:30 UTC — agent-1
 - STATUS: DONE — argon-review follow-up fixes PR'd (#87 follow-through)
@@ -632,3 +378,117 @@ DONE:
 - Floating pills fix (from #117) + notifications confirmed working on-device
 - release.yml: dispatch inputs now override versionCode/versionName (test rig)
 NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9.2→0.9.3 through the real flow
+
+### 2026-11-21 15:42 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T11
+- FILES: src-tauri/src/online/{stream_server,stream,sources,saavn,mod}.rs, src-tauri/src/mobile.rs, android/app/src/main/AndroidManifest.xml, android/app/src/main/res/xml/network_security_config.xml, android/shared/src/{androidMain,commonMain,desktopTest}/**
+- WHAT: I'm agent-prism, claiming task T11: stream-while-download loopback HTTP range server over `.part` (keeping cached Airplane-Mode short-circuit + atomic rename/size-verify), honest resolve errors with title + Retry toast (no silent skip on user-tapped tracks), and indeterminate resolve progress in the mini player.
+
+### 2026-11-21 16:00 UTC — agent-prism
+- STATUS: DONE
+- TASK: T11
+- FILES: src-tauri/src/online/{stream_server,stream,sources,saavn,mod}.rs, src-tauri/src/mobile.rs, android/app/src/main/{AndroidManifest.xml,res/xml/network_security_config.xml}, android/shared/src/androidMain/.../PlaybackController.kt, android/shared/src/commonMain/.../{MusicViewModel.kt,MusicoApp.kt}, android/shared/src/desktopTest/.../SharedCoreTests.kt
+- WHAT: Implemented loopback HTTP/1.1 range-request server (`stream_server.rs` + 4 hermetic tests) pumping upstream audio into `.part` with 64 KiB startup gate and atomic rename/size-verify; preserved cached Airplane-Mode short-circuit; wired `allowStream` on mobile `track.resolve` + loopback-only cleartext config + Media3 HTTP URI support; added `ResolveFailurePolicy` (with desktopTest coverage) so user-tapped resolve failures show a title + Retry toast instead of silently swapping tracks; added indeterminate `LinearProgressIndicator` in MiniPlayer & DesktopDockedPlayerBar. Verify: `cargo test -p musico-online stream_server`, `./gradlew :shared:desktopTest`, and on-device tap of uncached + unavailable tracks.
+
+### 2026-11-21 16:01 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T12
+- FILES: src-tauri/src/online/{stream,sources,saavn}.rs, src-tauri/src/mobile.rs, android/shared/src/commonMain/.../MusicViewModel.kt
+- WHAT: Claiming task T12: sidecar `.meta.json` metadata written at download time (excluded from audio listings, deleted on prune/clear) + one-time rate-limited online enrichment for legacy stems cached in sled, with offline fallback to stem.
+
+### 2026-11-21 16:12 UTC — agent-prism
+- STATUS: DONE
+- TASK: T12
+- FILES: src-tauri/src/online/{stream,sources,saavn,mod}.rs, src-tauri/src/mobile.rs, android/shared/src/commonMain/.../MusicViewModel.kt
+- WHAT: Added companion `{stem}.meta.json` sidecars written on download/resolve completion, excluded from audio cache scans/listings, and pruned alongside audio; added `library.downloads.enrich` (rate-limited 250 ms/item, max 15/pass, skipped offline, tracked in sled `mobile:enrich_attempted`) using InnerTube `/player` `videoDetails` + oEmbed / JioSaavn `song.getDetails`; wired non-blocking background enrichment in `MusicViewModel.refreshDownloadsInternal`; added 3 hermetic Rust tests (`sidecar_metadata_roundtrips_and_prunes_with_audio`, `parse_video_details_meta_extracts_title_artist_and_duration`, `downloads_list_uses_sidecar_and_falls_back_to_stem_offline`). Verify: `cargo test -p musico-online` + open Downloads online & in Airplane Mode.
+
+### 2026-11-21 16:13 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T13
+- FILES: android/shared/src/commonMain/.../{MusicoApp,home/HomeScreen,search/SearchScreen,radio/RadioScreen,library/LibraryScreen,detail/DetailScreen,library/PlaylistDetailScreen,player/NowPlayingScreen,settings/SettingsScreen,settings/EqScreen,onboarding/OnboardingScreen,profile/ProfileScreen}.kt
+- WHAT: Claiming task T13: unify edge-to-edge status-bar/cutout inset strategy in `MusicoApp` and audit every screen so ambient washes bleed full-bleed behind the status bar, content never underlaps cutouts, and no screen double-pads.
+
+### 2026-11-21 16:20 UTC — agent-prism
+- STATUS: DONE
+- TASK: T13
+- FILES: android/shared/src/commonMain/.../{components/Common,MusicoApp,home/HomeScreen,search/SearchScreen,radio/RadioScreen,library/LibraryScreen,detail/DetailScreen,library/PlaylistDetailScreen,player/NowPlayingScreen,settings/SettingsScreen,settings/EqScreen,onboarding/OnboardingScreen,profile/ProfileScreen}.kt
+- WHAT: Added centralized `@Composable fun Modifier.musicoTopInset()` (`WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)`), removed outer compact `statusBarsPadding()` from `MusicoApp` so `AmbientTopWash` bleeds full-bleed behind the status bar on all primary tabs, replaced all ad-hoc `statusBarsPadding()` calls across every screen + floating update banner (and added `musicoTopInset()` + `navigationBarsPadding()` to widescreen NowPlaying, DetailScreen, and EqScreen). Verify: open every screen on notched Android phone + Desktop; no black status-bar strip, no cutout underlap, no double padding.
+
+### 2026-11-21 16:21 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T14
+- FILES: android/shared/src/commonMain/.../settings/SettingsScreen.kt, src-tauri/src/mobile.rs
+- WHAT: Claiming task T14: fix stream-cache slider local drag state so the thumb glides smoothly, updates the live label, and snaps/persists on 256 MB steps in `onValueChangeFinished`; wire persisted `online_cache_mb` cap into `stream::set_cache_cap_override_mb` on init and save.
+
+### 2026-11-21 16:28 UTC — agent-prism
+- STATUS: DONE
+- TASK: T14
+- FILES: android/shared/src/commonMain/.../settings/SettingsScreen.kt, android/shared/src/commonMain/.../ui/MusicViewModel.kt, src-tauri/src/mobile.rs
+- WHAT: Replaced persisted-value binding on the Settings stream-cache Slider with local `dragMb`/`dragging` state, live 256 MB snapped label (`snapCacheCapMb`), and single persist in `onValueChangeFinished` (with optimistic `coreSettingsCacheMb` update in `MusicViewModel.setCacheCap` to eliminate release snap-back); wired `stream::set_cache_cap_override_mb` on `init_core` and `settings.save` in `mobile.rs` so the saved cap is honored live. Verify: drag slider smoothly in Settings on Android & Desktop, release anywhere, confirm cap lands on 256 MB step and persists across relaunch.
+
+### 2026-11-21 16:29 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T15
+- FILES: android/shared/src/androidMain/.../player/{MobileEqualizer,PlaybackService}.kt, android/shared/src/commonMain/.../settings/EqScreen.kt, android/shared/src/desktopMain/.../platform/{DesktopPlatform,DesktopPlayback}.kt, android/desktopApp/.../Main.kt, src-tauri/src/mobile.rs, crates/musico_playback/src/eq.rs
+- WHAT: Claiming task T15: instrument & fix Android AudioFX equalizer (session attach on init/change/track-transition, band read-back logs, auto-enable on non-Flat preset, no prefs clobber on re-attach), persist & serialize Desktop EQ over JNI + reapply on playback start, and add Rust DSP verification test in `musico_playback`.
+
+### 2026-11-21 16:36 UTC — agent-prism
+- STATUS: DONE
+- TASK: T15
+- FILES: android/shared/src/androidMain/.../player/{MobileEqualizer,PlaybackService}.kt, android/shared/src/commonMain/.../settings/EqScreen.kt, android/shared/src/desktopMain/.../platform/{DesktopPlatform,DesktopPlayback}.kt, android/desktopApp/.../Main.kt, src-tauri/src/mobile.rs, musico_playback/src/eq.rs
+- WHAT: Android: instrumented `MobileEqualizer` with `Log.i("Music0EQ", ...)` (session ID, band range, `setEnabled`/`setBandLevel` + hardware `getBandLevel` read-back, `hasControl()`, `BassBoost` read-back); fixed `PlaybackService` to attach initial `player.audioSessionId` and call `MobileEqualizer.ensureApplied(...)` on `onMediaItemTransition` and `onIsPlayingChanged(true)`; fixed `attached` flag, stopped re-reading SharedPreferences on session re-attach, prioritized AudioFX (1→0), auto-enabled EQ on non-Flat presets, and fixed `EqScreen` `DisposableEffect` listener sync. Desktop: persisted EQ in `DesktopPlatformPrefs` via `PlatformEqualizer.init(prefs)` in `Main.kt`, serialized `player.set_eq` JNI pushes through a conflated `Channel` so rapid drags never race out-of-order, reapplied EQ in `DesktopPlayback.playFile`, logged `desktop_set_eq` in `mobile.rs`, and added 2 hermetic Rust DSP tests in `musico_playback/src/eq.rs` (`eq_disabled_passes_samples_unchanged`, `eq_bass_boost_measurably_shapes_low_freq_output`). Verify: `cargo test -p musico-playback eq::tests`, `./gradlew :shared:desktopTest`, check `adb logcat -s Music0EQ` while switching presets/tracks on Android, and toggle/relaunch EQ on Desktop.
+
+### 2026-11-21 16:37 UTC — agent-prism
+- STATUS: QUESTION
+- TASK: T16
+- FILES: (proposal only — awaiting Aryan's OK before writing implementation code)
+- WHAT: Proposal for "Import playlist" entry points (Onboarding + Settings → Library) without gated Spotify/Apple OAuth APIs:
+  (1) **Two zero-OAuth ingestion paths in one modal/sheet**:
+      - **Exported file import** (Android SAF `OpenDocument` / Desktop `FileDialog`): parse Exportify / TuneMyMusic / Soundiiz CSV (`Track Name, Artist Name(s), Album Name, Duration`), Spotify/Music0 JSON, and M3U/M3U8.
+      - **Public playlist URL / Android Share-sheet (`ACTION_SEND`)**: accept `open.spotify.com/playlist/...` and `music.apple.com/.../playlist/...` links; fetch the public embed/web page in Rust (no OAuth tokens, 10 s timeout, honest error if private/unavailable) and extract `(playlistTitle, [(title, artist, durationSecs?)])` from Spotify's embed `__NEXT_DATA__` JSON / Apple Music's `application/ld+json` `MusicPlaylist` schema.
+  (2) **Matching & persistence**: single-flight cancelable Rust command `library.playlist.import` resolving each track via InnerTube search (`"$title $artist"`, scoring title/artist similarity + duration proximity, 200 ms rate limit, skipping when offline), creating the sled playlist, and returning `{ playlistId, playlistName, total, matched, unmatched: [{title, artist}] }`.
+  (3) **UX**: "Import playlist" button in Onboarding (bottom of step 1 & step 2) and Settings → Library group, live `"Matching X of M…"` progress sheet, and graceful completion dialog `"Imported “<name>” — matched N of M tracks"` with an expandable list of unmatched entries.
+  Aryan — OK to implement both URL + file import with this flow, or prefer file-only / URL-only for v1?
+
+### 2026-11-21 16:38 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T17
+- FILES: android/shared/src/commonMain/.../{library/LibraryScreen,home/HomeScreen,detail/DetailScreen,player/NowPlayingScreen}.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt
+- WHAT: Claiming task T17: fix copy pluralization for Smart Mixes ("1 track" / "6 tracks"), Downloads pinned card ("30 songs · 307 MB"), and track/song counters across screens, with unit tests.
+
+### 2026-11-21 16:43 UTC — agent-prism
+- STATUS: DONE
+- TASK: T17
+- FILES: android/shared/src/commonMain/.../{library/PlaylistSheets,library/LibraryScreen,home/HomeScreen,detail/DetailScreen,MusicoApp,MusicViewModel}.kt
+- WHAT: Added shared pluralization formatters (`formatTrackCount`, `formatSongCount`, `formatDownloadsSummary`) in `PlaylistSheets.kt`; updated Smart Mixes cards on both Library & Home to `"1 track"` / `"6 tracks"`, Downloads pinned card to `"30 songs · 307 MB"` (`"1 song · …"`), Quick Picks & Desktop rail playlists, DetailScreen header (`1 SONG` / `N SONGS`), and queue/offline save toasts. Verify: `./gradlew :shared:desktopTest` + inspect Library Downloads card and Smart Mixes on Home & Library.
+
+### 2026-11-21 16:44 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T18
+- FILES: android/shared/src/commonMain/.../{MusicoApp,theme/Motion,components/Common,library/PlaylistSheets,home/HomeScreen,onboarding/OnboardingScreen,player/NowPlayingScreen,player/Backdrops,player/LyricsPane}.kt
+- WHAT: Claiming task T18: fix `"Corner size in Px can't be negative (topStart = -0.06…)"` crash (`MusicoApp` underdamped `shellRadius` spring overshooting below `0.dp`) and clamp every dynamic corner, animated dimension, scale, radialGradient radius, and zero-size Canvas across Android & Desktop.
+
+### 2026-11-21 16:51 UTC — agent-prism
+- STATUS: DONE
+- TASK: T18
+- FILES: android/shared/src/commonMain/.../{MusicoApp,theme/Motion,components/Common,library/PlaylistSheets,home/HomeScreen,onboarding/OnboardingScreen,player/NowPlayingScreen,player/Backdrops,player/LyricsPane}.kt
+- WHAT: Fixed the root cause of `"Corner size in Px can't be negative"` (`MusicoApp` `shellRadius` underdamped spring overshooting below `0.dp` on collapse) by clamping `RoundedCornerShape(shellRadius.coerceAtLeast(0.dp))`; audited and clamped all dynamic shapes, spring dimensions, scales, alphas, radialGradient radii, and zero-size Canvas guards across `MusicoApp` (`PillItem` `labelWidth`/`iconScale`, `shellScale`), `Motion.kt` (`pressScale`, `breathing`, `shimmer`, `staggerIn`, plus `safeCornerDp`/`safePositiveScale`), `Common.kt` (`AmbientTopWash`, `Artwork`, `EqualizerBars`, `LikeButton`, `MiniPlayFab`), `PlaylistSheets.kt` (`PlaylistMosaicArtwork`), `HomeScreen.kt` & `OnboardingScreen.kt` & `NowPlayingScreen.kt` (pager dots, `LivingBreathingArtwork`, `BigPlayButton`, `repeatScale`), `Backdrops.kt` (`FluidMesh`, `Rain`, `Aurora`), and `LyricsPane.kt`. Verify: `./gradlew :shared:desktopTest` + rapid tapping/resizing/tab switching across every screen on Desktop & Android.
+
+### 2026-11-21 16:52 UTC — agent-prism
+- STATUS: CLAIMED
+- TASK: T19
+- FILES: android/desktopApp/.../Main.kt, android/shared/src/desktopMain/.../core/MusicoCore.desktop.kt, android/shared/src/commonMain/.../ui/MusicoApp.kt
+- WHAT: Claiming task T19: desktop general sweep — move playback/navigation shortcuts to bubble `onKeyEvent` so text fields are never hijacked (while keeping `Ctrl+K`/`Ctrl+F`), allow smooth resize below 900 px (`520×560` min) into compact layout, harden packaged native-lib discovery + core-warning banner gating when `MusicoCore.isLoaded == true`.
+
+### 2026-11-21 16:49 UTC — agent-prism
+- STATUS: DONE
+- TASK: T19
+- FILES: android/desktopApp/.../Main.kt, android/shared/src/desktopMain/.../core/MusicoCore.desktop.kt, android/shared/src/commonMain/.../ui/MusicoApp.kt
+- WHAT: Kept only `Ctrl+K`/`Ctrl+F` in `onPreviewKeyEvent` and moved `Escape`, plain/`Ctrl+Spacebar`, `Ctrl+1..4`, `Ctrl+L`, and `Ctrl+Arrows` to bubble-phase `onKeyEvent` (reading `vm.state.value`) so focused text fields never get hijacked; lowered `window.minimumSize` to `520×560` so resizing below 900 px transitions cleanly across the `840.dp` compact breakpoint; sized `DesktopDockedPlayerBar` right controls (`36.dp` icon buttons + responsive `widthIn(56.dp, 104.dp)` volume slider) so 840–900 dp never clips; clamped `shellDim.coerceIn(0f, 1f)`; cleared `_loadError` on all successful loads and added packaged bundle search paths (`compose.application.resources.dir`, `app.dir`, jar dir) in `MusicoCore.desktop.kt`. Verify: Desktop smoke test (resize across 840 px, edit text in Search/Rename, shortcuts, packaged bundle banner check).
+
+### 2026-11-21 16:50 UTC — agent-prism
+- STATUS: DONE
+- TASK: Round-3 sweep + unit tests
+- FILES: android/shared/src/commonMain/.../{onboarding/OnboardingScreen,ui/MusicViewModel}.kt, android/shared/src/desktopMain/.../platform/DesktopPlayback.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt
+- WHAT: Fixed 3 additional bugs found during sweep: (1) `OnboardingScreen` artist search `LazyColumn` keyed by raw `it.videoId` (crash risk on duplicate/blank IDs) → `itemsIndexed` with index-disambiguated keys; (2) `MusicViewModel.search` lacked a cancellable `searchJob`, and `searchArtists`/`onQueryChange`/`search` could let stale/cancelled coroutines overwrite state or flip loading spinners via `runCatching` swallowing `CancellationException`; (3) `DesktopPlayback.playFile` left `_isBuffering = true` on native error (`try/finally` fix) and `release()` cancelled `scope` immediately after launching `player.stop` (now stops engine cleanly with a 300 ms timeout before `scope.cancel()`). Added unit tests in `SharedCoreTests.kt` for T14 (`snapCacheCapMb`), T15 (`mapFiveBandsToTenDb` + Desktop EQ prefs persistence), T17 (count/downloads formatters), and T18 (`safeCornerDp`/`safePositiveScale`). Static checks passed across all 26 Kotlin + 7 Rust + 2 XML modified files (no `cargo`/`gradle` in container). Verify: `cargo test --workspace` and `./gradlew :shared:desktopTest`.

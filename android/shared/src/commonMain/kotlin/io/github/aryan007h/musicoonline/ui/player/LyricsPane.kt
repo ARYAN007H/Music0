@@ -803,9 +803,10 @@ private fun CinemaLyricRow(
     Row(
         modifier = containerModifier
             .graphicsLayer {
-                alpha = animAlpha
-                scaleX = animScale
-                scaleY = animScale
+                alpha = animAlpha.coerceIn(0f, 1f)
+                val safeScale = animScale.coerceAtLeast(0.01f)
+                scaleX = safeScale
+                scaleY = safeScale
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
             .platformBlur(targetBlurDp),

@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -99,20 +101,24 @@ class DesktopPlayback : PlatformPlayback {
         _durationMs.value = (track.durationSecs ?: 0L) * 1000L
         _nowPlaying.value = track
         _isBuffering.value = true
-        MusicoCore.call(
-            "player.play_file",
-            buildJsonObject {
-                put("id", track.videoId)
-                put("path", filePath)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("album", track.album)
-                track.durationSecs?.let { put("durationSecs", it.toDouble()) }
-            },
-        )
-        _isPlaying.value = true
-        _isBuffering.value = false
-        startPolling()
+        try {
+            MusicoCore.call(
+                "player.play_file",
+                buildJsonObject {
+                    put("id", track.videoId)
+                    put("path", filePath)
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("album", track.album)
+                    track.durationSecs?.let { put("durationSecs", it.toDouble()) }
+                },
+            )
+            _isPlaying.value = true
+            PlatformEqualizer.reapplyToEngine()
+            startPolling()
+        } finally {
+            _isBuffering.value = false
+        }
     }
 
     override suspend fun stageNextFile(filePath: String, track: OnlineTrack) {
@@ -170,7 +176,13 @@ class DesktopPlayback : PlatformPlayback {
         pollJob?.cancel()
         pollJob = null
         if (MusicoCore.isLoaded) {
-            scope.launch { runCatching { MusicoCore.call("player.stop") } }
+            runCatching {
+                runBlocking {
+                    withTimeoutOrNull(300L) {
+                        MusicoCore.call("player.stop")
+                    }
+                }
+            }
         }
         scope.cancel()
     }

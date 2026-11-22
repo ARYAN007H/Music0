@@ -15,6 +15,7 @@ import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
@@ -113,20 +114,71 @@ class DesktopPlatformUpdater : PlatformUpdater {
 
 /**
  * Desktop Equalizer bridging the shared 5-band UI to the Rust 10-band biquad
- * DSP equalizer (`player.set_eq`).
+ * DSP equalizer (`player.set_eq`), with serialized JNI updates and persistence
+ * via [PlatformPrefs].
  */
 actual object PlatformEqualizer {
+    private const val KEY_ENABLED = "eq_enabled"
+    private const val KEY_LEVELS = "eq_band_levels"
+    private const val KEY_BASS = "eq_bass_boost"
+    private const val KEY_PRESET = "eq_preset_name"
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pendingPushes = Channel<Pair<Boolean, List<Double>>>(Channel.CONFLATED)
     private val listeners = mutableListOf<() -> Unit>()
 
+    private var prefs: PlatformPrefs? = null
     private var enabled = false
     private var bandLevels = MutableList(5) { 0 }
     private var bassBoost = 0
     private var presetName: String? = null
     private val labels = listOf("60Hz", "230Hz", "910Hz", "3.6k", "14k")
 
+    init {
+        // Single serialized consumer so rapid slider drags never overtake each other
+        // over JNI and always settle on the exact latest gains.
+        scope.launch {
+            for ((isOn, tenBand) in pendingPushes) {
+                if (!MusicoCore.isLoaded) continue
+                runCatching {
+                    MusicoCore.call(
+                        "player.set_eq",
+                        buildJsonObject {
+                            put("enabled", isOn)
+                            putJsonArray("gainsDb") {
+                                tenBand.forEach { add(it) }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    fun init(platformPrefs: PlatformPrefs) {
+        prefs = platformPrefs
+        enabled = platformPrefs.getBoolean(KEY_ENABLED, false)
+        val saved = platformPrefs.getString(KEY_LEVELS, null)
+            ?.split(',')
+            ?.mapNotNull { it.toIntOrNull()?.coerceIn(-1200, 1200) }
+        bandLevels = MutableList(5) { i -> saved?.getOrNull(i) ?: 0 }
+        bassBoost = platformPrefs.getInt(KEY_BASS, 0).coerceIn(0, 1000)
+        presetName = platformPrefs.getString(KEY_PRESET, null)
+        notifyListeners()
+        if (enabled) {
+            pushToRust()
+        }
+    }
+
+    @Synchronized
+    fun reapplyToEngine() {
+        pushToRust()
+    }
+
     actual fun isAttached(): Boolean = MusicoCore.isLoaded
 
+    @Synchronized
     actual fun currentState(): EqSnapshot = EqSnapshot(
         enabled = enabled,
         bandCount = 5,
@@ -138,79 +190,91 @@ actual object PlatformEqualizer {
         presetName = presetName,
     )
 
+    @Synchronized
     actual fun setEnabled(enabled: Boolean) {
         this.enabled = enabled
+        persist()
         pushToRust()
         notifyListeners()
     }
 
+    @Synchronized
     actual fun setBandLevel(index: Int, milliBel: Int) {
         if (index !in bandLevels.indices) return
         bandLevels[index] = milliBel.coerceIn(-1200, 1200)
         presetName = null
+        persist()
         pushToRust()
         notifyListeners()
     }
 
+    @Synchronized
     actual fun setBassBoost(strength: Int) {
         bassBoost = strength.coerceIn(0, 1000)
+        persist()
         pushToRust()
         notifyListeners()
     }
 
+    @Synchronized
     actual fun applyPresetGain(curve: List<Int>, presetName: String) {
         for (i in 0 until 5) {
             bandLevels[i] = curve.getOrElse(i) { 0 }.coerceIn(-1200, 1200)
         }
         this.presetName = presetName
+        if (bandLevels.any { it != 0 } && !enabled) {
+            enabled = true
+        }
+        persist()
         pushToRust()
         notifyListeners()
     }
 
+    @Synchronized
     actual fun addListener(listener: () -> Unit) {
-        listeners.add(listener)
+        if (listener !in listeners) listeners.add(listener)
     }
 
+    @Synchronized
     actual fun removeListener(listener: () -> Unit) {
         listeners.remove(listener)
     }
 
     private fun notifyListeners() {
-        listeners.toList().forEach { it() }
+        val snapshot = synchronized(this) { listeners.toList() }
+        snapshot.forEach { it() }
+    }
+
+    private fun persist() {
+        val p = prefs ?: return
+        p.putBoolean(KEY_ENABLED, enabled)
+        p.putString(KEY_LEVELS, bandLevels.joinToString(","))
+        p.putInt(KEY_BASS, bassBoost)
+        p.putString(KEY_PRESET, presetName)
     }
 
     private fun pushToRust() {
         if (!MusicoCore.isLoaded) return
-        // Map 5 bands + bass boost (0..1000 -> +0..+6 dB low shelf) to 10 Rust ISO bands.
-        val b = bandLevels.map { it / 100.0 }
-        val bassDb = (bassBoost / 1000.0) * 6.0
-        val tenBand = listOf(
-            (b[0] + bassDb).coerceIn(-12.0, 12.0),
-            (b[0] + bassDb * 0.7).coerceIn(-12.0, 12.0),
-            ((b[0] + b[1]) * 0.5 + bassDb * 0.3).coerceIn(-12.0, 12.0),
-            b[1],
-            ((b[1] + b[2]) * 0.5),
-            b[2],
-            ((b[2] + b[3]) * 0.5),
-            b[3],
-            ((b[3] + b[4]) * 0.5),
-            b[4],
-        )
-        val isOn = enabled
-        scope.launch {
-            runCatching {
-                MusicoCore.call(
-                    "player.set_eq",
-                    buildJsonObject {
-                        put("enabled", isOn)
-                        putJsonArray("gainsDb") {
-                            tenBand.forEach { add(it) }
-                        }
-                    },
-                )
-            }
-        }
+        val tenBand = mapFiveBandsToTenDb(bandLevels, bassBoost)
+        pendingPushes.trySend(enabled to tenBand)
     }
+}
+
+internal fun mapFiveBandsToTenDb(bandLevelsMb: List<Int>, bassBoostStrength: Int): List<Double> {
+    val b = List(5) { i -> (bandLevelsMb.getOrElse(i) { 0 }.coerceIn(-1200, 1200)) / 100.0 }
+    val bassDb = (bassBoostStrength.coerceIn(0, 1000) / 1000.0) * 6.0
+    return listOf(
+        (b[0] + bassDb).coerceIn(-12.0, 12.0),
+        (b[0] + bassDb * 0.7).coerceIn(-12.0, 12.0),
+        ((b[0] + b[1]) * 0.5 + bassDb * 0.3).coerceIn(-12.0, 12.0),
+        b[1],
+        (b[1] + b[2]) * 0.5,
+        b[2],
+        (b[2] + b[3]) * 0.5,
+        b[3],
+        (b[3] + b[4]) * 0.5,
+        b[4],
+    )
 }
 
 actual val isDesktopPlatform: Boolean = true

@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
+import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -77,7 +78,11 @@ fun SearchScreen(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .musicoTopInset(),
+    ) {
         SearchField(
             query = query,
             searching = searching,
