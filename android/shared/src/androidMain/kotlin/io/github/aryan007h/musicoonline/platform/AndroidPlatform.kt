@@ -518,3 +518,20 @@ actual fun rememberPlaylistFilePicker(
     }
 }
 
+@Composable
+actual fun PlatformHorizontalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier,
+) {
+    // Android uses native touch scrolling without persistent desktop scrollbars.
+}
+
+@Composable
+actual fun PlatformHorizontalGridScrollbar(
+    state: androidx.compose.foundation.lazy.grid.LazyGridState,
+    modifier: Modifier,
+) {
+    // Android uses native touch scrolling without persistent desktop scrollbars.
+}
+
+

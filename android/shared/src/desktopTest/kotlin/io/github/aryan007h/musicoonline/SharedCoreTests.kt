@@ -13,6 +13,8 @@ import io.github.aryan007h.musicoonline.platform.mapFiveBandsToTenDb
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.ResolveFailureAction
 import io.github.aryan007h.musicoonline.ui.ResolveFailurePolicy
+import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
+import io.github.aryan007h.musicoonline.ui.components.HorizontalWheelAction
 import io.github.aryan007h.musicoonline.ui.resolveLanguageGenreStyle
 import io.github.aryan007h.musicoonline.ui.library.formatDownloadsSummary
 import io.github.aryan007h.musicoonline.ui.library.formatSongCount
@@ -276,5 +278,93 @@ class SharedCoreTests {
         assertTrue(status.active)
         assertEquals(4, status.current)
         assertEquals(10, status.total)
+    }
+
+    @Test
+    fun desktopHorizontalWheelConvertsShiftWheelAndPreservesVerticalScroll() {
+        // Plain vertical wheel passes straight through to parent LazyColumn.
+        val vertical = HorizontalScrollMath.decideHorizontalWheel(
+            deltaX = 0f,
+            deltaY = 1f,
+            isShiftPressed = false,
+            wheelStepPx = 96f,
+        )
+        assertEquals(HorizontalWheelAction.IGNORE, vertical.action)
+        assertEquals(0f, vertical.deltaPx, 1e-4f)
+
+        // Vertically-dominant diagonal touchpad scroll also passes through.
+        val mostlyVertical = HorizontalScrollMath.decideHorizontalWheel(
+            deltaX = 0.2f,
+            deltaY = 1.5f,
+            isShiftPressed = false,
+            wheelStepPx = 96f,
+        )
+        assertEquals(HorizontalWheelAction.IGNORE, mostlyVertical.action)
+
+        // Shift + vertical wheel (Linux Wayland/X11) converts to smooth horizontal scroll.
+        val shiftWheel = HorizontalScrollMath.decideHorizontalWheel(
+            deltaX = 0f,
+            deltaY = 1f,
+            isShiftPressed = true,
+            wheelStepPx = 96f,
+        )
+        assertEquals(HorizontalWheelAction.SCROLL_HORIZONTAL, shiftWheel.action)
+        assertEquals(96f, shiftWheel.deltaPx, 1e-4f)
+        assertTrue(shiftWheel.smooth)
+
+        // Fine 2-finger horizontal touchpad swipe maps directly (non-smooth 1:1 tracking).
+        val trackpad = HorizontalScrollMath.decideHorizontalWheel(
+            deltaX = -0.35f,
+            deltaY = 0.05f,
+            isShiftPressed = false,
+            wheelStepPx = 96f,
+        )
+        assertEquals(HorizontalWheelAction.SCROLL_HORIZONTAL, trackpad.action)
+        assertEquals(-33.6f, trackpad.deltaPx, 1e-3f)
+        assertTrue(!trackpad.smooth)
+    }
+
+    @Test
+    fun desktopHorizontalScrollGeometryAndPagerSnapAreBounded() {
+        assertEquals(240f, HorizontalScrollMath.computePageStepPx(0f), 1e-4f)
+        assertEquals(780f, HorizontalScrollMath.computePageStepPx(1000f, fraction = 0.78f), 1e-4f)
+
+        // Below velocity deadzone -> zero fling.
+        assertEquals(0f, HorizontalScrollMath.computeDragFlingPx(120f, 1000f), 1e-4f)
+        // Dragging mouse left (negative velocity) glides content forward (positive scroll).
+        assertTrue(HorizontalScrollMath.computeDragFlingPx(-800f, 1000f) > 0f)
+        // Clamped to viewport * 1.15.
+        assertEquals(1150f, HorizontalScrollMath.computeDragFlingPx(-20_000f, 1000f), 1e-4f)
+
+        // Pager snapping respects drag threshold, flick velocity, and bounds.
+        assertEquals(1, HorizontalScrollMath.computePagerSnapTarget(0, 4, -260f, 0f, 800f))
+        assertEquals(0, HorizontalScrollMath.computePagerSnapTarget(0, 4, -40f, 0f, 800f))
+        assertEquals(0, HorizontalScrollMath.computePagerSnapTarget(0, 4, 300f, 500f, 800f))
+        assertEquals(3, HorizontalScrollMath.computePagerSnapTarget(3, 4, -300f, -600f, 800f))
+
+        // Wheel pager stepping handles Shift+Wheel and ignores plain vertical wheel.
+        assertEquals(0, HorizontalScrollMath.computeWheelPagerStep(0f, 1f, isShiftPressed = false))
+        assertEquals(1, HorizontalScrollMath.computeWheelPagerStep(0f, 1f, isShiftPressed = true))
+        assertEquals(-1, HorizontalScrollMath.computeWheelPagerStep(-1f, 0f, isShiftPressed = false))
+
+        // Grid scrollbar thumb geometry stays bounded in [0, 1].
+        val thumbStart = HorizontalScrollMath.computeGridScrollbarThumb(
+            totalItems = 20,
+            rowCount = 2,
+            firstVisibleColumn = 0,
+            firstColumnHiddenRatio = 0f,
+            visibleColumns = 4f,
+        )
+        assertEquals(0.4f, thumbStart.fraction, 1e-4f)
+        assertEquals(0f, thumbStart.progress, 1e-4f)
+
+        val thumbEnd = HorizontalScrollMath.computeGridScrollbarThumb(
+            totalItems = 20,
+            rowCount = 2,
+            firstVisibleColumn = 6,
+            firstColumnHiddenRatio = 0f,
+            visibleColumns = 4f,
+        )
+        assertEquals(1f, thumbEnd.progress, 1e-4f)
     }
 }

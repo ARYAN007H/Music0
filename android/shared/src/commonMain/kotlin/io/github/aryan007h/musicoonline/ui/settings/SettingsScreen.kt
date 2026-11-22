@@ -1,7 +1,6 @@
 package io.github.aryan007h.musicoonline.ui.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -62,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.UpdateInfo
 import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
+import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.Musico
@@ -479,12 +478,10 @@ fun SettingsScreen(
 
 @Composable
 private fun PalettePicker(current: Palette, onPick: (Palette) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+    DesktopScrollableChipRow(
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
+        edgeFadeColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Palette.ALL.forEach { p ->
             val selected = p.id == current.id
@@ -529,11 +526,10 @@ private val QualityOptions = listOf("low", "normal", "high", "lossless")
 
 @Composable
 private fun QualityChips(current: String, enabled: Boolean, onPick: (String) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    DesktopScrollableChipRow(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        edgeFadeColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         QualityOptions.forEach { q ->
             FilterChipPlain(
@@ -567,11 +563,10 @@ private val SpeedOptions = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
 
 @Composable
 private fun SpeedChips(current: Float, onPick: (Float) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    DesktopScrollableChipRow(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        edgeFadeColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         SpeedOptions.forEach { speed ->
             FilterChipPlain(
@@ -674,11 +669,10 @@ private fun InfoSettingRow(icon: ImageVector, title: String, subtitle: String) {
 
 @Composable
 private fun BackdropChooser(current: LyricBackdrop, onPick: (LyricBackdrop) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    DesktopScrollableChipRow(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        edgeFadeColor = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         LyricBackdrop.entries.forEach { backdrop ->
             FilterChipPlain(

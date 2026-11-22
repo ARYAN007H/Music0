@@ -45,8 +45,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -66,7 +68,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -82,6 +87,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,6 +100,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.ShelfItem
+import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -300,12 +307,15 @@ fun SectionHeader(
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             title.uppercase(),
             style = Musico.type.section,
             color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
         trailing?.invoke()
     }
@@ -635,11 +645,40 @@ fun ShelfCarousel(
     modifier: Modifier = Modifier,
     cardWidth: Dp = 160.dp,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var viewportWidthPx by remember { mutableFloatStateOf(0f) }
+
     Column(modifier = modifier) {
-        SectionHeader(shelfTitle)
+        SectionHeader(
+            title = shelfTitle,
+            trailing = {
+                ShelfScrollButtons(
+                    canScrollBackward = listState.canScrollBackward,
+                    canScrollForward = listState.canScrollForward,
+                    onScrollBackward = {
+                        val step = HorizontalScrollMath.computePageStepPx(viewportWidthPx)
+                        scope.launch {
+                            listState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                        }
+                    },
+                    onScrollForward = {
+                        val step = HorizontalScrollMath.computePageStepPx(viewportWidthPx)
+                        scope.launch {
+                            listState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                        }
+                    },
+                )
+            },
+        )
         LazyRow(
+            state = listState,
             contentPadding = PaddingValues(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { viewportWidthPx = it.width.toFloat() }
+                .desktopHorizontalScroll(listState),
         ) {
             itemsIndexed(items) { i, item ->
                 ShelfCard(
@@ -650,6 +689,12 @@ fun ShelfCarousel(
                 )
             }
         }
+        PlatformHorizontalScrollbar(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp),
+        )
     }
 }
 

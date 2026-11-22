@@ -128,3 +128,16 @@ expect fun rememberPlaylistFilePicker(
     onError: (String) -> Unit,
 ): () -> Unit
 
+@Composable
+expect fun PlatformHorizontalScrollbar(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    modifier: Modifier = Modifier,
+)
+
+@Composable
+expect fun PlatformHorizontalGridScrollbar(
+    state: androidx.compose.foundation.lazy.grid.LazyGridState,
+    modifier: Modifier = Modifier,
+)
+
+

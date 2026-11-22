@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -66,7 +64,7 @@ import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.DetailPageSkeleton
 import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
-import io.github.aryan007h.musicoonline.ui.components.ShelfCard
+import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.rememberArtworkAtmosphere
@@ -359,27 +357,13 @@ private fun DetailBody(
         page.shelves.drop(1).forEachIndexed { idx, shelf ->
             if (shelf.items.isEmpty()) return@forEachIndexed
             item(key = "shelf-$idx-${shelf.title}") {
-                Text(
-                    shelf.title.uppercase(),
-                    style = Musico.type.section,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 32.dp, top = 20.dp, bottom = 6.dp),
+                ShelfCarousel(
+                    shelfTitle = shelf.title.ifBlank { "More" },
+                    items = shelf.items,
+                    onItemClick = onOpenItem,
+                    cardWidth = 150.dp,
+                    modifier = Modifier.padding(top = 12.dp),
                 )
-            }
-            item(key = "shelfrow-$idx") {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    itemsIndexed(shelf.items, key = { i, it -> "d$i-${it.videoId}-${it.browseId}-${it.params}-${it.title}" }) { _, item ->
-                        ShelfCard(
-                            item = item,
-                            width = 150.dp,
-                            onClick = { onOpenItem(item, shelf.items) },
-                        )
-                    }
-                }
             }
         }
     }

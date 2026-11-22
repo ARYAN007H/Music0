@@ -78,6 +78,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -90,6 +92,7 @@ import io.github.aryan007h.musicoonline.core.EnhancedLyrics
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.LikeButton
+import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalPagerScroll
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -630,7 +633,8 @@ private fun CompactPagerNowPlaying(
             state = pagerState,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .desktopHorizontalPagerScroll(pagerState),
         ) { page ->
             when (page) {
                 0 -> ArtworkPage(activeTrack, isPlaying, isBuffering, atmosphere, onTogglePlay)
@@ -671,13 +675,14 @@ private fun CompactPagerNowPlaying(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     repeat(3) { i ->
                         val active = pagerState.currentPage == i
                         val dotWidth by animateDpAsState(
-                            targetValue = if (active) 18.dp else 5.dp,
+                            targetValue = if (active) 18.dp else 6.dp,
                             animationSpec = MusicoMotion.expressive(),
                             label = "npDotW$i",
                         )
@@ -691,12 +696,23 @@ private fun CompactPagerNowPlaying(
                             label = "npDotC$i",
                         )
                         Box(
-                            Modifier
-                                .padding(horizontal = 4.dp)
-                                .size(width = dotWidth.coerceAtLeast(0.dp), height = 5.dp)
+                            modifier = Modifier
                                 .clip(CircleShape)
-                                .background(dotColor),
-                        )
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable {
+                                    hapticTick()
+                                    scope.launch { pagerState.animateScrollToPage(i) }
+                                }
+                                .padding(horizontal = 5.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(width = dotWidth.coerceAtLeast(0.dp), height = 5.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor),
+                            )
+                        }
                     }
                 }
 
