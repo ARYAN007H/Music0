@@ -621,7 +621,6 @@ fn handle_connection(
                 cursor = cursor.saturating_add(n as u64);
             }
             Err(_) => {
-                open_file = None;
                 break;
             }
         }

@@ -33,7 +33,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Music0"
-            packageVersion = "0.9.6"
+            // jpackage Dmg validation requires MAJOR >= 1 (semantic app version is 0.9.6).
+            packageVersion = "1.0.0"
             description = "Music0 — Expressive Material 3 Music Player"
             vendor = "ARYAN007H"
         }

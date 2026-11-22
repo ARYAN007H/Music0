@@ -634,9 +634,10 @@ pub fn fetch_public_playlist_url(raw_url: &str) -> Result<ParsedPlaylist, String
         .send()
         .map_err(|e| {
             if e.is_timeout() {
-                "Timed out fetching playlist (10 s). Check your connection and try again.".into()
+                "Timed out fetching playlist (10 s). Check your connection and try again."
+                    .to_string()
             } else {
-                "Couldn't reach playlist URL. Check your connection and try again.".into()
+                "Couldn't reach playlist URL. Check your connection and try again.".to_string()
             }
         })?;
 
@@ -1049,7 +1050,7 @@ mod tests {
     fn parses_exportify_tunemymusic_and_soundiiz_csv() {
         let exportify = "\u{FEFF}Track URI,Track Name,Artist Name(s),Album Name,Duration (ms)\n\
 spotify:track:1,\"Blinding Lights\",\"The Weeknd\",After Hours,200040\n\
-spotify:track:2,\"Hello, World (feat. ""Guest"")\",\"Daft Punk; Pharrell Williams\",RAM,245000\n";
+spotify:track:2,\"Hello, World (feat. \"\"Guest\"\")\",\"Daft Punk; Pharrell Williams\",RAM,245000\n";
         let pl = parse_playlist_file("Late_Night_Drives.csv", exportify).expect("exportify csv");
         assert_eq!(pl.name, "Late Night Drives");
         assert_eq!(pl.tracks.len(), 2);

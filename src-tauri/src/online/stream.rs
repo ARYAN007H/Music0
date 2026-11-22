@@ -1117,7 +1117,7 @@ mod tests {
         // `:` is reserved on Windows (os error 87 on rename — caught live by
         // the v0.7.0 tag's native Windows test run).  Landing and lookup
         // must encode identically, and legacy raw-named files still hit.
-        let tc = TestCache::acquire();
+        let _tc = TestCache::acquire();
         let dir = cache_dir();
         std::fs::create_dir_all(&dir).unwrap();
 
