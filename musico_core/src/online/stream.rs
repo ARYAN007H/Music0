@@ -423,9 +423,19 @@ pub fn resolve_track(track: &OnlineTrack, interactive: bool) -> Result<PathBuf, 
         }
     }
     let result = if interactive {
-        resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
+        // When `interactive && !title.is_empty()` ran the parallel race above,
+        // `try_fast_path` already executed — skip directly to yt-dlp instead of
+        // burning another 10 s retrying the exact same pool.
+        let already_tried_fast_path = !track.title.trim().is_empty();
+        resolve_with_mode(
+            &track.video_id,
+            1,
+            PLAY_RESOLVE_BUDGET,
+            Some(PLAY_RESOLVE_BUDGET),
+            !already_tried_fast_path,
+        )
     } else {
-        resolve_with(&track.video_id, RESOLVE_ATTEMPTS, BG_PER_ATTEMPT, None)
+        resolve_with_mode(&track.video_id, RESOLVE_ATTEMPTS, BG_PER_ATTEMPT, None, true)
     };
     if !interactive {
         cover.join();
@@ -485,16 +495,19 @@ where
         return Err(format!("unknown online source `{}`", track.source));
     }
 
+    let t_start = Instant::now();
     let _cover = CoverJob::spawn(&track.song_id(), track.thumbnail.as_deref());
     let dir = cache_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("cache dir: {e}"))?;
 
+    let mut on_finalized = Some(on_finalized);
     // Helper that registers a loopback session and wires cache finalize + callback.
-    let start_loopback = |opened: super::sources::OpenedAudioStream,
-                          cache_key: String,
-                          ext: &str,
-                          cb: F|
+    let mut start_loopback = |opened: super::sources::OpenedAudioStream,
+                              cache_key: String,
+                              ext: &str|
      -> Result<String, String> {
+        let t_resolve_ms = t_start.elapsed().as_millis();
+        let t_fb = Instant::now();
         let server = super::stream_server::global_server()?;
         let final_path = dir.join(cache_file_name(&cache_key, ext));
         let part_path = unique_part_path(&dir, &cache_key);
@@ -511,21 +524,29 @@ where
         let key_for_index = cache_key.clone();
         let source_name = opened.source_name;
         let sidecar_track = track.clone();
+        let cb = on_finalized.take();
         let url = server.start_session(opened.reader, cfg, move |landed| {
             write_track_sidecar(&landed, &sidecar_track);
             if let Ok(mut index) = CACHE_INDEX.write() {
                 index.insert(key_for_index, landed.clone());
             }
             prune_cache_to_cap();
-            cb(landed);
+            if let Some(cb) = cb {
+                cb(landed);
+            }
         })?;
-        log::info!("resolve_track_streaming {}: loopback ready via {source_name}", track.video_id);
+        log::info!(
+            "resolve_track_streaming {}: source={source_name} resolve_ms={t_resolve_ms} first_byte_ms={} total_ms={}",
+            track.video_id,
+            t_fb.elapsed().as_millis(),
+            t_start.elapsed().as_millis()
+        );
         Ok(url)
     };
 
     if track.source == super::saavn::SOURCE {
         let opened = super::saavn::open_saavn_stream(track, true)?;
-        return start_loopback(opened, track.song_id(), "mp4", on_finalized);
+        return start_loopback(opened, track.song_id(), "mp4");
     }
 
     // YouTube track: race JioSaavn cross-source CDN vs InnerTube/Piped direct
@@ -567,25 +588,26 @@ where
                     matched,
                     opened,
                 )))) => {
-                    return match start_loopback(opened, matched.song_id(), "mp4", on_finalized) {
+                    return match start_loopback(opened, matched.song_id(), "mp4") {
                         Ok(url) => Ok(url),
                         Err(_) => resolve_track(track, true).map(|p| p.display().to_string()),
                     };
                 }
                 Ok(Ok(StreamRaceHit::Direct(opened))) => {
                     let ext = cache_ext_for_content_type(&opened.content_type);
-                    return match start_loopback(opened, track.video_id.clone(), ext, on_finalized) {
+                    return match start_loopback(opened, track.video_id.clone(), ext) {
                         Ok(url) => Ok(url),
                         Err(e) => {
                             log::info!(
-                                "stream loopback failed for {} ({e}) — falling back to whole-file resolve",
+                                "stream loopback failed for {} ({e}) — falling back to yt-dlp",
                                 track.video_id
                             );
-                            resolve_with(
+                            resolve_with_mode(
                                 &track.video_id,
                                 1,
                                 PLAY_RESOLVE_BUDGET,
                                 Some(PLAY_RESOLVE_BUDGET),
+                                false,
                             )
                             .map(|p| p.display().to_string())
                         }
@@ -596,36 +618,74 @@ where
             }
         }
         log::info!(
-            "parallel stream race exhausted for {} ({last_err}) — falling back to yt-dlp",
-            track.video_id
+            "parallel stream race exhausted for {} after {}ms ({last_err}) — falling back to yt-dlp",
+            track.video_id,
+            t_start.elapsed().as_millis()
         );
-        return resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
-            .map(|p| p.display().to_string());
+        #[cfg(not(target_os = "android"))]
+        if yt_dlp_available() {
+            if let Ok(opened) = open_yt_dlp_stream(&track.video_id) {
+                let ext = cache_ext_for_content_type(&opened.content_type);
+                if let Ok(url) = start_loopback(opened, track.video_id.clone(), ext) {
+                    return Ok(url);
+                }
+            }
+        }
+        return resolve_with_mode(
+            &track.video_id,
+            1,
+            PLAY_RESOLVE_BUDGET,
+            Some(PLAY_RESOLVE_BUDGET),
+            false,
+        )
+        .map(|p| p.display().to_string());
     }
 
     // Untitled YouTube track: direct-URL streaming fast path only.
     match super::sources::try_fast_path_open_stream(&track.video_id) {
         Ok(opened) => {
             let ext = cache_ext_for_content_type(&opened.content_type);
-            match start_loopback(opened, track.video_id.clone(), ext, on_finalized) {
+            match start_loopback(opened, track.video_id.clone(), ext) {
                 Ok(url) => Ok(url),
                 Err(e) => {
                     log::info!(
-                        "stream loopback failed for {} ({e}) — falling back to whole-file resolve",
+                        "stream loopback failed for {} ({e}) — falling back to yt-dlp",
                         track.video_id
                     );
-                    resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
-                        .map(|p| p.display().to_string())
+                    resolve_with_mode(
+                        &track.video_id,
+                        1,
+                        PLAY_RESOLVE_BUDGET,
+                        Some(PLAY_RESOLVE_BUDGET),
+                        false,
+                    )
+                    .map(|p| p.display().to_string())
                 }
             }
         }
         Err(e) => {
             log::info!(
-                "fast-path stream open exhausted for {} ({e}) — falling back to yt-dlp",
-                track.video_id
+                "fast-path stream open exhausted for {} after {}ms ({e}) — falling back to yt-dlp",
+                track.video_id,
+                t_start.elapsed().as_millis()
             );
-            resolve_with(&track.video_id, 1, PLAY_RESOLVE_BUDGET, Some(PLAY_RESOLVE_BUDGET))
-                .map(|p| p.display().to_string())
+            #[cfg(not(target_os = "android"))]
+            if yt_dlp_available() {
+                if let Ok(opened) = open_yt_dlp_stream(&track.video_id) {
+                    let ext = cache_ext_for_content_type(&opened.content_type);
+                    if let Ok(url) = start_loopback(opened, track.video_id.clone(), ext) {
+                        return Ok(url);
+                    }
+                }
+            }
+            resolve_with_mode(
+                &track.video_id,
+                1,
+                PLAY_RESOLVE_BUDGET,
+                Some(PLAY_RESOLVE_BUDGET),
+                false,
+            )
+            .map(|p| p.display().to_string())
         }
     }
 }
@@ -657,6 +717,16 @@ fn resolve_with(
     per_attempt: Duration,
     slot_wait: Option<Duration>,
 ) -> Result<PathBuf, String> {
+    resolve_with_mode(video_id, attempts, per_attempt, slot_wait, true)
+}
+
+fn resolve_with_mode(
+    video_id: &str,
+    attempts: u32,
+    per_attempt: Duration,
+    slot_wait: Option<Duration>,
+    run_fast_path: bool,
+) -> Result<PathBuf, String> {
     let _guard = video_lock(video_id);
 
     // Cache hit: instant, and independent of any extractor being installed.
@@ -664,28 +734,27 @@ fn resolve_with(
         return Ok(path);
     }
 
-    // Fast path first: Piped/Invidious direct URLs — no child process, no
-    // extraction API on our IP, no yt-dlp requirement. It spends its own
-    // ~10 s budget BEFORE the budgets below start; any failure falls
-    // through, leaving the yt-dlp loop (and its semantics from PR #52)
-    // untouched as the last resort.
-    let resolve_started = std::time::Instant::now();
-    match super::sources::try_fast_path(video_id) {
-        Ok(path) => {
-            log::info!(
-                "resolve {video_id}: fast path served in {:.2}s",
-                resolve_started.elapsed().as_secs_f32()
-            );
-            prune_cache(cache_cap_bytes());
-            return Ok(path);
-        }
-        Err(e) => {
-            // Info, not debug: on-device (Android) this is the one line that
-            // explains the toast — per-instance reasons stay at debug.
-            log::info!(
-                "fast path exhausted for {video_id} after {:.2}s: {e} — falling back to yt-dlp",
-                resolve_started.elapsed().as_secs_f32()
-            );
+    // Fast path first (skipped when caller already ran the parallel fast-path
+    // race so we never burn a duplicate 10 s retry before trying yt-dlp).
+    if run_fast_path {
+        let resolve_started = std::time::Instant::now();
+        match super::sources::try_fast_path(video_id) {
+            Ok(path) => {
+                log::info!(
+                    "resolve {video_id}: fast path served in {:.2}s",
+                    resolve_started.elapsed().as_secs_f32()
+                );
+                prune_cache(cache_cap_bytes());
+                return Ok(path);
+            }
+            Err(e) => {
+                // Info, not debug: on-device (Android) this is the one line that
+                // explains the toast — per-instance reasons stay at debug.
+                log::info!(
+                    "fast path exhausted for {video_id} after {:.2}s: {e} — falling back to yt-dlp",
+                    resolve_started.elapsed().as_secs_f32()
+                );
+            }
         }
     }
 
@@ -822,6 +891,111 @@ fn run_yt_dlp(url: &str, template: &Path, timeout: Duration) -> Result<(), Strin
         ));
     }
     Ok(())
+}
+
+/// Desktop streaming fallback via `yt-dlp -g`: extracts a direct HTTPS audio
+/// URL (~1–2 s) and opens it with our streaming client so even yt-dlp fallback
+/// plays progressively over the loopback server instead of waiting for a full
+/// file download. Any non-HTTPS / HLS / 403 result falls back to whole-file
+/// `run_yt_dlp`.
+#[cfg(not(target_os = "android"))]
+fn open_yt_dlp_stream(video_id: &str) -> Result<super::sources::OpenedAudioStream, String> {
+    use std::io::Read as _;
+
+    let _slot = acquire_yt_dlp_slot_bounded(Duration::from_secs(4))
+        .ok_or_else(|| "yt-dlp slot busy".to_string())?;
+    let url = format!("https://www.youtube.com/watch?v={video_id}");
+    let mut child = Command::new("yt-dlp")
+        .args([
+            "--no-playlist",
+            "--no-warnings",
+            "--no-progress",
+            "-f",
+            "140/139/bestaudio[ext=m4a][protocol=https]/bestaudio[protocol=https]",
+            "-g",
+        ])
+        .arg(&url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to launch yt-dlp -g: {e}"))?;
+
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "yt-dlp stdout unavailable".to_string())?;
+    let (out_tx, out_rx) = std::sync::mpsc::channel::<String>();
+    let _ = std::thread::Builder::new()
+        .name("musico-ytdlp-url".into())
+        .spawn(move || {
+            let mut buf = String::new();
+            let _ = stdout.take(16 * 1024).read_to_string(&mut buf);
+            let _ = out_tx.send(buf);
+        });
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Ok(st),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break Err("yt-dlp -g timed out".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            Err(e) => break Err(format!("yt-dlp -g wait: {e}")),
+        }
+    }?;
+    if !status.success() {
+        return Err(format!("yt-dlp -g exited with {status}"));
+    }
+
+    let raw = out_rx
+        .recv_timeout(Duration::from_millis(500))
+        .map_err(|_| "yt-dlp -g output timeout".to_string())?;
+    let direct_url = raw
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("https://") && !l.contains(".m3u8"))
+        .ok_or_else(|| "yt-dlp -g returned no direct https audio URL".to_string())?;
+
+    let client = super::sources::stream_http_client()
+        .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
+    let resp = client
+        .get(direct_url)
+        .send()
+        .map_err(|e| format!("yt-dlp stream GET: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("yt-dlp stream HTTP {}", resp.status()));
+    }
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
+        return Err(format!("yt-dlp stream content-type `{ctype}` is not audio"));
+    }
+    let content_length = resp.content_length();
+    let content_type = if ctype.starts_with("audio/") {
+        ctype
+            .split(';')
+            .next()
+            .unwrap_or("audio/mp4")
+            .trim()
+            .to_string()
+    } else {
+        "audio/mp4".into()
+    };
+    Ok(super::sources::OpenedAudioStream {
+        reader: Box::new(resp),
+        content_length,
+        content_type,
+        source_name: "yt-dlp-stream".into(),
+    })
 }
 
 /// LRU-prunes the stream cache to the cap by mtime (oldest first), keeping

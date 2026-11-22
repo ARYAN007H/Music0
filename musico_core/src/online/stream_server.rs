@@ -22,16 +22,18 @@ use std::time::{Duration, Instant};
 use rand::RngCore;
 
 /// Bytes buffered into `.part` before `start_session` hands the loopback URL
-/// back to the player. 32 KiB carries MP4/WebM headers for fast audio start
-/// (< 1 s) while still catching immediate upstream 403 / empty-body failures.
-pub(crate) const INITIAL_READY_BYTES: u64 = 32 * 1024;
+/// back to the player. 16 KiB (~1.0 s of 128 kbps AAC) carries MP4/WebM headers
+/// plus the first audio frames for near-instant audio start while still sitting
+/// above `MIN_FILE_BYTES` (10 KiB) to catch immediate 403 / empty-body errors.
+pub(crate) const INITIAL_READY_BYTES: u64 = 16 * 1024;
 /// How long `start_session` waits for the initial ready threshold before
 /// declaring the upstream stalled and failing over.
-pub(crate) const INITIAL_READY_TIMEOUT: Duration = Duration::from_secs(12);
+pub(crate) const INITIAL_READY_TIMEOUT: Duration = Duration::from_secs(6);
 /// Upper bound on active/completed sessions retained in the lookup map.
 const MAX_RETAINED_SESSIONS: usize = 24;
-/// Read chunk size for both producer and HTTP range reader.
-const IO_CHUNK_BYTES: usize = 32 * 1024;
+/// Read chunk size for both producer and HTTP range reader (16 KiB matches
+/// `INITIAL_READY_BYTES` and wakes waiting readers sooner on slow links).
+const IO_CHUNK_BYTES: usize = 16 * 1024;
 /// Maximum HTTP header lines accepted on a single loopback connection.
 const MAX_HEADER_LINES: usize = 64;
 

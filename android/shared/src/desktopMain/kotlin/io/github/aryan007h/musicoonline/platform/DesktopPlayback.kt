@@ -116,8 +116,9 @@ class DesktopPlayback : PlatformPlayback {
             _isPlaying.value = true
             PlatformEqualizer.reapplyToEngine()
             startPolling()
-        } finally {
+        } catch (t: Throwable) {
             _isBuffering.value = false
+            throw t
         }
     }
 

@@ -81,6 +81,11 @@ static API_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
              (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
+        .connect_timeout(Duration::from_secs(2))
+        .read_timeout(Duration::from_secs(15))
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(Duration::from_secs(60))
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 });
@@ -195,7 +200,49 @@ pub fn search_songs(query: &str, limit: usize) -> Vec<OnlineTrack> {
     search_songs_with_timeout(query, limit, API_TIMEOUT)
 }
 
-fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<OnlineTrack> {
+/// Internal search hit keeping `encrypted_media_url` + `has_320` returned by
+/// `search.getResults` so cross-source instant resolve skips the extra
+/// `song.getDetails` round-trip (cutting cold start from 3 RTTs to 2 RTTs).
+struct SearchHit {
+    track: OnlineTrack,
+    encrypted_media_url: Option<String>,
+    has_320: bool,
+}
+
+fn parse_search_hits(body: &str, limit: usize) -> Vec<SearchHit> {
+    let parsed: SearchJson = match serde_json::from_str(body) {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    parsed
+        .results
+        .iter()
+        .filter_map(|v| serde_json::from_value::<SongJson>(v.clone()).ok())
+        .filter_map(|song| {
+            let encrypted_media_url = song
+                .more_info
+                .as_ref()
+                .and_then(|m| m.encrypted_media_url.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            let has_320 = song
+                .more_info
+                .as_ref()
+                .and_then(|m| m.has_320.as_deref())
+                == Some("true");
+            let track = song_to_track(song)?;
+            Some(SearchHit {
+                track,
+                encrypted_media_url,
+                has_320,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
+fn search_hits_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<SearchHit> {
     let q = query.trim();
     if q.is_empty() || limit == 0 {
         return Vec::new();
@@ -214,16 +261,13 @@ fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Ve
     let Some(body) = body else {
         return Vec::new();
     };
-    let parsed: SearchJson = match serde_json::from_str(&body) {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
-    };
-    parsed
-        .results
-        .iter()
-        .filter_map(|v| serde_json::from_value::<SongJson>(v.clone()).ok())
-        .filter_map(song_to_track)
-        .take(limit)
+    parse_search_hits(&body, limit)
+}
+
+fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<OnlineTrack> {
+    search_hits_with_timeout(query, limit, timeout)
+        .into_iter()
+        .map(|h| h.track)
         .collect()
 }
 
@@ -373,25 +417,14 @@ pub(crate) enum CrossSourceStream {
     Opened(OnlineTrack, super::sources::OpenedAudioStream),
 }
 
-/// Opens a direct JioSaavn CDN audio response for stream-while-download without
-/// buffering the entire body into RAM first.
-pub(crate) fn open_saavn_stream(
-    track: &OnlineTrack,
+/// Opens a direct JioSaavn CDN audio stream given an already-fetched
+/// `encrypted_media_url` + `has_320` flag (zero extra `song.getDetails` RTT).
+fn open_saavn_stream_from_encrypted(
+    enc: &str,
+    has_320: bool,
     interactive: bool,
 ) -> Result<super::sources::OpenedAudioStream, String> {
-    if !valid_saavn_id(&track.video_id) {
-        return Err("saavn stream: invalid track id".into());
-    }
-    let song = song_details(&track.video_id)?;
-    let enc = song
-        .more_info
-        .as_ref()
-        .and_then(|m| m.encrypted_media_url.as_deref())
-        .map(str::trim)
-        .filter(|e| !e.is_empty())
-        .ok_or("saavn stream: no encrypted media url")?;
     let base = decrypt_media_url(enc).ok_or("saavn stream: media url decrypt failed")?;
-    let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
     let settings = crate::config::AppSettings::load();
     let pref_quality = if interactive {
         settings.streaming_quality
@@ -400,11 +433,10 @@ pub(crate) fn open_saavn_stream(
     };
     let mut last_err = String::from("saavn stream: no candidates");
     for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
-        let resp = match API_CLIENT
-            .get(&url)
-            .timeout(Duration::from_secs(180))
-            .send()
-        {
+        // API_CLIENT has connect_timeout(2s) + read_timeout(15s), so headers
+        // fail fast on a stalled CDN while slow-network full songs never hit an
+        // artificial whole-request cutoff.
+        let resp = match API_CLIENT.get(&url).send() {
             Ok(r) => r,
             Err(e) => {
                 last_err = format!("saavn stream: {e}");
@@ -432,14 +464,45 @@ pub(crate) fn open_saavn_stream(
                 continue;
             }
         }
+        let content_type = ctype
+            .split(';')
+            .next()
+            .unwrap_or("audio/mp4")
+            .trim()
+            .to_string();
         return Ok(super::sources::OpenedAudioStream {
             reader: Box::new(resp),
             content_length,
-            content_type: ctype,
+            content_type: if content_type.is_empty() {
+                "audio/mp4".into()
+            } else {
+                content_type
+            },
             source_name: SOURCE.to_string(),
         });
     }
     Err(last_err)
+}
+
+/// Opens a direct JioSaavn CDN audio response for stream-while-download without
+/// buffering the entire body into RAM first.
+pub(crate) fn open_saavn_stream(
+    track: &OnlineTrack,
+    interactive: bool,
+) -> Result<super::sources::OpenedAudioStream, String> {
+    if !valid_saavn_id(&track.video_id) {
+        return Err("saavn stream: invalid track id".into());
+    }
+    let song = song_details(&track.video_id)?;
+    let enc = song
+        .more_info
+        .as_ref()
+        .and_then(|m| m.encrypted_media_url.as_deref())
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .ok_or("saavn stream: no encrypted media url")?;
+    let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
+    open_saavn_stream_from_encrypted(enc, has_320, interactive)
 }
 
 /// Streaming variant of [`try_cross_source_resolve`]: returns either an already
@@ -462,12 +525,12 @@ pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossS
         }
     }
     for query in queries {
-        let candidates = search_songs_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
+        let candidates = search_hits_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
         let matched = candidates
             .into_iter()
-            .filter(|c| {
-                let ct = norm_title(&c.title);
-                let ca = c.artist.to_lowercase();
+            .filter(|h| {
+                let ct = norm_title(&h.track.title);
+                let ca = h.track.artist.to_lowercase();
                 let title_ok = !ct.is_empty() && (ct.contains(&req_title) || req_title.contains(&ct));
                 let artist_ok = req_artist.is_empty()
                     || req_artist
@@ -476,14 +539,21 @@ pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossS
                         .any(|tok| tok.len() >= 2 && ca.contains(tok));
                 title_ok && artist_ok
             })
-            .filter(|c| duration_plausible(track.duration_secs, c.duration_secs))
-            .min_by_key(|c| duration_drift(track.duration_secs, c.duration_secs));
+            .filter(|h| duration_plausible(track.duration_secs, h.track.duration_secs))
+            .min_by_key(|h| duration_drift(track.duration_secs, h.track.duration_secs));
         if let Some(matched) = matched {
-            if let Some(hit) = stream::cached_file(&matched.song_id()) {
+            if let Some(hit) = stream::cached_file(&matched.track.song_id()) {
                 return Some(CrossSourceStream::Cached(hit));
             }
-            if let Ok(opened) = open_saavn_stream(&matched, true) {
-                return Some(CrossSourceStream::Opened(matched, opened));
+            // Fast 2-RTT path: decrypt encrypted_media_url directly from the
+            // search result without a redundant `song.getDetails` round-trip.
+            let opened = match matched.encrypted_media_url.as_deref() {
+                Some(enc) => open_saavn_stream_from_encrypted(enc, matched.has_320, true)
+                    .or_else(|_| open_saavn_stream(&matched.track, true)),
+                None => open_saavn_stream(&matched.track, true),
+            };
+            if let Ok(opened) = opened {
+                return Some(CrossSourceStream::Opened(matched.track, opened));
             }
         }
     }
@@ -1000,5 +1070,23 @@ mod tests {
         assert_eq!(norm_title("Shinunoga E-Wa"), norm_title("Shinunoga E Wa"));
         // Kana survives as identity, casing does not.
         assert_eq!(norm_title("すずめ - Suzume"), norm_title("すずめ - SUZUME"));
+    }
+
+    #[test]
+    fn search_hits_preserve_direct_encrypted_media_url() {
+        let _tc = TestCache::acquire();
+        let body = format!(
+            r#"{{"results":[{{"id":"BeXBcbVK","type":"song","title":"Believer",
+            "more_info":{{"duration":"204","320kbps":"true","encrypted_media_url":"{LIVE_CT}",
+            "artistMap":{{"primary_artists":[{{"name":"Imagine Dragons"}}]}}}}}}]}}"#
+        );
+        let hits = parse_search_hits(&body, 6);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].has_320);
+        assert_eq!(hits[0].encrypted_media_url.as_deref(), Some(LIVE_CT));
+        assert_eq!(
+            decrypt_media_url(hits[0].encrypted_media_url.as_deref().unwrap()).as_deref(),
+            Some(LIVE_PT_96)
+        );
     }
 }

@@ -35,7 +35,8 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -43,18 +44,22 @@ use serde::Deserialize;
 /// Whole fast-path budget — metadata + download across the whole pool.
 /// Spent BEFORE the yt-dlp budgets begin (see module header).
 pub(crate) const FAST_PATH_BUDGET: Duration = Duration::from_secs(10);
-/// Total budget for one metadata request (Piped `/streams` JSON). Invidious
-/// opens with the same cap (its endpoint returns the bytes directly).
-const METADATA_TIMEOUT: Duration = Duration::from_secs(5);
+/// Total budget for one metadata request (InnerTube `/player` or Piped `/streams` JSON).
+/// Healthy endpoints answer in 150–600 ms; 3.5 s catches hung instances fast.
+const METADATA_TIMEOUT: Duration = Duration::from_millis(3_500);
 /// Connect budget for the dedicated source client — a black-holed instance
 /// must fail fast so the pool moves on.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// Per-read idle timeout for live streaming HTTP bodies (bounds hung headers
+/// and stalled chunks without cutting off long tracks on slow internet).
+const STREAM_READ_TIMEOUT: Duration = Duration::from_secs(15);
+/// Delay before hedging backup sources when the primary source hasn't opened yet.
+const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(900);
+/// Maximum backup sources launched per hedge wave.
+const STREAM_HEDGE_BATCH: usize = 2;
 /// Upper bound on one downloaded track — a 5-minute 128 kbps m4a is ~5 MB;
 /// anything beyond this cap is not audio we asked for.
 pub(crate) const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
-/// Generous body-read timeout for background stream-while-download transfers
-/// (metadata/connect still use the tight fast-path budgets).
-const STREAM_BODY_TIMEOUT: Duration = Duration::from_secs(180);
 /// Metadata responses are small; anything larger is not the API we asked for.
 const MAX_METADATA_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -201,11 +206,31 @@ static SOURCE_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
         .user_agent(super::client::USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
         .tcp_nodelay(true)
-        .pool_max_idle_per_host(2)
-        .pool_idle_timeout(Duration::from_secs(30))
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(Duration::from_secs(60))
         .build()
         .ok()
 });
+
+/// Dedicated streaming HTTP client with a tight connect timeout (2 s) and a
+/// per-read idle timeout (15 s) instead of a fixed total-request timeout, so
+/// hanging headers fail quickly while long streams on slow links keep playing.
+static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
+    reqwest::blocking::Client::builder()
+        .user_agent(super::client::USER_AGENT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(STREAM_READ_TIMEOUT)
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(Duration::from_secs(60))
+        .build()
+        .ok()
+});
+
+/// Exposes the shared streaming HTTP client for fallback direct-URL opens.
+pub(crate) fn stream_http_client() -> Option<&'static reqwest::blocking::Client> {
+    STREAM_CLIENT.as_ref()
+}
 
 // ---------------------------------------------------------------------------
 // Pool construction
@@ -246,7 +271,7 @@ fn instances_from_env(env_value: Option<&str>, defaults: &[&str]) -> Vec<String>
 /// Piped/Invidious instance pools as failover for when YouTube's player API
 /// itself refuses us, dynamically ordered by EWMA health score. JioSaavn is
 /// dispatched per-id upstream of this pool and stays the catalog backup.
-pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
+fn ordered_source_specs() -> Vec<SourceSpec> {
     let mut specs = Vec::new();
     let piped_env = std::env::var(ENV_PIPED).ok();
     let inv_env = std::env::var(ENV_INVIDIOUS).ok();
@@ -275,10 +300,20 @@ pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
         .into_iter()
         .partition(|s| s.kind == SourceKind::InnerTubeDirect);
     sort_specs_by_health(&mut rest);
-    direct
+    direct.into_iter().chain(rest).collect()
+}
+
+pub(crate) fn default_pool() -> Vec<Box<dyn AudioSource>> {
+    ordered_source_specs()
         .into_iter()
-        .chain(rest)
-        .map(|s| s.into_source())
+        .map(SourceSpec::into_source)
+        .collect()
+}
+
+fn default_pool_arc() -> Vec<Arc<dyn AudioSource>> {
+    ordered_source_specs()
+        .into_iter()
+        .map(|s| Arc::from(s.into_source()))
         .collect()
 }
 
@@ -468,7 +503,7 @@ impl PipedSource {
         &self,
         video_id: &str,
         deadline: Instant,
-        body_timeout: Option<Duration>,
+        streaming: bool,
     ) -> Result<OpenedAudioStream, String> {
         let client = SOURCE_CLIENT
             .as_ref()
@@ -497,12 +532,21 @@ impl PipedSource {
                 )
             })?;
 
-        let dl_budget = body_timeout.unwrap_or(remaining(deadline)?);
-        let resp = client
-            .get(url)
-            .timeout(dl_budget)
-            .send()
-            .map_err(|e| format!("piped {}: download request: {e}", self.host))?;
+        let resp = if streaming {
+            let sclient = STREAM_CLIENT
+                .as_ref()
+                .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
+            sclient
+                .get(url)
+                .send()
+                .map_err(|e| format!("piped {}: download request: {e}", self.host))?
+        } else {
+            client
+                .get(url)
+                .timeout(remaining(deadline)?)
+                .send()
+                .map_err(|e| format!("piped {}: download request: {e}", self.host))?
+        };
         if !resp.status().is_success() {
             return Err(format!("piped {}: download HTTP {}", self.host, resp.status()));
         }
@@ -534,11 +578,11 @@ impl AudioSource for PipedSource {
     }
 
     fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
-        self.open_inner(video_id, deadline, None).map(|o| o.reader)
+        self.open_inner(video_id, deadline, false).map(|o| o.reader)
     }
 
     fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
-        self.open_inner(video_id, deadline, Some(STREAM_BODY_TIMEOUT))
+        self.open_inner(video_id, deadline, true)
     }
 }
 
@@ -554,21 +598,30 @@ impl InvidiousSource {
         &self,
         video_id: &str,
         deadline: Instant,
-        body_timeout: Option<Duration>,
+        streaming: bool,
     ) -> Result<OpenedAudioStream, String> {
-        let client = SOURCE_CLIENT
-            .as_ref()
-            .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-        let budget = body_timeout.unwrap_or(remaining(deadline)?);
-
-        let resp = client
-            .get(format!(
-                "https://{}/latest_version?id={video_id}&itag=140&local=true",
-                self.host
-            ))
-            .timeout(budget)
-            .send()
-            .map_err(|e| format!("invidious {}: request: {e}", self.host))?;
+        let url = format!(
+            "https://{}/latest_version?id={video_id}&itag=140&local=true",
+            self.host
+        );
+        let resp = if streaming {
+            let sclient = STREAM_CLIENT
+                .as_ref()
+                .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
+            sclient
+                .get(url)
+                .send()
+                .map_err(|e| format!("invidious {}: request: {e}", self.host))?
+        } else {
+            let client = SOURCE_CLIENT
+                .as_ref()
+                .ok_or_else(|| "source HTTP client unavailable".to_string())?;
+            client
+                .get(url)
+                .timeout(remaining(deadline)?)
+                .send()
+                .map_err(|e| format!("invidious {}: request: {e}", self.host))?
+        };
         if !resp.status().is_success() {
             return Err(format!("invidious {}: HTTP {}", self.host, resp.status()));
         }
@@ -602,11 +655,11 @@ impl AudioSource for InvidiousSource {
     }
 
     fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
-        self.open_inner(video_id, deadline, None).map(|o| o.reader)
+        self.open_inner(video_id, deadline, false).map(|o| o.reader)
     }
 
     fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
-        self.open_inner(video_id, deadline, Some(STREAM_BODY_TIMEOUT))
+        self.open_inner(video_id, deadline, true)
     }
 }
 
@@ -729,6 +782,61 @@ fn it_demote(id: &'static str) {
     }
 }
 
+/// Last-working InnerTube client profile id — tried first on subsequent
+/// tracks to avoid wasting RTTs on degraded profiles.
+#[allow(clippy::incompatible_msrv)]
+static LAST_GOOD_IT_CLIENT: LazyLock<Mutex<Option<&'static str>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+fn last_good_it_client() -> Option<&'static str> {
+    LAST_GOOD_IT_CLIENT.lock().ok().and_then(|g| *g)
+}
+
+fn remember_good_it_client(id: &'static str) {
+    if let Ok(mut g) = LAST_GOOD_IT_CLIENT.lock() {
+        *g = Some(id);
+    }
+}
+
+/// Orders InnerTube client profiles for minimal cold-start latency:
+/// 1. Last-working profile first (when known).
+/// 2. When `visitorData` is NOT warm yet (cold start right after launch),
+///    visitor-free profiles (`VISIONOS_1_02`, `WEB_REMIX`) run BEFORE
+///    visitor-gated profiles so playback never stalls 4–9 s fetching `sw.js_data`
+///    + homepage HTML on the first click.
+fn ordered_it_clients(
+    has_warm_visitor: bool,
+    last_good: Option<&'static str>,
+) -> Vec<&'static ItClientProfile> {
+    let mut out: Vec<&'static ItClientProfile> = Vec::with_capacity(IT_CLIENTS.len());
+    if let Some(good_id) = last_good {
+        if let Some(p) = IT_CLIENTS.iter().find(|p| p.id == good_id) {
+            if has_warm_visitor || !p.needs_visitor {
+                out.push(p);
+            }
+        }
+    }
+    if has_warm_visitor {
+        for p in IT_CLIENTS {
+            if !out.iter().any(|existing| existing.id == p.id) {
+                out.push(p);
+            }
+        }
+    } else {
+        for p in IT_CLIENTS.iter().filter(|p| !p.needs_visitor) {
+            if !out.iter().any(|existing| existing.id == p.id) {
+                out.push(p);
+            }
+        }
+        for p in IT_CLIENTS.iter().filter(|p| p.needs_visitor) {
+            if !out.iter().any(|existing| existing.id == p.id) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
 fn it_rehab(id: &str) {
     if let Ok(mut map) = IT_HEALTH.lock() {
         map.remove(id);
@@ -789,9 +897,9 @@ fn extract_visitor_data(text: &str) -> Option<String> {
 /// fresh, `Err(cooldown deadline)` after both probes failed.
 type VisitorCache = Option<Result<(String, Instant), Instant>>;
 
-/// Pre-warms the dedicated HTTP/2 source client and InnerTube `visitorData`
-/// token in a background thread at app launch so the first track play skips
-/// TLS initialization and visitor bootstrap latency.
+/// Pre-warms the dedicated HTTP/2 source/stream clients and InnerTube
+/// `visitorData` token in a background thread at app launch so the first track
+/// play skips TLS initialization and visitor bootstrap latency.
 pub(crate) fn prewarm_async() {
     let _ = std::thread::Builder::new()
         .name("musico-sources-prewarm".into())
@@ -799,16 +907,29 @@ pub(crate) fn prewarm_async() {
             if crate::config::AppSettings::load().offline_mode {
                 return;
             }
+            let _ = LazyLock::force(&STREAM_CLIENT);
             if let Some(client) = SOURCE_CLIENT.as_ref() {
-                let _ = visitor_data(client, Instant::now() + Duration::from_secs(6));
+                let _ = visitor_data_bounded(client, Instant::now() + Duration::from_secs(6), true);
             }
         });
 }
 
-/// Cached visitor bootstrap; `None` when both probes failed recently.
-fn visitor_data(
+/// Instant lock-only check for an already-warm `visitorData` token.
+fn cached_visitor_data() -> Option<String> {
+    let cache = VISITOR_CACHE.lock().ok()?;
+    match &*cache {
+        Some(Ok((vd, at))) if at.elapsed() < VISITOR_TTL => Some(vd.clone()),
+        _ => None,
+    }
+}
+
+/// Cached visitor bootstrap; `None` when probes failed recently.
+/// `allow_html_fallback = false` keeps the hot interactive play path fast
+/// (never spending 5 s downloading the full YouTube Music HTML shell).
+fn visitor_data_bounded(
     client: &reqwest::blocking::Client,
     deadline: Instant,
+    allow_html_fallback: bool,
 ) -> Option<String> {
     {
         let cache = VISITOR_CACHE.lock().ok()?;
@@ -820,8 +941,11 @@ fn visitor_data(
     }
     let fetched = (|| {
         let left = remaining(deadline).ok()?;
-        let sw_budget = left.min(Duration::from_secs(4));
-        let html_budget = left.min(Duration::from_secs(5));
+        let sw_budget = left.min(if allow_html_fallback {
+            Duration::from_secs(4)
+        } else {
+            Duration::from_millis(2_000)
+        });
         // 1) Service-worker data endpoint (JSON, small).
         if let Ok(resp) = client
             .get(VISITOR_DATA_URL)
@@ -838,7 +962,11 @@ fn visitor_data(
                 }
             }
         }
-        // 2) Music homepage HTML fallback.
+        if !allow_html_fallback {
+            return None;
+        }
+        let html_budget = remaining(deadline).ok()?.min(Duration::from_secs(5));
+        // 2) Music homepage HTML fallback (background prewarm only).
         if let Ok(resp) = client
             .get(MUSIC_HOME_URL)
             .header(reqwest::header::USER_AGENT, UA_WEB)
@@ -862,7 +990,8 @@ fn visitor_data(
     let mut cache = VISITOR_CACHE.lock().ok()?;
     match &fetched {
         Some(vd) => *cache = Some(Ok((vd.clone(), Instant::now()))),
-        None => *cache = Some(Err(Instant::now() + VISITOR_FAIL_COOLDOWN)),
+        None if allow_html_fallback => *cache = Some(Err(Instant::now() + VISITOR_FAIL_COOLDOWN)),
+        None => {}
     }
     fetched
 }
@@ -967,20 +1096,22 @@ fn parse_innertube_player_streams(body: &[u8]) -> Vec<PipedAudio> {
 
 impl InnerTubeDirectSource {
     const NAME: &'static str = "innertube-direct";
-    const CLIENTS: &'static [ItClientProfile] = IT_CLIENTS;
 
     fn open_inner(
         &self,
         video_id: &str,
         deadline: Instant,
-        body_timeout: Option<Duration>,
+        streaming: bool,
     ) -> Result<OpenedAudioStream, String> {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
         let mut last_err = String::from("innertube-direct:");
 
-        for p in Self::CLIENTS {
+        let warm_visitor = cached_visitor_data();
+        let profiles = ordered_it_clients(warm_visitor.is_some(), last_good_it_client());
+
+        for p in profiles {
             if it_demoted(p.id) {
                 last_err = format!("{}: demoted after recent failures", p.id);
                 continue;
@@ -988,7 +1119,13 @@ impl InnerTubeDirectSource {
             if remaining(deadline).is_err() {
                 return Err(format!("{last_err}; fast-path deadline exhausted"));
             }
-            let visitor = visitor_data(client, deadline);
+            let visitor = if p.needs_visitor {
+                warm_visitor
+                    .clone()
+                    .or_else(|| visitor_data_bounded(client, deadline, false))
+            } else {
+                warm_visitor.clone()
+            };
             if p.needs_visitor && visitor.is_none() {
                 last_err = format!("{last_err}; {}: visitor data unavailable", p.id);
                 continue;
@@ -1063,18 +1200,35 @@ impl InnerTubeDirectSource {
                 }
             };
 
-            let dl_budget = body_timeout.unwrap_or(remaining(deadline)?);
-            let resp = match client
-                .get(url)
-                .header(reqwest::header::USER_AGENT, p.user_agent)
-                .timeout(dl_budget)
-                .send()
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    it_demote(p.id);
-                    last_err = format!("{last_err}; {}: download: {e}", p.id);
-                    continue;
+            let resp = if streaming {
+                let sclient = STREAM_CLIENT
+                    .as_ref()
+                    .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
+                match sclient
+                    .get(url)
+                    .header(reqwest::header::USER_AGENT, p.user_agent)
+                    .send()
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        it_demote(p.id);
+                        last_err = format!("{last_err}; {}: download: {e}", p.id);
+                        continue;
+                    }
+                }
+            } else {
+                match client
+                    .get(url)
+                    .header(reqwest::header::USER_AGENT, p.user_agent)
+                    .timeout(remaining(deadline)?)
+                    .send()
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        it_demote(p.id);
+                        last_err = format!("{last_err}; {}: download: {e}", p.id);
+                        continue;
+                    }
                 }
             };
             if !resp.status().is_success() {
@@ -1100,12 +1254,13 @@ impl InnerTubeDirectSource {
                 "audio/mp4".into()
             };
             it_rehab(p.id);
+            remember_good_it_client(p.id);
             log::info!("innertube-direct: {} serving {video_id}", p.id);
             return Ok(OpenedAudioStream {
                 reader: Box::new(resp),
                 content_length,
                 content_type,
-                source_name: Self::NAME.into(),
+                source_name: format!("{}:{}", Self::NAME, p.id),
             });
         }
         Err(last_err)
@@ -1118,11 +1273,11 @@ impl AudioSource for InnerTubeDirectSource {
     }
 
     fn open(&self, video_id: &str, deadline: Instant) -> Result<SourceBody, String> {
-        self.open_inner(video_id, deadline, None).map(|o| o.reader)
+        self.open_inner(video_id, deadline, false).map(|o| o.reader)
     }
 
     fn open_stream(&self, video_id: &str, deadline: Instant) -> Result<OpenedAudioStream, String> {
-        self.open_inner(video_id, deadline, Some(STREAM_BODY_TIMEOUT))
+        self.open_inner(video_id, deadline, true)
     }
 }
 
@@ -1210,45 +1365,144 @@ pub(crate) fn try_fast_path(video_id: &str) -> Result<PathBuf, String> {
     try_sources(&default_pool(), video_id, FAST_PATH_BUDGET)
 }
 
-/// Opens the first working upstream audio stream in pool order without waiting
-/// for the full body download — feeds [`super::stream_server`] for mobile
-/// stream-while-download playback.
-pub(crate) fn try_sources_open_stream(
-    sources: &[Box<dyn AudioSource>],
+/// Hedged concurrent stream opener: starts the primary source immediately at
+/// `t = 0`, and if it fails early or hasn't returned an open stream within
+/// `hedge_delay`, races up to [`STREAM_HEDGE_BATCH`] backup sources in parallel.
+/// Returns the FIRST working [`OpenedAudioStream`] immediately without waiting
+/// for slower/stalled sources to time out.
+pub(crate) fn try_sources_open_stream_hedged(
+    sources: Vec<Arc<dyn AudioSource>>,
     video_id: &str,
     budget: Duration,
+    hedge_delay: Duration,
 ) -> Result<OpenedAudioStream, String> {
     if !valid_video_id(video_id) {
         return Err(format!("invalid video id `{video_id}`"));
     }
+    if sources.is_empty() {
+        return Err("no sources configured".into());
+    }
+
     let deadline = Instant::now() + budget;
+    let won = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = std::sync::mpsc::channel::<Result<OpenedAudioStream, String>>();
+
+    let spawn_one = |src: Arc<dyn AudioSource>,
+                     vid: String,
+                     tx: std::sync::mpsc::Sender<Result<OpenedAudioStream, String>>,
+                     won: Arc<AtomicBool>| {
+        let _ = std::thread::Builder::new()
+            .name("musico-stream-open".into())
+            .spawn(move || {
+                let t0 = Instant::now();
+                let res = src.open_stream(&vid, deadline);
+                let ok = res.is_ok();
+                record_instance_outcome(src.name(), ok, t0.elapsed());
+                if !ok && !won.load(Ordering::Acquire) {
+                    if let Err(ref e) = res {
+                        log::debug!("fast path stream: {} unavailable: {e}", src.name());
+                    }
+                }
+                if !won.load(Ordering::Acquire) {
+                    let _ = tx.send(res);
+                }
+            });
+    };
+
+    let mut next_idx = 0usize;
+    let mut in_flight = 0usize;
     let mut last_err = String::from("no sources configured");
-    for source in sources {
-        if remaining(deadline).is_err() {
-            last_err =
-                format!("{last_err}; fast-path deadline exhausted before all sources were tried");
-            break;
+
+    // Launch primary source (InnerTube Direct) immediately.
+    spawn_one(
+        Arc::clone(&sources[next_idx]),
+        video_id.to_string(),
+        tx.clone(),
+        Arc::clone(&won),
+    );
+    next_idx += 1;
+    in_flight += 1;
+
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            won.store(true, Ordering::Release);
+            return Err(format!(
+                "{last_err}; fast-path deadline exhausted before a stream opened"
+            ));
         }
-        let attempt_start = Instant::now();
-        match source.open_stream(video_id, deadline) {
-            Ok(opened) => {
-                record_instance_outcome(source.name(), true, attempt_start.elapsed());
+
+        let rem = deadline.saturating_duration_since(now);
+        let wait = if next_idx < sources.len() {
+            rem.min(hedge_delay)
+        } else {
+            rem
+        };
+
+        match rx.recv_timeout(wait) {
+            Ok(Ok(opened)) => {
+                won.store(true, Ordering::Release);
                 return Ok(opened);
             }
-            Err(e) => {
-                record_instance_outcome(source.name(), false, attempt_start.elapsed());
-                log::debug!("fast path stream: {} unavailable: {e}", source.name());
+            Ok(Err(e)) => {
+                in_flight = in_flight.saturating_sub(1);
                 last_err = e;
+                // Primary or in-flight source failed early: immediately launch
+                // next hedge wave instead of waiting out the hedge timer.
+                if in_flight == 0 && next_idx < sources.len() {
+                    let wave_end = (next_idx + STREAM_HEDGE_BATCH).min(sources.len());
+                    while next_idx < wave_end {
+                        spawn_one(
+                            Arc::clone(&sources[next_idx]),
+                            video_id.to_string(),
+                            tx.clone(),
+                            Arc::clone(&won),
+                        );
+                        next_idx += 1;
+                        in_flight += 1;
+                    }
+                } else if in_flight == 0 {
+                    won.store(true, Ordering::Release);
+                    return Err(last_err);
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if next_idx < sources.len() && Instant::now() < deadline {
+                    let wave_end = (next_idx + STREAM_HEDGE_BATCH).min(sources.len());
+                    while next_idx < wave_end {
+                        spawn_one(
+                            Arc::clone(&sources[next_idx]),
+                            video_id.to_string(),
+                            tx.clone(),
+                            Arc::clone(&won),
+                        );
+                        next_idx += 1;
+                        in_flight += 1;
+                    }
+                } else if Instant::now() >= deadline || in_flight == 0 {
+                    won.store(true, Ordering::Release);
+                    return Err(format!(
+                        "{last_err}; fast-path deadline exhausted before a stream opened"
+                    ));
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                won.store(true, Ordering::Release);
+                return Err(last_err);
             }
         }
     }
-    Err(last_err)
 }
 
-/// Production streaming open: tries the default source pool and returns the
-/// first open audio stream for progressive loopback playback.
+/// Production streaming open: hedged race across the default source pool,
+/// returning the first open audio stream for progressive loopback playback.
 pub(crate) fn try_fast_path_open_stream(video_id: &str) -> Result<OpenedAudioStream, String> {
-    try_sources_open_stream(&default_pool(), video_id, FAST_PATH_BUDGET)
+    try_sources_open_stream_hedged(
+        default_pool_arc(),
+        video_id,
+        FAST_PATH_BUDGET,
+        STREAM_HEDGE_DELAY,
+    )
 }
 
 /// Parses `videoDetails` from an InnerTube `/player` response into an
@@ -1926,5 +2180,86 @@ mod tests {
             Some("https://i.ytimg.com/vi/sj342ms/hqdefault.jpg")
         );
         assert_eq!(meta.artist_browse_id.as_deref(), Some("UC123"));
+    }
+
+    #[test]
+    fn hedged_stream_race_beats_stalled_primary_source() {
+        // Primary stalls 2.0 s, backup responds in 20 ms -> hedge launches
+        // backup after 120 ms and wins in well under 600 ms.
+        let sources: Vec<Arc<dyn AudioSource>> = vec![
+            Arc::new(MockSource {
+                name: "stalled-primary".into(),
+                delay: Duration::from_millis(2_000),
+                result: Ok(GOOD_AUDIO_A.to_vec()),
+            }),
+            Arc::new(MockSource {
+                name: "fast-backup".into(),
+                delay: Duration::from_millis(20),
+                result: Ok(GOOD_AUDIO_B.to_vec()),
+            }),
+        ];
+        let t0 = Instant::now();
+        let opened = try_sources_open_stream_hedged(
+            sources,
+            "hedgevid001",
+            Duration::from_secs(4),
+            Duration::from_millis(120),
+        )
+        .expect("backup must win the hedged race");
+        assert_eq!(opened.source_name, "fast-backup");
+        assert!(
+            t0.elapsed() < Duration::from_millis(800),
+            "hedged backup must not wait for 2s primary stall: {:?}",
+            t0.elapsed()
+        );
+    }
+
+    #[test]
+    fn hedged_stream_race_fails_over_immediately_on_primary_error() {
+        // Primary fails immediately -> backup launches without waiting out
+        // the 2-second hedge delay.
+        let sources: Vec<Arc<dyn AudioSource>> = vec![
+            Arc::new(MockSource {
+                name: "dead-primary".into(),
+                delay: Duration::from_millis(5),
+                result: Err("502 Bad Gateway".into()),
+            }),
+            Arc::new(MockSource {
+                name: "healthy-backup".into(),
+                delay: Duration::from_millis(10),
+                result: Ok(GOOD_AUDIO_B.to_vec()),
+            }),
+        ];
+        let t0 = Instant::now();
+        let opened = try_sources_open_stream_hedged(
+            sources,
+            "hedgevid002",
+            Duration::from_secs(4),
+            Duration::from_secs(2),
+        )
+        .expect("backup must succeed immediately after primary error");
+        assert_eq!(opened.source_name, "healthy-backup");
+        assert!(
+            t0.elapsed() < Duration::from_millis(400),
+            "error failover must not sleep for hedge delay: {:?}",
+            t0.elapsed()
+        );
+    }
+
+    #[test]
+    fn ordered_it_clients_prioritizes_last_good_and_visitor_free_on_cold_start() {
+        // Cold start (no warm visitorData): visitor-free profile leads so we
+        // never block waiting on sw.js_data / homepage HTML.
+        let cold = ordered_it_clients(false, None);
+        assert!(!cold[0].needs_visitor, "cold start must try visitor-free profile first");
+        assert_eq!(cold[0].id, "VISIONOS_1_02");
+
+        // Warm visitorData: catalog order applies (VISIONOS_0_1 first).
+        let warm = ordered_it_clients(true, None);
+        assert_eq!(warm[0].id, "VISIONOS_0_1");
+
+        // Remembered working profile always leads when eligible.
+        let remembered = ordered_it_clients(true, Some("WEB_REMIX"));
+        assert_eq!(remembered[0].id, "WEB_REMIX");
     }
 }

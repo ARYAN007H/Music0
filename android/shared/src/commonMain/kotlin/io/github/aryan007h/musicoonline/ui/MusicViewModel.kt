@@ -34,7 +34,6 @@ import io.github.aryan007h.musicoonline.platform.PlatformPrefs
 import io.github.aryan007h.musicoonline.platform.PlatformUpdater
 import io.github.aryan007h.musicoonline.platform.currentLocalHour
 import io.github.aryan007h.musicoonline.platform.currentTimeMillis
-import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.platform.prefetchArtworkImage
 import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
@@ -109,6 +108,17 @@ object ResolveFailurePolicy {
             ResolveFailureAction.AUTO_SKIP
         }
     }
+}
+
+/** Policy deciding whether `track.resolve` uses progressive loopback streaming (T25). */
+object StreamResolvePolicy {
+    /**
+     * Both Desktop (Symphonia loopback HTTP range reader) and Android (ExoPlayer)
+     * support progressive stream-while-downloading for interactive playback so audio
+     * starts on the first ~16 KiB instead of waiting for a full 4-10 MB download.
+     * Background prefetches and offline saves still download whole files cleanly.
+     */
+    fun allowProgressiveStream(background: Boolean): Boolean = !background
 }
 
 /**
@@ -1429,7 +1439,8 @@ class MusicViewModel(
         track.artistBrowseId?.let { put("artistBrowseId", it) }
         if (background) {
             put("background", true)
-        } else if (!isDesktopPlatform) {
+        }
+        if (StreamResolvePolicy.allowProgressiveStream(background)) {
             put("allowStream", true)
         }
     }

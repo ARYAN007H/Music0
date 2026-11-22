@@ -4,17 +4,20 @@
 //! interleaved f32 PCM samples one packet at a time.
 
 use crate::error::PlaybackError;
+use crate::http_source::LoopbackHttpMediaSource;
 use crate::state::SongInfo;
 
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::{StandardTagKey, MetadataOptions};
+use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+use symphonia::core::meta::{MetadataOptions, StandardTagKey};
 use symphonia::core::probe::Hint;
 use symphonia::core::units::Time;
 
 use std::fs::File;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::Arc;
 
 /// A streaming audio decoder backed by Symphonia.
 ///
@@ -29,28 +32,70 @@ pub struct AudioDecoder {
 }
 
 impl AudioDecoder {
-    /// Opens an audio file and returns a ready-to-decode `AudioDecoder`
-    /// along with the extracted `SongInfo` (metadata + cover art).
+    /// Opens an audio file (or local loopback HTTP stream URL) and returns a
+    /// ready-to-decode `AudioDecoder` along with the extracted `SongInfo`.
     ///
     /// # Errors
     ///
-    /// Returns `PlaybackError::DecodeFailed` if the file cannot be opened,
+    /// Returns `PlaybackError::DecodeFailed` if the source cannot be opened,
     /// probed, or if no supported audio track is found.
     pub fn new(file_path: &str) -> Result<(Self, SongInfo), PlaybackError> {
-        let file = File::open(file_path).map_err(|e| PlaybackError::DecodeFailed {
-            path: file_path.to_string(),
-            reason: format!("cannot open file: {e}"),
-        })?;
+        Self::new_with_controls(
+            file_path,
+            Arc::new(AtomicU64::new(0)),
+            0,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
 
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
+    /// Opens a local file or loopback HTTP stream with cooperative cancellation
+    /// (`stream_gen` vs `expected_gen`) and live mid-stream buffering telemetry.
+    pub fn new_with_controls(
+        file_path: &str,
+        stream_gen: Arc<AtomicU64>,
+        expected_gen: u64,
+        buffering_stall: Arc<AtomicBool>,
+    ) -> Result<(Self, SongInfo), PlaybackError> {
         let mut hint = Hint::new();
-        if let Some(ext) = std::path::Path::new(file_path)
-            .extension()
-            .and_then(|e| e.to_str())
-        {
-            hint.with_extension(ext);
-        }
+        let mss = if LoopbackHttpMediaSource::is_loopback_url(file_path) {
+            let src = LoopbackHttpMediaSource::open(
+                file_path,
+                stream_gen,
+                expected_gen,
+                buffering_stall,
+            )
+            .map_err(|e| PlaybackError::DecodeFailed {
+                path: file_path.to_string(),
+                reason: format!("cannot open loopback stream: {e}"),
+            })?;
+            if let Some(mime) = src.content_type() {
+                hint.mime_type(mime);
+            }
+            if let Some(ext) = src.extension_hint() {
+                hint.with_extension(ext);
+            }
+            // 16 KiB buffer matches stream_server's INITIAL_READY_BYTES so
+            // Symphonia probes and outputs the first PCM packet immediately
+            // without waiting for Symphonia's 64 KiB default read-ahead.
+            MediaSourceStream::new(
+                Box::new(src),
+                MediaSourceStreamOptions {
+                    buffer_len: 16 * 1024,
+                },
+            )
+        } else {
+            let file = File::open(file_path).map_err(|e| PlaybackError::DecodeFailed {
+                path: file_path.to_string(),
+                reason: format!("cannot open file: {e}"),
+            })?;
+            if let Some(ext) = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
+                hint.with_extension(ext);
+            }
+            MediaSourceStream::new(Box::new(file), Default::default())
+        };
 
         let format_opts = FormatOptions {
             enable_gapless: true,

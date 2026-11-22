@@ -31,6 +31,7 @@ pub mod decoder;
 pub mod eq;
 pub mod error;
 pub mod events;
+pub mod http_source;
 pub mod output;
 pub mod queue;
 pub mod resampler;
@@ -42,6 +43,7 @@ pub use queue::PlaybackQueue;
 pub use state::{PlaybackState, PlaybackStatus, SongInfo};
 pub use crossfade::{CrossfadeConfig, CrossfadeCurve};
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -58,6 +60,8 @@ pub struct PlaybackEngine {
     cmd_tx: Sender<PlaybackCommand>,
     event_rx: Receiver<PlaybackEvent>,
     state: Arc<Mutex<PlaybackState>>,
+    stream_gen: Arc<AtomicU64>,
+    buffering_stall: Arc<AtomicBool>,
     _decoder_thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -80,11 +84,15 @@ impl PlaybackEngine {
 
         let state = Arc::new(Mutex::new(PlaybackState::default()));
         let state_clone = Arc::clone(&state);
+        let stream_gen = Arc::new(AtomicU64::new(0));
+        let stream_gen_clone = Arc::clone(&stream_gen);
+        let buffering_stall = Arc::new(AtomicBool::new(false));
+        let buffering_clone = Arc::clone(&buffering_stall);
 
         let handle = thread::Builder::new()
             .name("musico-decoder".into())
             .spawn(move || {
-                decoder_thread(cmd_rx, event_tx, state_clone);
+                decoder_thread(cmd_rx, event_tx, state_clone, stream_gen_clone, buffering_clone);
             })
             .map_err(|e| PlaybackError::Io(e))?;
 
@@ -92,6 +100,8 @@ impl PlaybackEngine {
             cmd_tx,
             event_rx,
             state,
+            stream_gen,
+            buffering_stall,
             _decoder_thread: Some(handle),
         })
     }
@@ -100,7 +110,11 @@ impl PlaybackEngine {
     pub fn play(&self, song: SongInfo) -> Result<(), PlaybackError> {
         self.cmd_tx
             .send(PlaybackCommand::Play(song))
-            .map_err(|_| PlaybackError::ChannelDisconnected)
+            .map_err(|_| PlaybackError::ChannelDisconnected)?;
+        // Increment AFTER enqueueing so any in-flight loopback stream unblocks
+        // immediately while the decoder thread is guaranteed to observe the new Play.
+        self.stream_gen.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
 
     /// Pauses playback at the current position.
@@ -121,7 +135,9 @@ impl PlaybackEngine {
     pub fn stop(&self) -> Result<(), PlaybackError> {
         self.cmd_tx
             .send(PlaybackCommand::Stop)
-            .map_err(|_| PlaybackError::ChannelDisconnected)
+            .map_err(|_| PlaybackError::ChannelDisconnected)?;
+        self.stream_gen.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
 
     /// Seeks to the given position in seconds.
@@ -167,10 +183,15 @@ impl PlaybackEngine {
 
     /// Returns a clone of the current playback state for the GUI to render.
     pub fn state(&self) -> PlaybackState {
-        self.state
+        let mut st = self
+            .state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .clone();
+        if st.status == PlaybackStatus::Playing && self.buffering_stall.load(Ordering::Acquire) {
+            st.status = PlaybackStatus::Buffering;
+        }
+        st
     }
 
     /// Sends a preload hint for gapless playback (foundation only).
@@ -225,8 +246,9 @@ impl PlaybackEngine {
 
 impl Drop for PlaybackEngine {
     fn drop(&mut self) {
-        // Send Stop to break the decoder loop.
+        // Send Stop and bump stream_gen to break any stalled loopback stream.
         let _ = self.cmd_tx.send(PlaybackCommand::Stop);
+        self.stream_gen.fetch_add(1, Ordering::SeqCst);
         
         // Replace the sender with a dummy to drop the actual sender and close the channel.
         let (dummy_tx, _) = crossbeam_channel::unbounded();
@@ -246,6 +268,8 @@ fn decoder_thread(
     cmd_rx: Receiver<PlaybackCommand>,
     event_tx: Sender<PlaybackEvent>,
     state: Arc<Mutex<PlaybackState>>,
+    stream_gen: Arc<AtomicU64>,
+    buffering_stall: Arc<AtomicBool>,
 ) {
     // Initialise audio output once for the lifetime of the thread.
     let mut audio_output = match output::AudioOutput::new() {
@@ -272,7 +296,9 @@ fn decoder_thread(
         equalizer: eq::Equalizer::new(device_sr, device_ch),
         norm_gain: 1.0,
         crossfade_cfg: CrossfadeConfig::default(),
-        instant_buffer_kb: 128,
+        // 64 KB ≈ 250 ms of 48 kHz stereo PCM — fast instant-start prefill
+        // matching AppSettings::instant_play_buffer_kb.
+        instant_buffer_kb: 64,
     };
 
     loop {
@@ -292,6 +318,8 @@ fn decoder_thread(
             device_sr,
             device_ch,
             &mut dsp,
+            &stream_gen,
+            &buffering_stall,
         );
     }
 }
@@ -364,7 +392,7 @@ fn wait_for_play(
 /// Decodes and streams a single song, returning when the song ends or a new
 /// Play/Stop command interrupts it.
 fn play_song(
-    song_info: SongInfo,
+    mut song_info: SongInfo,
     cmd_rx: &Receiver<PlaybackCommand>,
     event_tx: &Sender<PlaybackEvent>,
     state: &Arc<Mutex<PlaybackState>>,
@@ -372,11 +400,105 @@ fn play_song(
     device_sr: u32,
     device_ch: usize,
     dsp: &mut DspRuntime,
+    stream_gen: &Arc<AtomicU64>,
+    buffering_stall: &Arc<AtomicBool>,
 ) {
-    // Open the decoder.
-    let (mut dec, mut decoded_info) = match decoder::AudioDecoder::new(&song_info.file_path) {
+    // Coalesce any superseding Play/Stop queued while we were tearing down the
+    // previous track, then snapshot `stream_gen` so any later Play/Stop can
+    // interrupt a slow loopback read within <= 120 ms.
+    let my_gen = loop {
+        let mut superseded_stop = false;
+        while let Ok(cmd) = cmd_rx.try_recv() {
+            match cmd {
+                PlaybackCommand::Play(newer) => {
+                    song_info = newer;
+                    superseded_stop = false;
+                }
+                PlaybackCommand::Stop => {
+                    superseded_stop = true;
+                }
+                PlaybackCommand::SetVolume(v) => {
+                    audio_output.set_volume(v);
+                    state.lock().unwrap_or_else(|e| e.into_inner()).volume = v;
+                    let _ = event_tx.send(PlaybackEvent::VolumeChanged(v));
+                }
+                PlaybackCommand::Mute => {
+                    audio_output.set_muted(true);
+                    state.lock().unwrap_or_else(|e| e.into_inner()).muted = true;
+                }
+                PlaybackCommand::Unmute => {
+                    audio_output.set_muted(false);
+                    state.lock().unwrap_or_else(|e| e.into_inner()).muted = false;
+                }
+                PlaybackCommand::SetEQ { enabled, gains_db } => {
+                    dsp.equalizer.set_enabled(enabled);
+                    dsp.equalizer.set_gains(gains_db);
+                }
+                PlaybackCommand::SetNormGain(g) => {
+                    dsp.norm_gain = g.clamp(0.1, 4.0);
+                }
+                PlaybackCommand::SetCrossfade(cfg) => {
+                    dsp.crossfade_cfg = cfg;
+                }
+                PlaybackCommand::SetStemMode(mode) => {
+                    dsp.equalizer.set_stem_mode(mode);
+                }
+                PlaybackCommand::SetTubeWarmth(enabled) => {
+                    dsp.equalizer.set_tube_warmth(enabled);
+                }
+                PlaybackCommand::SetInstantBufferKb(kb) => {
+                    dsp.instant_buffer_kb = kb.clamp(32, 1024);
+                }
+                _ => {}
+            }
+        }
+        if superseded_stop {
+            audio_output.set_paused(true);
+            audio_output.request_flush();
+            set_stopped(state);
+            let _ = event_tx.send(PlaybackEvent::Stopped);
+            return;
+        }
+        let g = stream_gen.load(Ordering::SeqCst);
+        if cmd_rx.is_empty() {
+            break g;
+        }
+    };
+
+    buffering_stall.store(false, Ordering::Release);
+
+    // Gate the callback and mark Buffering immediately so UI feedback is
+    // instantaneous while probing a progressive loopback stream.
+    audio_output.set_paused(true);
+    audio_output.flush_now(Duration::from_millis(100));
+    audio_output.reset_played();
+    {
+        let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+        st.status = PlaybackStatus::Buffering;
+        st.current_song = Some(song_info.clone());
+        st.duration_secs = song_info.duration_secs;
+        st.position_secs = 0.0;
+        st.listened_secs = 0;
+        st.listen_start = None;
+    }
+    let _ = event_tx.send(PlaybackEvent::BufferingStarted);
+
+    // Open the decoder (local file or progressive loopback HTTP stream).
+    let (mut dec, mut decoded_info) = match decoder::AudioDecoder::new_with_controls(
+        &song_info.file_path,
+        Arc::clone(stream_gen),
+        my_gen,
+        Arc::clone(buffering_stall),
+    ) {
         Ok(d) => d,
         Err(e) => {
+            buffering_stall.store(false, Ordering::Release);
+            if stream_gen.load(Ordering::Acquire) != my_gen {
+                // Superseded by a newer Play/Stop — return quietly so the outer
+                // decoder loop handles the queued command immediately.
+                return;
+            }
+            set_stopped(state);
             let _ = event_tx.send(PlaybackEvent::Error(format!("{e}")));
             return;
         }
@@ -404,6 +526,9 @@ fn play_song(
     }
     if !song_info.album.is_empty() {
         decoded_info.album = song_info.album.clone();
+    }
+    if decoded_info.duration_secs <= 0.0 && song_info.duration_secs > 0.0 {
+        decoded_info.duration_secs = song_info.duration_secs;
     }
     let song = decoded_info;
 
@@ -434,31 +559,25 @@ fn play_song(
     // Position base: playback position = seek_base + played_secs(), where
     // played_secs is what the audio callback has actually consumed.
     let mut seek_base: f32 = 0.0;
-    // Gate the callback and drain whatever the previous song left in the
-    // buffer synchronously (flush discards are instant), so this song's
-    // prefill can't be thrown away by a pending flush.
-    audio_output.set_paused(true);
-    audio_output.flush_now(Duration::from_millis(100));
-    audio_output.reset_played();
     audio_output.set_paused(false);
 
-    // Set state to buffering.
     {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
-        st.status = PlaybackStatus::Buffering;
         st.current_song = Some(song.clone());
         st.duration_secs = song.duration_secs;
-        st.position_secs = 0.0;
-        st.listened_secs = 0;
-        st.listen_start = None;
     }
-    let _ = event_tx.send(PlaybackEvent::BufferingStarted);
 
-    // Pre-fill ring buffer scaled by instant_buffer_kb (128 KB ≈ 0.5 s at 48 kHz stereo).
+    // Pre-fill ring buffer scaled by instant_buffer_kb (64 KB ≈ 250 ms at 48 kHz stereo).
     let prefill_samples = ((device_sr as usize) * device_ch * (dsp.instant_buffer_kb.clamp(32, 1024) as usize) / 256)
         .max((device_sr as usize) * device_ch / 8);
     let mut filled = 0usize;
     while filled < prefill_samples {
+        if stream_gen.load(Ordering::Acquire) != my_gen {
+            buffering_stall.store(false, Ordering::Release);
+            audio_output.set_paused(true);
+            audio_output.request_flush();
+            return;
+        }
         match dec.decode_next_packet() {
             Ok(Some(samples)) => {
                 process_samples_reuse(
@@ -475,6 +594,13 @@ fn play_song(
             }
             Ok(None) => break,
             Err(e) => {
+                buffering_stall.store(false, Ordering::Release);
+                if stream_gen.load(Ordering::Acquire) != my_gen {
+                    audio_output.set_paused(true);
+                    audio_output.request_flush();
+                    return;
+                }
+                set_stopped(state);
                 let _ = event_tx.send(PlaybackEvent::Error(format!("{e}")));
                 return;
             }
@@ -482,6 +608,7 @@ fn play_song(
     }
 
     // Transition to playing.
+    buffering_stall.store(false, Ordering::Release);
     {
         let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
         st.status = PlaybackStatus::Playing;
@@ -538,7 +665,10 @@ fn play_song(
                             }
                             Ok(PlaybackCommand::Play(new_song)) => {
                                 set_stopped(state);
-                                play_song(new_song, cmd_rx, event_tx, state, audio_output, device_sr, device_ch, dsp);
+                                play_song(
+                                    new_song, cmd_rx, event_tx, state, audio_output,
+                                    device_sr, device_ch, dsp, stream_gen, buffering_stall,
+                                );
                                 return;
                             }
                             Ok(PlaybackCommand::Seek(secs)) => {
@@ -601,7 +731,10 @@ fn play_song(
                     audio_output.request_flush();
                     accumulate_listen(state);
                     set_stopped(state);
-                    play_song(new_song, cmd_rx, event_tx, state, audio_output, device_sr, device_ch, dsp);
+                    play_song(
+                        new_song, cmd_rx, event_tx, state, audio_output,
+                        device_sr, device_ch, dsp, stream_gen, buffering_stall,
+                    );
                     return;
                 }
                 PlaybackCommand::Seek(secs) => {
@@ -707,7 +840,7 @@ fn play_song(
                     set_stopped(state);
                     play_song(
                         next_song_info, cmd_rx, event_tx, state,
-                        audio_output, device_sr, device_ch, dsp,
+                        audio_output, device_sr, device_ch, dsp, stream_gen, buffering_stall,
                     );
                     return;
                 }
@@ -780,6 +913,14 @@ fn play_song(
                 drain_deadline = Instant::now() + Duration::from_secs(3);
             }
             Err(e) => {
+                if stream_gen.load(Ordering::Acquire) != my_gen {
+                    // Superseded by Play/Stop during a live loopback read.
+                    buffering_stall.store(false, Ordering::Release);
+                    audio_output.set_paused(true);
+                    audio_output.request_flush();
+                    accumulate_listen(state);
+                    return;
+                }
                 let _ = event_tx.send(PlaybackEvent::Error(format!("{e}")));
                 // Try to continue — some formats have recoverable errors.
                 continue;

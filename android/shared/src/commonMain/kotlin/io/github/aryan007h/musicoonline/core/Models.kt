@@ -31,6 +31,8 @@ data class SearchResultPage(
 data class ResolvedTrack(
     val path: String,
     val songId: String,
+    val mode: String = "",
+    val resolveMs: Long = 0L,
 )
 
 @Serializable(with = ItemKindDeserializer::class)
