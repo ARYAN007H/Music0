@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Wire DTOs mirroring the Rust core's serde shapes (src-tauri/src/online/
+ * Wire DTOs mirroring the Rust core's serde shapes (musico_core/src/online/
  * models.rs, snake_case on the wire). Shared verbatim across Android and
  * Desktop JVM through Compose Multiplatform.
  */
@@ -110,7 +110,7 @@ data class RelatedReply(
     val tracks: List<OnlineTrack> = emptyList(),
 )
 
-// ── Word-synced lyrics (mirror commands.rs EnhancedLyricsDto) ───────────────
+// ── Word-synced lyrics (mirror musico_core/src/lyrics.rs EnhancedLyricsDto) ─
 
 @Serializable
 data class LyricWord(
@@ -231,7 +231,7 @@ data class DownloadsListReply(
     val totalBytes: Long = 0,
 )
 
-// ── Hybrid recommender & Smart Mixes (mirror src-tauri/src/mobile.rs) ──────
+// ── Hybrid recommender & Smart Mixes (mirror musico_core/src/mobile.rs) ────
 
 @Serializable
 data class SmartMix(
@@ -297,7 +297,7 @@ data class UpdateInfo(
     val notes: String = "",
 )
 
-// ── Playlist import (mirror src-tauri/src/mobile.rs library.playlist.import) ─
+// ── Playlist import (mirror musico_core/src/mobile.rs library.playlist.import) ─
 
 @Serializable
 data class UnmatchedImportTrack(

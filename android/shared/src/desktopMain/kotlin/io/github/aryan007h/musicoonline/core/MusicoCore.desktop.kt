@@ -80,16 +80,16 @@ actual object MusicoCore {
             for (dir in bundleDirs) {
                 add(File(dir, libFileName))
             }
-            add(File(cwd, "src-tauri/target/release/$libFileName"))
-            add(File(cwd, "src-tauri/target/debug/$libFileName"))
-            add(File(cwd, "../src-tauri/target/release/$libFileName"))
-            add(File(cwd, "../src-tauri/target/debug/$libFileName"))
-            add(File(cwd, "../../src-tauri/target/release/$libFileName"))
-            add(File(cwd, "../../src-tauri/target/debug/$libFileName"))
+            add(File(cwd, "musico_core/target/release/$libFileName"))
+            add(File(cwd, "musico_core/target/debug/$libFileName"))
+            add(File(cwd, "../musico_core/target/release/$libFileName"))
+            add(File(cwd, "../musico_core/target/debug/$libFileName"))
             add(File(cwd, "target/release/$libFileName"))
             add(File(cwd, "target/debug/$libFileName"))
             add(File(cwd, "../target/release/$libFileName"))
             add(File(cwd, "../target/debug/$libFileName"))
+            add(File(cwd, "../../target/release/$libFileName"))
+            add(File(cwd, "../../target/debug/$libFileName"))
         }
         for (candidate in candidates) {
             if (candidate.isFile) {
@@ -106,7 +106,7 @@ actual object MusicoCore {
 
         _isLoaded = false
         if (_loadError == null) {
-            _loadError = "Native core `$libFileName` not found. Build it once with: cargo build --release --manifest-path src-tauri/Cargo.toml --lib"
+            _loadError = "Native core `$libFileName` not found. Build it once with: cargo build --release -p musico_core --lib"
         }
     }
 

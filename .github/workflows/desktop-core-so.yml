@@ -1,16 +1,10 @@
-name: Desktop core .so
+name: Desktop CMP bundle (PR preview)
 
-# Builds everything the Compose Multiplatform desktop app needs to RUN
-# without any local compilation: the x86_64-linux cdylib
-# (libmusico_online_lib.so) + a prebuilt installDist bundle, zipped.
-# The Tauri bundles link the core statically, so this artifact is the only
-# desktop-JVM dev path that doesn't require a local cargo/gradle build
-# (Aryan's machine is too weak for local compiles — CI only).
+# Builds a ready-to-run x86_64 Linux Compose Multiplatform desktop test bundle
+# with the Rust JNI core (libmusico_online_lib.so) bundled inside app resources
+# so it runs out of the box without any local compilation or env vars.
 on:
   workflow_dispatch:
-  # Runs as a PR check for the gemini/* branches so the artifact is
-  # available while testing a round (workflow_dispatch alone can't fire
-  # for a file that isn't on the default branch yet).
   pull_request:
 
 permissions:
@@ -18,8 +12,6 @@ permissions:
 
 jobs:
   linux:
-    # gemini/* and fix/* PR heads only — keeps ordinary PRs from paying for
-    # this build. workflow_dispatch has no head_ref, so always allow it.
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'gemini/') || startsWith(github.head_ref, 'fix/')
     runs-on: ubuntu-latest
     steps:
@@ -31,16 +23,18 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install system dependencies
+      - name: Install audio system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config libfontconfig1-dev \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev
+          sudo apt-get install -y libasound2-dev pkg-config
 
-      - name: Build cdylib
-        run: cargo build --release --lib
-        working-directory: src-tauri
+      - name: Build Rust JNI core (libmusico_online_lib.so)
+        run: cargo build --release -p musico_core --lib
+
+      - name: Stage native core into Compose Desktop resources
+        run: |
+          mkdir -p android/desktopApp/resources/linux
+          cp target/release/libmusico_online_lib.so android/desktopApp/resources/linux/
 
       - name: Set up Java 17 (Gradle)
         uses: actions/setup-java@v4
@@ -59,14 +53,10 @@ jobs:
       - name: Package prebuilt desktop bundle
         run: |
           gradle -p android :desktopApp:createDistributable --console=plain
-          # The repo root Cargo.toml is the workspace manifest — cargo puts
-          # the cdylib in <root>/target/release, NOT src-tauri/target.
-          SO=$(find . -name 'libmusico_online_lib.so' -print -quit)
-          [ -n "$SO" ] || { echo "cdylib not found anywhere"; exit 1; }
-          echo "cdylib at: $SO"
           mkdir -p dist-desktop
-          cp "$SO" dist-desktop/
+          cp target/release/libmusico_online_lib.so dist-desktop/
           APPDIR=$(find android/desktopApp/build/compose/binaries -type d -name app | head -1)
+          [ -n "$APPDIR" ] || { echo "Compose app bundle not found" >&2; exit 1; }
           cp -r "$APPDIR" dist-desktop/app
           cd dist-desktop
           zip -qr ../musico-desktop-test.zip .

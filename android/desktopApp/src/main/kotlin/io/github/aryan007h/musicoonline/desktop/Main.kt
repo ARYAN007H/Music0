@@ -219,7 +219,7 @@ fun main() = application {
                         )
                         Text(
                             text = MusicoCore.loadError
-                                ?: "Build native Rust core once: cargo build --release --manifest-path src-tauri/Cargo.toml --lib",
+                                ?: "Build native Rust core once: cargo build --release -p musico_core --lib",
                             color = Color(0xFFFFDAD6),
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2,

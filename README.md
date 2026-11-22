@@ -1,20 +1,20 @@
 # Musico Online
 
-**A local-first, Apple Music-class player with free online music.** Musico
-Online is the companion repo to [Musico](https://github.com/ARYAN007H/Musico):
-a clean-room Tauri 2 desktop app that combines a real audio engine, a local
-taste engine, and an online catalog layer for YouTube Music and JioSaavn.
+**A local-first, Material 3 Expressive music player with free online music.**
+Music0 (Musico Online) is a **Compose Multiplatform** app for **Android**,
+**Linux**, **macOS**, and **Windows**, backed by a pure-Rust JNI core
+(`musico_core`) combining a real audio engine, a local taste engine, and an
+online catalog layer for YouTube Music and JioSaavn.
 
 > **disclaimer**
 > this project is provided for educational and personal use only. i am not responsible for how anyone uses it. downloading copyrighted content without authorization may violate the law in your country. use at your own risk.
 
 The streaming layer uses the same public technique as Metrolist / InnerTune /
-RiMusic (InnerTube + direct-URL resolvers + yt-dlp). It lives here, **not** in
-the offline Musico release, and is intended for personal use.
+RiMusic (InnerTube + direct-URL resolvers + optional `yt-dlp`). It lives here,
+**not** in the offline Musico release, and is intended for personal use.
 
-**Status:** v0.9.6-cmp (in development; latest release `v0.9.5`) · Compose
-Multiplatform (Android + Desktop JVM) · Tauri Desktop (Linux · macOS · Windows)
-· installable mobile PWA.
+**Status:** **v1.0.0** · All-in Compose Multiplatform (Android + Linux · macOS ·
+Windows) · pure-Rust `musico_core` JNI engine · installable mobile PWA preview.
 
 <p align="center">
   <img src="docs/screenshots/home-dark.png" width="48%" alt="Musico Online — Home, dark theme: YouTube Music shelves with the transport pill"/>
@@ -56,10 +56,10 @@ Multiplatform (Android + Desktop JVM) · Tauri Desktop (Linux · macOS · Window
 - **Playlist import** — bring playlists from public Spotify or Apple Music
   links, or exported CSV (Exportify / TuneMyMusic / Soundiiz), JSON, and
   M3U/M3U8 files with live track matching and an unmatched summary.
-- **Native everywhere it can be** — shared Material 3 Expressive Compose
+- **Native everywhere it can be** — one shared Material 3 Expressive Compose
   Multiplatform app on Android (Media3 ExoPlayer + AudioFX EQ) and Desktop JVM
-  (Rust `musico_playback` + 10-band DSP EQ), plus Tauri desktop with MPRIS on
-  Linux, SMTC on Windows, and MPNowPlayingInfoCenter on macOS.
+  (Linux, macOS, Windows with Rust `musico_playback` + 10-band DSP EQ), backed
+  by the pure-Rust `musico_core` JNI library.
 
 ## Install
 
@@ -68,17 +68,17 @@ Download the latest bundles from
 
 | Platform | Artifacts |
 |---|---|
-| **Linux x86_64** | `.deb`, `.rpm`, `.AppImage`, or the bare binary in a `.tar.gz` |
-| **macOS universal** | `.dmg` and `.app.tar.gz` (Apple Silicon + Intel) |
-| **Windows x86_64** | `.msi`, NSIS `.exe`, or a standalone `.exe` |
-| **Android** | Build locally: `cargo tauri android init && cargo tauri android build --apk` |
-| **iOS / mobile web** | Open the web app in Safari/Chrome and use **Install App** / **Add to Home Screen** |
+| **Android (aarch64)** | Signed `musico-online-native-aarch64.apk` |
+| **Linux x86_64** | `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, or portable `music0-linux-x86_64.tar.gz` |
+| **macOS Apple Silicon** | `Music0-macos-arm64.dmg` or `Music0-macos-arm64.app.tar.gz` |
+| **Windows x86_64** | `Music0-windows-x86_64.msi` or portable `Music0-windows-x86_64.zip` |
+| **iOS / mobile web** | Open the web preview in Safari/Chrome and use **Add to Home Screen** |
 
 The macOS and Windows builds are **not code-signed**. On macOS, right-click the
 app → **Open** on first launch, or run:
 
 ```sh
-xattr -cr "/Applications/Musico Online.app"
+xattr -cr "/Applications/Music0.app"
 ```
 
 Windows SmartScreen may show a warning for the unsigned installer.
@@ -98,99 +98,49 @@ Keep `yt-dlp` updated — YouTube extraction changes frequently.
 
 ## Build from source
 
-Prerequisites: Rust stable (MSRV 1.78), Node.js 20+ for the web preview and
-tests, the Tauri 2 CLI, and your platform's Tauri system dependencies. The full
-list is in [docs/development.md](docs/development.md).
+Prerequisites: Rust stable (MSRV 1.78), Java 17+, Gradle 8.10.2, Android SDK/NDK
+(for Android builds), and Node.js 20+ (only for the optional web preview/tests).
+On Linux, install `libasound2-dev pkg-config` (no WebKitGTK/GTK required).
 
 ```sh
 git clone https://github.com/ARYAN007H/Music0.git
 cd Music0
 
-# Rust app
-cargo build -p musico-online
+# 1. Build the pure-Rust JNI core library
+cargo build --release -p musico_core --lib
 
-# Web preview / TypeScript tests
-npm install
-
-# Tauri CLI
-cargo install tauri-cli --version '^2'
-# or: npm install --global @tauri-apps/cli@^2
+# 2. Run the Compose Multiplatform Desktop app (auto-discovers target/release)
+gradle -p android :desktopApp:run
 ```
 
-### Desktop development
+### Packaging Desktop installers (Compose Multiplatform)
 
-The frontend has no bundler. Tauri's `devUrl` points at port 1420, so serve the
-static files in one terminal and run the native shell in another:
+Stage the compiled Rust core into `android/desktopApp/resources/<os>/` so it is
+bundled inside the native package, then build the OS distribution:
 
 ```sh
-# terminal 1
-python3 -m http.server 1420 --directory frontend
+# Linux (deb / rpm / distributable)
+cp target/release/libmusico_online_lib.so android/desktopApp/resources/linux/
+gradle -p android :desktopApp:packageDeb :desktopApp:packageRpm :desktopApp:createDistributable
 
-# terminal 2
-cargo tauri dev
+# macOS (dmg)
+cp target/release/libmusico_online_lib.dylib android/desktopApp/resources/macos/
+gradle -p android :desktopApp:packageDmg
+
+# Windows (msi)
+cp target/release/musico_online_lib.dll android/desktopApp/resources/windows/
+gradle -p android :desktopApp:packageMsi
 ```
 
-### Production bundle
+### Android APK (Compose Multiplatform)
 
 ```sh
-cargo tauri build
-# Linux:   target/release/bundle/{deb,rpm,appimage}/
-# macOS:   target/release/bundle/dmg/
-# Windows: target/release/bundle/{msi,nsis}/
+# 1. Cross-compile musico_core for arm64-v8a
+(cd musico_core && cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release --lib)
+
+# 2. Assemble APK
+gradle -p android :app:assembleDebug
 ```
-
-For an Apple Silicon + Intel universal macOS build:
-
-```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-cargo tauri build --target universal-apple-darwin
-```
-
-### Desktop Compose App (Compose Multiplatform)
-
-The Material 3 Expressive UI shared with Android also runs natively on Desktop
-(Linux, macOS, Windows) via `android/desktopApp`, backed by the same Rust core
-(`libmusico_online_lib.so` / `.dylib` / `.dll`) over JNI.
-
-- **CI bundles:** `.github/workflows/desktop-core-so.yml` and the release
-  workflow compile the native Rust JNI library for Linux, macOS, and Windows
-  and package it alongside the Compose Desktop distribution so it loads
-  automatically with zero extra configuration.
-- **Running locally from source:** build the Rust shared library first, then
-  launch the Gradle `:desktopApp` target. If the library isn't in the default
-  `target/release` path (or when testing a custom build), point the app at it
-  with `MUSICO_NATIVE_LIB`:
-
-```sh
-# 1. Build the Rust JNI library
-cargo build --release -p musico-online --lib
-
-# 2. Run the Compose Desktop app (Java 17+)
-cd android
-MUSICO_NATIVE_LIB=../target/release/libmusico_online_lib.so ./gradlew :desktopApp:run
-# macOS:   MUSICO_NATIVE_LIB=../target/release/libmusico_online_lib.dylib
-# Windows: set MUSICO_NATIVE_LIB=..\target\release\musico_online_lib.dll
-```
-
-To create a native desktop installer/package from `android/`:
-
-```sh
-./gradlew :desktopApp:packageDistributionForCurrentOS
-```
-
-### Flatpak
-
-A Flatpak build lives in [`flatpak/`](flatpak). It bundles `yt-dlp` inside the
-sandbox and is the packaging used for Flathub:
-
-```sh
-flatpak-builder --user --install --force-clean \
-  --state-dir=build/.flatpak \
-  build flatpak/io.github.aryan007h.Music0.yml
-```
-
-See [docs/flatpak.md](docs/flatpak.md) for permissions, sandbox paths and the
-release checklist.
 
 ### Web / PWA preview
 
@@ -256,10 +206,10 @@ npm test
 npm run build
 
 # Shared Compose Multiplatform unit tests (JVM)
-(cd android && ./gradlew :shared:desktopTest)
+gradle -p android :shared:desktopTest
 
 # Opt-in live network tests
-cargo test -p musico-online live_ -- --ignored --nocapture
+MUSICO_LIVE_TESTS=1 cargo test -p musico_core live_ -- --ignored --nocapture
 ```
 
 Browser suites and the WCAG contrast gate are documented in
@@ -273,10 +223,9 @@ Browser suites and the WCAG contrast gate are documented in
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design, threads, crate boundaries, flows, failure model, budgets |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, branch/PR workflow, commits, testing, standards, multi-agent rules |
 | [docs/](docs/README.md) | Deep dives: development, testing, frontend, online stack, storage, IPC, release, troubleshooting |
-| [docs/flatpak.md](docs/flatpak.md) | Flatpak packaging, sandbox permissions, bundled `yt-dlp`, release checklist |
 | [docs/adr/](docs/adr/README.md) | Architecture decision records and their rationale |
 | [SECURITY.md](SECURITY.md) | Supported versions, threat model, reporting, privacy |
-| [CHANGELOG.md](CHANGELOG.md) | Release history from v0.5.0 to v0.7.0 |
+| [CHANGELOG.md](CHANGELOG.md) | Release history through v1.0.0 |
 | [ROADMAP.md](ROADMAP.md) | Plan of record and remaining phases |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 |
 
@@ -284,10 +233,10 @@ Browser suites and the WCAG contrast gate are documented in
 
 ```text
 android/              Compose Multiplatform app (:shared UI/ViewModel, :app Android, :desktopApp JVM)
-src-tauri/            Rust core + JNI bridge (`mobile.rs`), Tauri IPC, online stack, platform glue
+musico_core/          Pure-Rust JNI core (`mobile.rs`), online stack, lyrics, config, identity
 musico_playback/      Audio engine: decoder, CPAL output, queue, 10-band DSP EQ
 musico_recommender/   Local recommender + sled persistence
-frontend/             No-build UI: classic scripts + vendored Preact/htm shell
+frontend/             Optional web/PWA preview UI
 src/engine/           TypeScript engine for the web/PWA preview
 server.ts             Express demo runtime (not the production backend)
 scripts/              Browser suites, contrast gate, test-tone generator
@@ -326,11 +275,10 @@ you do not need to participate in it to contribute.
   will warn on first launch.
 - **No cloud account or sync.** Library metadata, settings, playlists, likes,
   and history stay on the machine.
-- **Android is a local build.** The APK is not published by CI; the pure-Rust
-  resolvers work without `yt-dlp`, and the desktop folder picker is not
-  available on Android.
+- **Android APK is published directly in GitHub Releases** alongside Linux,
+  macOS, and Windows Compose Multiplatform Desktop packages.
 - **The web preview is not the app.** It has a demo backend, a seeded catalog,
-  and synthesized audio. Use the Tauri build for real playback.
+  and synthesized audio. Use the Compose Multiplatform builds for real playback.
 
 ## License
 

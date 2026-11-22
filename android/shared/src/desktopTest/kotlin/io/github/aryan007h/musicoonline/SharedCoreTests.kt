@@ -40,7 +40,7 @@ class SharedCoreTests {
 
     @Test
     fun codecParsesSuccessAndErrorEnvelopes() {
-        val ok = MusicoCoreCodec.parseReply("""{"ok":true,"data":{"core":"rust-mobile","version":"0.9.6"}}""")
+        val ok = MusicoCoreCodec.parseReply("""{"ok":true,"data":{"core":"rust-mobile","version":"1.0.0"}}""")
         assertTrue(ok is JsonObject)
         assertEquals("rust-mobile", ok["core"]?.jsonPrimitive?.content)
 

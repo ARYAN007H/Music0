@@ -5,19 +5,47 @@ All notable changes to Musico Online are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with an `-online`
 prerelease suffix.
 
-The desktop app version lives in three places and must stay in sync:
-`src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and `package.json`.
-Release tags are `v<version>-online` (for example `v0.7.0-online`). Any tag
-containing a hyphen is published as a GitHub prerelease.
+The app version lives in five places and must stay in sync:
+`musico_core/Cargo.toml`, `android/app/build.gradle.kts`,
+`android/desktopApp/build.gradle.kts`,
+`android/shared/src/desktopMain/.../DesktopPlatform.kt`, and `package.json`.
+Release tags are `v<version>` (for example `v1.0.0`). Any tag containing a
+hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
-## [0.9.6] - Unreleased
+## [1.0.0] - 2026-11-22
 
-Compose Multiplatform (CMP) unification across **Android** and **Desktop JVM**
-sharing one Material 3 Expressive `:shared` UI and the same Rust core over JNI,
-plus streaming playback, playlist import, and a full fit-and-finish sweep.
-(Current build version: `0.9.6-cmp`; not yet tagged or released.)
+**All-in Compose Multiplatform release** across **Android**, **Linux**,
+**macOS**, and **Windows** — sharing one Material 3 Expressive `:shared` UI and
+a pure-Rust JNI core (`musico_core`), with the legacy Tauri WebView shell fully
+retired.
+
+### Removed / Retired
+
+- **Retired Tauri 2 desktop shell (`src-tauri/`) and legacy Flatpak manifest (`flatpak/`):**
+  removed the Tauri runtime, WebKitGTK/GTK Linux build dependencies,
+  `tauri.conf.json`, and `@tauri-apps/cli`.
+- **Extracted pure-Rust `musico_core` crate:** moved the shared JNI engine
+  (`mobile.rs`, `online/`, `config.rs`, `identity.rs`, `lyrics.rs`, `cover.rs`)
+  into `musico_core/` (compiling to `libmusico_online_lib.{so,dylib,dll}`) with
+  zero Tauri or WebView dependencies.
+
+### Changed (CI & Release Engineering)
+
+- **Compose Multiplatform release pipeline (`.github/workflows/release.yml`):**
+  all desktop releases now ship native Compose Multiplatform packages with the
+  Rust JNI core bundled automatically via `appResourcesRootDir`:
+  - Linux x86_64: `.deb`, `.rpm`, and portable `.tar.gz`
+  - macOS arm64: `.dmg` and `.app.tar.gz`
+  - Windows x86_64: `.msi` and portable `.zip`
+  - Android aarch64: signed `musico-online-native-aarch64.apk`
+- **Lean CI (`.github/workflows/ci.yml`):** dropped WebKitGTK/GTK deps in favor
+  of `libasound2-dev pkg-config`, added release `musico_core` cdylib build
+  verification, pinned Gradle `8.10.2`, and added web-engine TypeScript tests.
+- **Cross-platform in-app update matching:** `app.update.check` now selects the
+  matching installer asset per OS (`.apk` on Android, `.dmg` on macOS,
+  `.msi`/`.zip` on Windows, `.deb`/`.tar.gz` on Linux).
 
 ### Added (Android & Desktop CMP)
 
