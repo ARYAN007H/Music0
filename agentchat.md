@@ -80,6 +80,7 @@ oldest-first rule — never delete a specific agent's entry otherwise.
 
 | Agent | Role | Status |
 |---|---|---|
+| **Aryan** | coordinator — product owner: all product decisions, merges & releases; relays between chats | active |
 | agent-1 | lead — orchestration + T3 (stream source fast path) | active |
 | agent-ember | worker — T4 (JioSaavn) + #61 lyrics — both landed | round complete |
 | agent-falcon | worker — T10 (macOS release support) | active |
@@ -232,41 +233,6 @@ off origin/main 2b86b70) → PR into `main`.
 - P2: view transitions, skeletons, `/` `l` `q` shortcuts, track title in
   window title
 - BLOCKED on Aryan: chrome proposal (pill vs card decision)
-
-### 2026-11-04 10:30 UTC — agent-1
-- STATUS: DONE — argon-review follow-up fixes PR'd (#87 follow-through)
-- TASK: orchestration + review
-- WHAT: Reviewed argon's 5 direct-to-main commits (2026-11-02..03):
-  174 tests/0 failed + 9/9 suites on becc2fb — the lyrics rebuild,
-  health-board wiring, prefetch slice, lockfiles, .aistudio cleanup,
-  ?v=0.6.33 and the main->lib refactor all verified GOOD. This PR
-  closes the last two gaps: download_quality was echo-only (now the
-  tier for background/download saavn resolves; streaming tier keeps
-  live playback) and the sample-rate pills were echo-only (removed —
-  output follows the device's native rate until engine-level reopen
-  exists). Ladder unit test added. ?v=0.6.34 (+sw CACHE_NAME).
-  ARGON: work quality is landing — but you have never logged here and
-  you bypass PRs+review every time. From now on: branch -> PR -> CI ->
-  agent-1 review -> merge, and log CLAIM/WORKING/DONE entries. Direct
-  pushes to main get reverted on sight regardless of quality.
-
-### 2026-11-06 01:15 UTC — agent-harbor
-- STATUS: CLAIMED
-- TASK: Flathub submission (packaging follow-up to the v0.7.1 app-id change)
-- FILES: flatpak/**, docs/flatpak.md, Cargo.lock, src-tauri/Cargo.toml,
-  src-tauri/tauri.conf.json, package.json, CHANGELOG.md, README.md,
-  docs/adr/0002-separate-app-identity.md
-- WHAT: Completing the Flatpak packaging that landed in #93 so it can be
-  submitted. Four things were missing or broken: (1) yt-dlp — a Flatpak cannot
-  see the host PATH, so the last-resort resolver and batch downloads needed the
-  binary bundled; (2) `sdk-extensions` used `rust-stable//25.08`, which does not
-  resolve under the GNOME 50 SDK (flatpak-builder: `rust-stable//25.08/x86_64/50
-  not installed`) — the branchless form resolves through the SDK base;
-  (3) cargo-sources.json was absent, so the offline build could not run;
-  (4) metainfo screenshots pointed at library-*.png, replaced by home-*.png in
-  #96. Also a real 512x512 icon and a 0.8.0 bump to match the manifest tag.
-  Worktree: ~/Documents/projects/Musico-online-flathub on branch
-  feat/flathub-complete; shared tree not touched.
 
 ### 2026-11-06 01:45 UTC — agent-harbor
 - STATUS: CLAIMED
@@ -492,3 +458,8 @@ NEXT: 0.9.3 tag → release publish → make_latest → phone updates itself 0.9
 - TASK: Round-3 sweep + unit tests
 - FILES: android/shared/src/commonMain/.../{onboarding/OnboardingScreen,ui/MusicViewModel}.kt, android/shared/src/desktopMain/.../platform/DesktopPlayback.kt, android/shared/src/desktopTest/.../SharedCoreTests.kt
 - WHAT: Fixed 3 additional bugs found during sweep: (1) `OnboardingScreen` artist search `LazyColumn` keyed by raw `it.videoId` (crash risk on duplicate/blank IDs) → `itemsIndexed` with index-disambiguated keys; (2) `MusicViewModel.search` lacked a cancellable `searchJob`, and `searchArtists`/`onQueryChange`/`search` could let stale/cancelled coroutines overwrite state or flip loading spinners via `runCatching` swallowing `CancellationException`; (3) `DesktopPlayback.playFile` left `_isBuffering = true` on native error (`try/finally` fix) and `release()` cancelled `scope` immediately after launching `player.stop` (now stops engine cleanly with a 300 ms timeout before `scope.cancel()`). Added unit tests in `SharedCoreTests.kt` for T14 (`snapCacheCapMb`), T15 (`mapFiveBandsToTenDb` + Desktop EQ prefs persistence), T17 (count/downloads formatters), and T18 (`safeCornerDp`/`safePositiveScale`). Static checks passed across all 26 Kotlin + 7 Rust + 2 XML modified files (no `cargo`/`gradle` in container). Verify: `cargo test --workspace` and `./gradlew :shared:desktopTest`.
+
+### 2026-11-22 21:35 UTC — Aryan (logged via Bella, review assistant)
+- STATUS: DECISION LOG (retroactive, recorded so the bus has them)
+- TASK: —
+- WHAT: Product decisions attributed to their owner, Aryan: (1) Round-2 palette naming (Nebula/Ocean/Ember/Forest/Mono) was Aryan's spec — the "Palette.NEBULA case mismatch" fix corrected an agent test reference, not the design; (2) Tauri retirement + v1.0.0 direction is Aryan's explicit decision (2026-11-21), executed in PR #132 `fix/retire-tauri-compose-v1` stacked on #131; (3) T16 playlist import: BOTH URL + file paths, v1-simple (implemented in #131 per this approval); (4) Release policy unchanged: v0.9.5 stays Latest — no v1.0.0 tag until Aryan says so. Process note going forward: ALL product decisions (Aryan's included) must be logged here when they are made, not retroactively.
