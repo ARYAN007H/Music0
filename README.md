@@ -83,6 +83,15 @@ xattr -cr "/Applications/Music0.app"
 
 Windows SmartScreen may show a warning for the unsigned installer.
 
+### Verify your download
+
+Every release publishes `SHA256SUMS.txt`, and the Android APK is scanned on
+[VirusTotal](https://www.virustotal.com) (v1.0.0: **0/66 detections**).
+On Android, Google Play Protect may show *"Harmful app blocked"* on install —
+that's a false positive for any self-distributed FOSS app: tap
+**Install anyway**, or verify the file yourself first. Full guide:
+[docs/verify-downloads.md](docs/verify-downloads.md).
+
 ### Requirements
 
 - A desktop session with a working audio output device.
