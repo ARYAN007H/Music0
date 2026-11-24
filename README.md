@@ -2,72 +2,95 @@
   <img src="docs/brand/banner.png" width="100%" alt="Music0 — Online Music Streaming"/>
 </p>
 
-# Musico Online
+# Music0
 
-**A local-first, Material 3 Expressive music player with free online music.**
+**An online music streaming app built with Compose Multiplatform and a pure-Rust JNI core.**
 Music0 (Musico Online) is a **Compose Multiplatform** app for **Android**,
 **Linux**, **macOS**, and **Windows**, backed by a pure-Rust JNI core
-(`musico_core`) combining a real audio engine, a local taste engine, and an
-online catalog layer for YouTube Music and JioSaavn.
+(`musico_core`) combining a real audio engine (`musico_playback`), a local taste
+recommender (`musico_recommender`), and an online catalog & streaming stack for
+YouTube Music and JioSaavn — with zero Tauri or WebView dependencies.
 
 > **disclaimer**
 > this project is provided for educational and personal use only. i am not responsible for how anyone uses it. downloading copyrighted content without authorization may violate the law in your country. use at your own risk.
 
 The streaming layer uses the same public technique as Metrolist / InnerTune /
-RiMusic (InnerTube + direct-URL resolvers + optional `yt-dlp`). It lives here,
-**not** in the offline Musico release, and is intended for personal use.
+RiMusic (InnerTube + direct-URL resolvers + optional `yt-dlp`). It is built
+for online streaming and personal use.
 
 **Status:** **v1.0.0** · All-in Compose Multiplatform (Android + Linux · macOS ·
-Windows) · pure-Rust `musico_core` JNI engine · installable mobile PWA preview.
+Windows) · pure-Rust `musico_core` JNI engine · optional web/PWA dev preview.
 
 <p align="center">
-  <img src="docs/screenshots/home-dark.png" width="48%" alt="Musico Online — Home, dark theme: YouTube Music shelves with the transport pill"/>
-  <img src="docs/screenshots/sonic-lab.png" width="48%" alt="Musico Online — Sonic Lab: Taste DNA &amp; Persona Mixer"/>
+  <img src="docs/screenshots/home-dark.png" width="48%" alt="Music0 — Desktop Home: Jump back in quick picks, hero card, and floating player dock"/>
+  <img src="docs/screenshots/home-shelves.png" width="48%" alt="Music0 — Home shelves: Smart Mixes and personalized recommendations"/>
   <br/>
-  <img src="docs/screenshots/home-light.png" width="48%" alt="Musico Online — Home, light theme"/>
-  <img src="docs/screenshots/audio-dsp.png" width="48%" alt="Musico Online — Audio &amp; DSP settings: streaming quality, instant-start engine, gapless"/>
+  <img src="docs/screenshots/lyrics-cinema.png" width="48%" alt="Music0 — Split-stage Lyrics Studio in Cinema mode with synced LRCLIB lyrics"/>
+  <img src="docs/screenshots/queue-up-next.png" width="48%" alt="Music0 — Now Playing Up Next queue alongside cover-tinted artwork stage"/>
   <br/>
-  <img src="docs/screenshots/home-light-wide.png" width="55%" alt="Musico Online — Home hero and shelves, light theme"/>
-  <img src="docs/screenshots/vinyl-fullscreen.png" width="43%" alt="Musico Online — fullscreen vinyl player with tonearm"/>
+  <img src="docs/screenshots/radio-moods.png" width="48%" alt="Music0 — Radio: Ambient, moods &amp; stations grid"/>
+  <img src="docs/screenshots/library.png" width="48%" alt="Music0 — Library: Liked Songs, Downloads, Smart Mixes, and Playlists"/>
   <br/>
-  <img src="docs/screenshots/mobile-light.png" width="32%" alt="Musico Online — narrow/mobile layout, light"/>
-  <img src="docs/screenshots/mobile-dark.png" width="32%" alt="Musico Online — narrow/mobile layout, dark"/>
+  <img src="docs/screenshots/playlist-detail.png" width="48%" alt="Music0 — Playlist detail with Play, Shuffle, Offline download, and track list"/>
+  <img src="docs/screenshots/equalizer.png" width="48%" alt="Music0 — 5-band Equalizer (60Hz–14kHz), presets, and Bass boost"/>
+  <br/>
+  <img src="docs/screenshots/settings.png" width="48%" alt="Music0 — Settings: 5 themes, Lyrics backdrop, Streaming quality, Airplane Mode, and Autoplay"/>
+  <img src="docs/screenshots/import-playlist.png" width="48%" alt="Music0 — Import playlist from Spotify/Apple Music links or CSV, JSON, and M3U files"/>
+  <br/>
+  <img src="docs/screenshots/mobile-home.png" width="32%" alt="Music0 — Compact mobile Home layout with floating mini-player and capsule nav"/>
+  <img src="docs/screenshots/mobile-lyrics.png" width="32%" alt="Music0 — Compact mobile Lyrics Studio in Cinema mode"/>
 </p>
 
 ## What it does
 
 - **Search and play millions of tracks** through YouTube Music's InnerTube
-  catalog, with Songs/Videos filters, continuations, and live typeahead.
+  catalog, with live typeahead suggestions and recent searches.
 - **JioSaavn as a second catalog and stream source** — direct AAC URLs up to
-  320 kbps (quality-tier dependent), merged into the first search page.
-- **Tiered stream resolution** — cache → exact JioSaavn cross-source match →
-  Piped/Invidious/InnerTube Direct fast path → `yt-dlp` fallback. One audio
-  path: every result becomes a local file played by the same engine as your
-  library.
-- **Browse everything** — Home shelves, mood/genre grid, album, artist, and
-  playlist detail pages, related tracks, and YouTube Music radio.
-- **A real library** — local folder scanning, saved albums/artists/tracks,
-  playlists, favorites, recently added, and A–Z views.
-- **Downloads that behave** — single-track and batch downloads, two concurrent
-  resolves, persistent pending work, retry/resume, a 1 GB LRU cache (cap
-  configurable), and an Airplane Mode that fast-fails online features and
-  queues work.
-- **Lyrics** — unsynced YouTube Music text plus LRCLIB synced lyrics with
-  karaoke highlighting, optional romanization and translation.
-- **Playback depth** — gapless playback, crossfade, EQ, loudness
-  normalization, AutoEQ profiles, and a local recommender v2 that learns from
-  listens, skips, likes, artists, context, and audio features.
-- **Playlist import** — bring playlists from public Spotify or Apple Music
-  links, or exported CSV (Exportify / TuneMyMusic / Soundiiz), JSON, and
-  M3U/M3U8 files with live track matching and an unmatched summary.
-- **Native everywhere it can be** — one shared Material 3 Expressive Compose
-  Multiplatform app on Android (Media3 ExoPlayer + AudioFX EQ) and Desktop JVM
-  (Linux, macOS, Windows with Rust `musico_playback` + 10-band DSP EQ), backed
-  by the pure-Rust `musico_core` JNI library.
+  320 kbps (quality-tier dependent), merged into search results and raced
+  against InnerTube for fast track resolution.
+- **Tiered stream resolution & stream-while-downloading** — cache hit → exact
+  JioSaavn cross-source match → Piped / Invidious / InnerTube Direct fast path →
+  `yt-dlp` fallback. A loopback HTTP/1.1 range server (`127.0.0.1`) streams
+  from `.part` files as bytes arrive (32 KiB startup gate) before atomically
+  committing tracks to disk.
+- **Home & Radio discovery** — dynamic time-of-day Home feed with *Jump back
+  in* quick picks, auto-advancing Hero Carousel, Smart Mixes, and personalized
+  shelves; **Radio** mood & genre station grid; and collapsing parallax album,
+  artist, playlist, and genre detail pages.
+- **On-device Library & Smart Mixes** — Liked Songs, Offline Downloads, User
+  Playlists (with 2×2 cover mosaics, create/rename/reorder), auto-updating Rust
+  Smart Mixes, Saved Albums & Followed Artists, and Recently Played / Up Next
+  queue.
+- **Downloads & smart LRU cache** — single-track and batch downloads, two
+  concurrent resolves, persistent pending work, `{stem}.meta.json` metadata
+  sidecars, a configurable LRU stream cache (512 MB–5120 MB slider in Settings,
+  1 GB default), and Airplane Mode for offline cached playback.
+- **Lyrics Studio** — synced LRCLIB lyrics with YouTube Music fallback,
+  **Cinema** (*Flowing Verse*) and **Stage** (*Kinetic*) display modes,
+  tap-to-seek, timing offset controls, optional romanization and translation
+  sub-lines, shareable Lyric Cards (up to 4 lines), and 5 ambient backdrops
+  (**Fluid**, **Glow**, **Aurora**, **Rain**, **Dark**).
+- **Audio & Equalizer** — gapless playback, Autoplay, Skip Silence and
+  Playback Speed (`0.75×`–`2×`) on Android, and a 5-band Equalizer
+  (`60Hz`–`14kHz`) with 6 presets (**Flat**, **Bass**, **Vocal**, **Rock**,
+  **Electronic**, **Warm**) and Bass Boost — powered by Media3 ExoPlayer +
+  Android AudioFX on Android, and Symphonia + CPAL + 10-band biquad DSP EQ
+  (with AutoEQ and loudness normalization support in `musico_playback`) on
+  Desktop.
+- **Playlist import** — bring playlists from public Spotify
+  (`open.spotify.com/playlist/...`) or Apple Music
+  (`music.apple.com/.../playlist/...`) links, or exported CSV (Exportify /
+  TuneMyMusic / Soundiiz), JSON, and M3U/M3U8 files with live `"Matching X of M…"`
+  progress and an unmatched-tracks summary.
+- **Material 3 Expressive across Android & Desktop** — 5 curated themes
+  (**Nebula**, **Ocean**, **Ember**, **Forest**, **Mono**), adaptive layout
+  (`< 840 dp` compact capsule nav + swipeable mini-player; `≥ 840 dp` sidebar
+  rail + floating squircle player dock + split-stage Now Playing + keyboard
+  shortcuts), and a local Rust taste recommender (`musico_recommender` + `sled`).
 
 ## Install
 
-Download the latest bundles from
+Download the **v1.0.0** bundles from
 [GitHub Releases](https://github.com/ARYAN007H/Music0/releases/latest).
 
 | Platform | Artifacts |
@@ -76,7 +99,6 @@ Download the latest bundles from
 | **Linux x86_64** | `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, or portable `music0-linux-x86_64.tar.gz` |
 | **macOS Apple Silicon** | `Music0-macos-arm64.dmg` or `Music0-macos-arm64.app.tar.gz` |
 | **Windows x86_64** | `Music0-windows-x86_64.msi` or portable `Music0-windows-x86_64.zip` |
-| **iOS / mobile web** | Open the web preview in Safari/Chrome and use **Add to Home Screen** |
 
 The macOS and Windows builds are **not code-signed**. On macOS, right-click the
 app → **Open** on first launch, or run:
@@ -85,7 +107,8 @@ app → **Open** on first launch, or run:
 xattr -cr "/Applications/Music0.app"
 ```
 
-Windows SmartScreen may show a warning for the unsigned installer.
+On Windows, click **More info → Run anyway** if SmartScreen prompts for the
+unsigned installer.
 
 ### Verify your download
 
@@ -101,7 +124,7 @@ that's a false positive for any self-distributed FOSS app: tap
 - A desktop session with a working audio output device.
 - Network access to `music.youtube.com` and the configured stream sources.
 - **`yt-dlp` on `PATH`** is strongly recommended. Playback works without it
-  while a direct-URL source is healthy, but `yt-dlp` is the honest last resort.
+  while a direct-URL source is healthy, but `yt-dlp` is the reliable fallback.
   - Arch: `sudo pacman -S yt-dlp`
   - Debian/Ubuntu: `sudo apt install yt-dlp`
   - macOS: `brew install yt-dlp`
@@ -165,13 +188,14 @@ npm run dev              # http://localhost:3000
 PORT=8143 npm run dev    # port used by the browser suites
 ```
 
-It serves the same `frontend/` assets with a seeded catalog and synthesized
-audio, and binds `0.0.0.0`. Do not expose it to an untrusted network.
+It serves the `frontend/` assets with a seeded catalog and synthesized audio,
+and binds `0.0.0.0`. Do not expose it to an untrusted network.
 
 ## How playback works
 
-Streaming is deliberately boring: resolve a track to a file, then hand that
-file to the offline audio engine.
+Streaming resolves a track through a tiered pipeline, feeds bytes through a
+loopback HTTP/1.1 range server as they download, and plays via the native audio
+engine:
 
 ```text
 search / browse / radio
@@ -180,24 +204,24 @@ search / browse / radio
    OnlineTrack { source, video_id, metadata }
         │
         ▼
- resolve_track()
-   1. stream-cache hit
-   2. exact JioSaavn cross-source match (YouTube tracks)
-   3. Piped / Invidious / InnerTube Direct fast path (~10 s budget)
-   4. yt-dlp (interactive: 1 × 90 s; background: 2 × 120 s)
+  resolve_track()
+    1. stream-cache hit
+    2. exact JioSaavn cross-source match (YouTube tracks)
+    3. Piped / Invidious / InnerTube Direct fast path (~10 s budget)
+    4. yt-dlp (interactive: 1 × 90 s; background: 2 × 120 s)
         │
         ▼
-   verified local file  →  musico_playback  →  speakers
+   loopback range server / verified local file  →  musico_playback / ExoPlayer  →  speakers
 ```
 
 - The cache lives at `~/.cache/musico-online/online/` and is pruned LRU to a
   configurable cap (1 GB default, `MUSICO_ONLINE_CACHE_MB` or the Storage
-  settings slider override).
+  settings slider override, 512 MB–5120 MB).
 - A global cap of three `yt-dlp` children prevents interactive, pre-resolve,
   batch, and radio-warmup work from stacking.
-- Downloads write a `.part` file, verify a minimum size, then rename
-  atomically, so a killed process cannot publish a truncated track. Duration is
-  probed when the search metadata lacks it.
+- Downloads write a `.part` file, verify a minimum size, write a
+  `{stem}.meta.json` sidecar, and rename atomically, so a killed process cannot
+  publish a truncated track. Duration is probed when search metadata lacks it.
 - Online radio warms the next pick while the current track plays; autoplay and
   warmup are both gated by the Autoplay setting.
 
@@ -207,19 +231,19 @@ The full ladder, source trust model, and failure behavior are documented in
 ## Testing
 
 ```sh
-# What CI runs: 172 collected tests, 13 live tests ignored by default
+# Rust workspace tests (CI baseline; live tests ignored by default)
 cargo test --workspace --exclude musico_playback
 
-# Full workspace: 189 tests, including playback end-to-end (needs an audio device)
+# Full Rust workspace, including playback end-to-end (needs an audio device)
 bash scripts/gen_test_tone.sh
 cargo test --workspace
 
-# TypeScript engine: 20 tests + typecheck
+# Compose Multiplatform Android + Desktop compile & shared JVM unit tests
+gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
+
+# TypeScript engine tests + typecheck (web preview)
 npm test
 npm run build
-
-# Shared Compose Multiplatform unit tests (JVM)
-gradle -p android :shared:desktopTest
 
 # Opt-in live network tests
 MUSICO_LIVE_TESTS=1 cargo test -p musico_core live_ -- --ignored --nocapture
@@ -253,16 +277,15 @@ frontend/             Optional web/PWA preview UI
 src/engine/           TypeScript engine for the web/PWA preview
 server.ts             Express demo runtime (not the production backend)
 scripts/              Browser suites, contrast gate, test-tone generator
-docs/                 Deep dives and ADRs
+docs/                 Deep dives, brand assets, screenshots, and ADRs
 .github/              CI/release workflows, issue and PR templates
 ```
 
 ## Contributing
 
 Every change lands as **branch → PR → CI → independent review → merge** —
-never directly on `main`. Good first targets are frontend polish, catalog
-surfaces, tests, and documentation; the Rust playback core is intentionally
-conservative.
+never directly on `main`. Good first targets are UI polish, catalog surfaces,
+tests, and documentation; the Rust playback core is intentionally conservative.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. Human PRs go
 through the same review gate as agent PRs. The repository runs a multi-agent
@@ -280,8 +303,8 @@ you do not need to participate in it to contribute.
   needs regular updates; the direct sources and JioSaavn absorb some outages.
 - **Cross-source matching is heuristic.** A YouTube track is mapped to
   JioSaavn by title, artist token, and a ±4 s duration window. If the wrong
-  take is picked, there is no per-track override in v0.7.0; report the
-  YouTube id and the Saavn id so the matching heuristic can be fixed.
+  take is picked, there is no per-track override yet; report the YouTube id and
+  the Saavn id so the matching heuristic can be fixed.
 - **Quality is source-bounded.** `lossless` means "best available from the
   source", not a guarantee of a lossless master.
 - **Prebuilt macOS/Windows artifacts are unsigned.** Gatekeeper and SmartScreen
