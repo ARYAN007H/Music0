@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/brand/banner.png" width="100%" alt="Music0 — Online Music Streaming"/>
+</p>
+
 # Musico Online
 
 **A local-first, Material 3 Expressive music player with free online music.**
