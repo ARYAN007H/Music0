@@ -213,13 +213,14 @@ static SOURCE_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
 });
 
 /// Dedicated streaming HTTP client with a tight connect timeout (2 s) and a
-/// per-read idle timeout (15 s) instead of a fixed total-request timeout, so
-/// hanging headers fail quickly while long streams on slow links keep playing.
+/// 15 s idle read/send wait (`blocking::ClientBuilder::timeout` bounds each
+/// `Response::read` chunk without imposing a whole-request total deadline on
+/// streaming GETs that omit `RequestBuilder::timeout`).
 static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
     reqwest::blocking::Client::builder()
         .user_agent(super::client::USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
-        .read_timeout(STREAM_READ_TIMEOUT)
+        .timeout(STREAM_READ_TIMEOUT)
         .tcp_nodelay(true)
         .pool_max_idle_per_host(4)
         .pool_idle_timeout(Duration::from_secs(60))
@@ -227,7 +228,8 @@ static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
         .ok()
 });
 
-/// Exposes the shared streaming HTTP client for fallback direct-URL opens.
+/// Exposes the shared streaming HTTP client for desktop fallback direct-URL opens.
+#[cfg(not(target_os = "android"))]
 pub(crate) fn stream_http_client() -> Option<&'static reqwest::blocking::Client> {
     STREAM_CLIENT.as_ref()
 }
@@ -405,6 +407,102 @@ pub(crate) struct OpenedAudioStream {
     pub source_name: String,
 }
 
+/// Validates an HTTP audio stream response, enforcing HTTP success, audio MIME
+/// gating (`application/octet-stream` allowed only when requested), and an
+/// up-front `max_bytes` cap on declared `Content-Length`.
+pub(crate) fn validate_audio_response(
+    resp: reqwest::blocking::Response,
+    max_bytes: u64,
+    allow_octet_stream: bool,
+    source_name: String,
+    err_prefix: &str,
+) -> Result<OpenedAudioStream, String> {
+    if !resp.status().is_success() {
+        return Err(format!("{err_prefix}: HTTP {}", resp.status()));
+    }
+    // Bot-walled instances can answer 200 with an HTML challenge page, which
+    // must never reach the cache or range server.
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_audio = ctype.starts_with("audio/");
+    let is_octet = allow_octet_stream && ctype.starts_with("application/octet-stream");
+    if !is_audio && !is_octet {
+        return Err(format!(
+            "{err_prefix}: content-type `{ctype}` is not audio"
+        ));
+    }
+    let content_length = resp.content_length();
+    if let Some(len) = content_length {
+        if len > max_bytes {
+            return Err(format!(
+                "{err_prefix}: content-length {len} B exceeds {max_bytes} B cap"
+            ));
+        }
+    }
+    let content_type = if is_audio {
+        let parsed = ctype.split(';').next().unwrap_or("audio/mp4").trim();
+        if parsed.is_empty() {
+            "audio/mp4".into()
+        } else {
+            parsed.to_string()
+        }
+    } else {
+        "audio/mp4".into()
+    };
+    Ok(OpenedAudioStream {
+        reader: Box::new(resp),
+        content_length,
+        content_type,
+        source_name,
+    })
+}
+
+/// Issues a streaming (`STREAM_CLIENT`) or deadline-bounded (`SOURCE_CLIENT`)
+/// audio GET request and validates it via [`validate_audio_response`].
+fn send_and_validate_audio(
+    url: &str,
+    user_agent: Option<&str>,
+    deadline: Instant,
+    streaming: bool,
+    allow_octet_stream: bool,
+    source_name: String,
+    err_prefix: &str,
+) -> Result<OpenedAudioStream, String> {
+    let budget = remaining(deadline)?;
+    let resp = if streaming {
+        let sclient = STREAM_CLIENT
+            .as_ref()
+            .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
+        let mut req = sclient.get(url);
+        if let Some(ua) = user_agent {
+            req = req.header(reqwest::header::USER_AGENT, ua);
+        }
+        // Intentionally omit RequestBuilder::timeout so reqwest::blocking keeps
+        // STREAM_CLIENT's 15 s per-read timeout without cutting off long tracks.
+        req.send().map_err(|e| format!("{err_prefix}: {e}"))?
+    } else {
+        let client = SOURCE_CLIENT
+            .as_ref()
+            .ok_or_else(|| "source HTTP client unavailable".to_string())?;
+        let mut req = client.get(url).timeout(budget);
+        if let Some(ua) = user_agent {
+            req = req.header(reqwest::header::USER_AGENT, ua);
+        }
+        req.send().map_err(|e| format!("{err_prefix}: {e}"))?
+    };
+    validate_audio_response(
+        resp,
+        MAX_SOURCE_BYTES,
+        allow_octet_stream,
+        source_name,
+        err_prefix,
+    )
+}
+
 /// A single stream source (one instance). `open` must respect `deadline` for
 /// its network phases; the download itself is deadline-checked chunk-by-chunk
 /// by [`try_sources`], so implementations only need bounded metadata/open
@@ -532,43 +630,16 @@ impl PipedSource {
                 )
             })?;
 
-        let resp = if streaming {
-            let sclient = STREAM_CLIENT
-                .as_ref()
-                .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
-            sclient
-                .get(url)
-                .send()
-                .map_err(|e| format!("piped {}: download request: {e}", self.host))?
-        } else {
-            client
-                .get(url)
-                .timeout(remaining(deadline)?)
-                .send()
-                .map_err(|e| format!("piped {}: download request: {e}", self.host))?
-        };
-        if !resp.status().is_success() {
-            return Err(format!("piped {}: download HTTP {}", self.host, resp.status()));
-        }
-        // The proxied URL must actually be audio — bot-walled instances answer
-        // 200 with an HTML challenge page, which must not reach the cache.
-        let ctype = resp
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if !ctype.starts_with("audio/") {
-            return Err(format!("piped {}: download content-type `{ctype}` is not audio", self.host));
-        }
-        let content_length = resp.content_length();
-        let content_type = ctype.split(';').next().unwrap_or("audio/mp4").trim().to_string();
-        Ok(OpenedAudioStream {
-            reader: Box::new(resp),
-            content_length,
-            content_type: if content_type.is_empty() { "audio/mp4".into() } else { content_type },
-            source_name: self.host.clone(),
-        })
+        let err_prefix = format!("piped {}: download", self.host);
+        send_and_validate_audio(
+            &url,
+            None,
+            deadline,
+            streaming,
+            false,
+            self.host.clone(),
+            &err_prefix,
+        )
     }
 }
 
@@ -604,48 +675,16 @@ impl InvidiousSource {
             "https://{}/latest_version?id={video_id}&itag=140&local=true",
             self.host
         );
-        let resp = if streaming {
-            let sclient = STREAM_CLIENT
-                .as_ref()
-                .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
-            sclient
-                .get(url)
-                .send()
-                .map_err(|e| format!("invidious {}: request: {e}", self.host))?
-        } else {
-            let client = SOURCE_CLIENT
-                .as_ref()
-                .ok_or_else(|| "source HTTP client unavailable".to_string())?;
-            client
-                .get(url)
-                .timeout(remaining(deadline)?)
-                .send()
-                .map_err(|e| format!("invidious {}: request: {e}", self.host))?
-        };
-        if !resp.status().is_success() {
-            return Err(format!("invidious {}: HTTP {}", self.host, resp.status()));
-        }
-        let ctype = resp
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        // Bot walls answer 200 with text/html — content-type is the gate.
-        if !ctype.starts_with("audio/") {
-            return Err(format!(
-                "invidious {}: content-type `{ctype}` is not audio",
-                self.host
-            ));
-        }
-        let content_length = resp.content_length();
-        let content_type = ctype.split(';').next().unwrap_or("audio/mp4").trim().to_string();
-        Ok(OpenedAudioStream {
-            reader: Box::new(resp),
-            content_length,
-            content_type: if content_type.is_empty() { "audio/mp4".into() } else { content_type },
-            source_name: self.host.clone(),
-        })
+        let err_prefix = format!("invidious {}", self.host);
+        send_and_validate_audio(
+            &url,
+            None,
+            deadline,
+            streaming,
+            false,
+            self.host.clone(),
+            &err_prefix,
+        )
     }
 }
 
@@ -804,6 +843,15 @@ fn remember_good_it_client(id: &'static str) {
 ///    visitor-free profiles (`VISIONOS_1_02`, `WEB_REMIX`) run BEFORE
 ///    visitor-gated profiles so playback never stalls 4–9 s fetching `sw.js_data`
 ///    + homepage HTML on the first click.
+fn push_unique_it_client(
+    out: &mut Vec<&'static ItClientProfile>,
+    p: &'static ItClientProfile,
+) {
+    if !out.iter().any(|existing| existing.id == p.id) {
+        out.push(p);
+    }
+}
+
 fn ordered_it_clients(
     has_warm_visitor: bool,
     last_good: Option<&'static str>,
@@ -818,20 +866,14 @@ fn ordered_it_clients(
     }
     if has_warm_visitor {
         for p in IT_CLIENTS {
-            if !out.iter().any(|existing| existing.id == p.id) {
-                out.push(p);
-            }
+            push_unique_it_client(&mut out, p);
         }
     } else {
         for p in IT_CLIENTS.iter().filter(|p| !p.needs_visitor) {
-            if !out.iter().any(|existing| existing.id == p.id) {
-                out.push(p);
-            }
+            push_unique_it_client(&mut out, p);
         }
         for p in IT_CLIENTS.iter().filter(|p| p.needs_visitor) {
-            if !out.iter().any(|existing| existing.id == p.id) {
-                out.push(p);
-            }
+            push_unique_it_client(&mut out, p);
         }
     }
     out
@@ -1200,68 +1242,31 @@ impl InnerTubeDirectSource {
                 }
             };
 
-            let resp = if streaming {
-                let sclient = STREAM_CLIENT
-                    .as_ref()
-                    .ok_or_else(|| "stream HTTP client unavailable".to_string())?;
-                match sclient
-                    .get(url)
-                    .header(reqwest::header::USER_AGENT, p.user_agent)
-                    .send()
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        it_demote(p.id);
-                        last_err = format!("{last_err}; {}: download: {e}", p.id);
-                        continue;
-                    }
+            let err_prefix = format!("{}: download", p.id);
+            match send_and_validate_audio(
+                &url,
+                Some(p.user_agent),
+                deadline,
+                streaming,
+                true,
+                format!("{}:{}", Self::NAME, p.id),
+                &err_prefix,
+            ) {
+                Ok(opened) => {
+                    it_rehab(p.id);
+                    remember_good_it_client(p.id);
+                    log::info!("innertube-direct: {} serving {video_id}", p.id);
+                    return Ok(opened);
                 }
-            } else {
-                match client
-                    .get(url)
-                    .header(reqwest::header::USER_AGENT, p.user_agent)
-                    .timeout(remaining(deadline)?)
-                    .send()
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        it_demote(p.id);
-                        last_err = format!("{last_err}; {}: download: {e}", p.id);
-                        continue;
+                Err(e) => {
+                    it_demote(p.id);
+                    if remaining(deadline).is_err() {
+                        return Err(e);
                     }
+                    last_err = format!("{last_err}; {e}");
+                    continue;
                 }
-            };
-            if !resp.status().is_success() {
-                it_demote(p.id);
-                last_err = format!("{last_err}; {}: download HTTP {}", p.id, resp.status());
-                continue;
             }
-            let ctype = resp
-                .headers()
-                .get(reqwest::header::CONTENT_TYPE)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
-                it_demote(p.id);
-                last_err = format!("{last_err}; {}: content-type `{ctype}` is not audio", p.id);
-                continue;
-            }
-            let content_length = resp.content_length();
-            let content_type = if ctype.starts_with("audio/") {
-                ctype.split(';').next().unwrap_or("audio/mp4").trim().to_string()
-            } else {
-                "audio/mp4".into()
-            };
-            it_rehab(p.id);
-            remember_good_it_client(p.id);
-            log::info!("innertube-direct: {} serving {video_id}", p.id);
-            return Ok(OpenedAudioStream {
-                reader: Box::new(resp),
-                content_length,
-                content_type,
-                source_name: format!("{}:{}", Self::NAME, p.id),
-            });
         }
         Err(last_err)
     }
@@ -1397,13 +1402,11 @@ pub(crate) fn try_sources_open_stream_hedged(
                 let t0 = Instant::now();
                 let res = src.open_stream(&vid, deadline);
                 let ok = res.is_ok();
-                record_instance_outcome(src.name(), ok, t0.elapsed());
-                if !ok && !won.load(Ordering::Acquire) {
+                if !won.load(Ordering::Acquire) {
+                    record_instance_outcome(src.name(), ok, t0.elapsed());
                     if let Err(ref e) = res {
                         log::debug!("fast path stream: {} unavailable: {e}", src.name());
                     }
-                }
-                if !won.load(Ordering::Acquire) {
                     let _ = tx.send(res);
                 }
             });
@@ -1413,15 +1416,23 @@ pub(crate) fn try_sources_open_stream_hedged(
     let mut in_flight = 0usize;
     let mut last_err = String::from("no sources configured");
 
+    let launch_wave = |next_idx: &mut usize, in_flight: &mut usize, count: usize| {
+        let wave_end = (*next_idx + count).min(sources.len());
+        while *next_idx < wave_end {
+            spawn_one(
+                Arc::clone(&sources[*next_idx]),
+                video_id.to_string(),
+                tx.clone(),
+                Arc::clone(&won),
+            );
+            *next_idx += 1;
+            *in_flight += 1;
+        }
+    };
+
     // Launch primary source (InnerTube Direct) immediately.
-    spawn_one(
-        Arc::clone(&sources[next_idx]),
-        video_id.to_string(),
-        tx.clone(),
-        Arc::clone(&won),
-    );
-    next_idx += 1;
-    in_flight += 1;
+    launch_wave(&mut next_idx, &mut in_flight, 1);
+    let mut next_hedge_at = Instant::now() + hedge_delay;
 
     loop {
         let now = Instant::now();
@@ -1434,7 +1445,7 @@ pub(crate) fn try_sources_open_stream_hedged(
 
         let rem = deadline.saturating_duration_since(now);
         let wait = if next_idx < sources.len() {
-            rem.min(hedge_delay)
+            rem.min(next_hedge_at.saturating_duration_since(now))
         } else {
             rem
         };
@@ -1447,20 +1458,11 @@ pub(crate) fn try_sources_open_stream_hedged(
             Ok(Err(e)) => {
                 in_flight = in_flight.saturating_sub(1);
                 last_err = e;
-                // Primary or in-flight source failed early: immediately launch
-                // next hedge wave instead of waiting out the hedge timer.
+                // All in-flight sources failed early: launch next wave right away.
+                // If others are still running, preserve `next_hedge_at` unchanged.
                 if in_flight == 0 && next_idx < sources.len() {
-                    let wave_end = (next_idx + STREAM_HEDGE_BATCH).min(sources.len());
-                    while next_idx < wave_end {
-                        spawn_one(
-                            Arc::clone(&sources[next_idx]),
-                            video_id.to_string(),
-                            tx.clone(),
-                            Arc::clone(&won),
-                        );
-                        next_idx += 1;
-                        in_flight += 1;
-                    }
+                    launch_wave(&mut next_idx, &mut in_flight, STREAM_HEDGE_BATCH);
+                    next_hedge_at = Instant::now() + hedge_delay;
                 } else if in_flight == 0 {
                     won.store(true, Ordering::Release);
                     return Err(last_err);
@@ -1468,17 +1470,8 @@ pub(crate) fn try_sources_open_stream_hedged(
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if next_idx < sources.len() && Instant::now() < deadline {
-                    let wave_end = (next_idx + STREAM_HEDGE_BATCH).min(sources.len());
-                    while next_idx < wave_end {
-                        spawn_one(
-                            Arc::clone(&sources[next_idx]),
-                            video_id.to_string(),
-                            tx.clone(),
-                            Arc::clone(&won),
-                        );
-                        next_idx += 1;
-                        in_flight += 1;
-                    }
+                    launch_wave(&mut next_idx, &mut in_flight, STREAM_HEDGE_BATCH);
+                    next_hedge_at = Instant::now() + hedge_delay;
                 } else if Instant::now() >= deadline || in_flight == 0 {
                     won.store(true, Ordering::Release);
                     return Err(format!(
@@ -2261,5 +2254,99 @@ mod tests {
         // Remembered working profile always leads when eligible.
         let remembered = ordered_it_clients(true, Some("WEB_REMIX"));
         assert_eq!(remembered[0].id, "WEB_REMIX");
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn stream_http_client_builds() {
+        assert!(stream_http_client().is_some());
+    }
+
+    #[test]
+    fn validate_audio_response_enforces_mime_and_max_bytes() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let responses = [
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 4\r\nConnection: close\r\n\r\nhtml",
+                "HTTP/1.1 200 OK\r\nContent-Type: audio/mp4\r\nContent-Length: 128\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata",
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata",
+            ];
+            for raw in responses {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut req_buf = [0u8; 512];
+                    let _ = stream.read(&mut req_buf);
+                    let _ = stream.write_all(raw.as_bytes());
+                }
+            }
+        });
+
+        let client = SOURCE_CLIENT.as_ref().expect("SOURCE_CLIENT");
+        let url = format!("http://{addr}/track");
+
+        let r_html = client.get(&url).timeout(Duration::from_secs(2)).send().unwrap();
+        assert!(validate_audio_response(r_html, 64, false, "test".into(), "test").is_err());
+
+        let r_big = client.get(&url).timeout(Duration::from_secs(2)).send().unwrap();
+        let err_big = validate_audio_response(r_big, 64, false, "test".into(), "test")
+            .err()
+            .expect("oversized Content-Length must be rejected");
+        assert!(err_big.contains("exceeds 64 B cap"), "{err_big}");
+
+        let r_oct_deny = client.get(&url).timeout(Duration::from_secs(2)).send().unwrap();
+        assert!(validate_audio_response(r_oct_deny, 64, false, "test".into(), "test").is_err());
+
+        let r_oct_ok = client.get(&url).timeout(Duration::from_secs(2)).send().unwrap();
+        let opened = validate_audio_response(r_oct_ok, 64, true, "test".into(), "test").unwrap();
+        assert_eq!(opened.content_type, "audio/mp4");
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn hedged_stream_race_keeps_hedge_schedule_on_backup_error() {
+        // Wave 1 starts at 400 ms; backup-1 errs after 350 ms (~750 ms) while
+        // primary & backup-2 are still stalled. Wave 2 (healthy) must still
+        // launch on the 800 ms schedule instead of resetting the 400 ms timer.
+        let sources: Vec<Arc<dyn AudioSource>> = vec![
+            Arc::new(MockSource {
+                name: "stalled-primary".into(),
+                delay: Duration::from_millis(3_000),
+                result: Ok(GOOD_AUDIO_A.to_vec()),
+            }),
+            Arc::new(MockSource {
+                name: "early-error-backup".into(),
+                delay: Duration::from_millis(350),
+                result: Err("503 unavailable".into()),
+            }),
+            Arc::new(MockSource {
+                name: "stalled-backup-2".into(),
+                delay: Duration::from_millis(3_000),
+                result: Ok(GOOD_AUDIO_A.to_vec()),
+            }),
+            Arc::new(MockSource {
+                name: "wave2-winner".into(),
+                delay: Duration::from_millis(10),
+                result: Ok(GOOD_AUDIO_B.to_vec()),
+            }),
+        ];
+        let t0 = Instant::now();
+        let opened = try_sources_open_stream_hedged(
+            sources,
+            "hedgevid003",
+            Duration::from_secs(4),
+            Duration::from_millis(400),
+        )
+        .expect("wave 2 must open stream on original hedge schedule");
+        assert_eq!(opened.source_name, "wave2-winner");
+        assert!(
+            t0.elapsed() < Duration::from_millis(1_050),
+            "early backup error must not reset hedge timer: {:?}",
+            t0.elapsed()
+        );
     }
 }

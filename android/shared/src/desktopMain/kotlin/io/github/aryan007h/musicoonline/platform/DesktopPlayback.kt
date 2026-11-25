@@ -71,6 +71,7 @@ class DesktopPlayback : PlatformPlayback {
                         val durMs = st["durationMs"]?.jsonPrimitive?.longOrNull ?: 0L
                         val vol = st["volume"]?.jsonPrimitive?.floatOrNull
                         val ended = st["ended"]?.jsonPrimitive?.booleanOrNull ?: false
+                        val endedSongId = st["endedSongId"]?.jsonPrimitive?.contentOrNull
                         val currentSongId = st["currentSongId"]?.jsonPrimitive?.contentOrNull
 
                         _isPlaying.value = playing
@@ -85,7 +86,7 @@ class DesktopPlayback : PlatformPlayback {
                             stagedNextTrack = null
                             _positionMs.value = 0L
                             _gaplessAdvanced.tryEmit(staged.videoId)
-                        } else if (ended) {
+                        } else if (ended && (endedSongId == null || endedSongId == _nowPlaying.value?.videoId)) {
                             _trackEnded.tryEmit(Unit)
                         }
                     }

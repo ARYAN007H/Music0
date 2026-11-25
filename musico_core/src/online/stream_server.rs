@@ -584,8 +584,11 @@ fn handle_connection(
             (g.bytes_written, path, g.done, g.error.is_some())
         };
 
+        if failed {
+            break;
+        }
         if available <= cursor {
-            if failed || finished {
+            if finished {
                 break;
             }
             continue;
@@ -1001,5 +1004,58 @@ mod tests {
             );
             assert!(seen.insert(tok), "duplicate CSPRNG token generated");
         }
+    }
+
+    #[test]
+    fn mid_stream_upstream_failure_aborts_range_reader_cleanly() {
+        let srv = LoopbackStreamServer::start().expect("server starts");
+        let tmp = tempfile::tempdir().unwrap();
+        let part_path = tmp.path().join("midfail.m4a.part");
+        let final_path = tmp.path().join("midfail.m4a");
+
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok(vec![0xABu8; 24 * 1024])).unwrap();
+
+        let url = srv
+            .start_session(
+                ChannelReader {
+                    rx,
+                    current: Vec::new(),
+                    offset: 0,
+                },
+                StreamSessionConfig {
+                    part_path,
+                    final_path: final_path.clone(),
+                    content_type: "audio/mp4".into(),
+                    expected_total: Some(96 * 1024),
+                    min_file_bytes: 16 * 1024,
+                    max_file_bytes: 64 * 1024 * 1024,
+                    initial_ready_bytes: 20 * 1024,
+                    initial_ready_timeout: Duration::from_secs(5),
+                },
+                |_| {},
+            )
+            .expect("session starts once initial bytes arrive");
+
+        let path = url
+            .strip_prefix(&format!("http://127.0.0.1:{}", srv.port()))
+            .unwrap()
+            .to_string();
+        let port = srv.port();
+
+        let req_path = path.clone();
+        let reader_handle = std::thread::spawn(move || http_get(port, &req_path, None));
+        std::thread::sleep(Duration::from_millis(50));
+        tx.send(Err("upstream connection reset".into())).unwrap();
+        drop(tx);
+
+        let (status, _, body) = reader_handle.join().unwrap();
+        assert!(status.starts_with("HTTP/1.1 200"), "got {status}");
+        assert!(
+            body.len() < 96 * 1024,
+            "failed stream must abort short of expected_total, got {} bytes",
+            body.len()
+        );
+        assert!(!final_path.exists(), "failed stream must not finalize");
     }
 }

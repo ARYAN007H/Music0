@@ -37,9 +37,17 @@ static RECOMMENDER: OnceLock<Mutex<MusicRecommender>> = OnceLock::new();
 /// Desktop JVM audio playback engine (Android uses Media3/ExoPlayer instead).
 #[cfg(not(target_os = "android"))]
 static DESKTOP_PLAYER: OnceLock<Mutex<musico_playback::PlaybackEngine>> = OnceLock::new();
+#[cfg(not(target_os = "android"))]
+static DESKTOP_PLAYER_INIT: Mutex<()> = Mutex::new(());
 
 #[cfg(not(target_os = "android"))]
 fn desktop_player() -> Result<&'static Mutex<musico_playback::PlaybackEngine>, String> {
+    if let Some(m) = DESKTOP_PLAYER.get() {
+        return Ok(m);
+    }
+    let _init_guard = DESKTOP_PLAYER_INIT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(m) = DESKTOP_PLAYER.get() {
         return Ok(m);
     }

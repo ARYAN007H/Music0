@@ -500,7 +500,7 @@ where
     let dir = cache_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("cache dir: {e}"))?;
 
-    let mut on_finalized = Some(on_finalized);
+    let on_finalized = std::sync::Arc::new(std::sync::Mutex::new(Some(on_finalized)));
     // Helper that registers a loopback session and wires cache finalize + callback.
     let mut start_loopback = |opened: super::sources::OpenedAudioStream,
                               cache_key: String,
@@ -524,13 +524,14 @@ where
         let key_for_index = cache_key.clone();
         let source_name = opened.source_name;
         let sidecar_track = track.clone();
-        let cb = on_finalized.take();
+        let cb_slot = std::sync::Arc::clone(&on_finalized);
         let url = server.start_session(opened.reader, cfg, move |landed| {
             write_track_sidecar(&landed, &sidecar_track);
             if let Ok(mut index) = CACHE_INDEX.write() {
                 index.insert(key_for_index, landed.clone());
             }
             prune_cache_to_cap();
+            let cb = cb_slot.lock().ok().and_then(|mut g| g.take());
             if let Some(cb) = cb {
                 cb(landed);
             }
@@ -548,6 +549,27 @@ where
         let opened = super::saavn::open_saavn_stream(track, true)?;
         return start_loopback(opened, track.song_id(), "mp4");
     }
+
+    let fallback_to_yt_dlp_or_file =
+        |_loopback: &mut dyn FnMut(super::sources::OpenedAudioStream, String, &str) -> Result<String, String>| {
+            #[cfg(not(target_os = "android"))]
+            if yt_dlp_available() {
+                if let Ok(opened) = open_yt_dlp_stream(&track.video_id) {
+                    let ext = cache_ext_for_content_type(&opened.content_type);
+                    if let Ok(url) = _loopback(opened, track.video_id.clone(), ext) {
+                        return Ok(url);
+                    }
+                }
+            }
+            resolve_with_mode(
+                &track.video_id,
+                1,
+                PLAY_RESOLVE_BUDGET,
+                Some(PLAY_RESOLVE_BUDGET),
+                false,
+            )
+            .map(|p| p.display().to_string())
+        };
 
     // YouTube track: race JioSaavn cross-source CDN vs InnerTube/Piped direct
     // streaming in parallel so whichever opens first starts playing immediately.
@@ -587,31 +609,28 @@ where
                 Ok(Ok(StreamRaceHit::Saavn(super::saavn::CrossSourceStream::Opened(
                     matched,
                     opened,
-                )))) => {
-                    return match start_loopback(opened, matched.song_id(), "mp4") {
-                        Ok(url) => Ok(url),
-                        Err(_) => resolve_track(track, true).map(|p| p.display().to_string()),
-                    };
-                }
+                )))) => match start_loopback(opened, matched.song_id(), "mp4") {
+                    Ok(url) => return Ok(url),
+                    Err(e) => {
+                        log::info!(
+                            "saavn loopback failed for {} ({e}) — continuing stream race",
+                            track.video_id
+                        );
+                        last_err = e;
+                    }
+                },
                 Ok(Ok(StreamRaceHit::Direct(opened))) => {
                     let ext = cache_ext_for_content_type(&opened.content_type);
-                    return match start_loopback(opened, track.video_id.clone(), ext) {
-                        Ok(url) => Ok(url),
+                    match start_loopback(opened, track.video_id.clone(), ext) {
+                        Ok(url) => return Ok(url),
                         Err(e) => {
                             log::info!(
-                                "stream loopback failed for {} ({e}) — falling back to yt-dlp",
+                                "direct loopback failed for {} ({e}) — continuing stream race",
                                 track.video_id
                             );
-                            resolve_with_mode(
-                                &track.video_id,
-                                1,
-                                PLAY_RESOLVE_BUDGET,
-                                Some(PLAY_RESOLVE_BUDGET),
-                                false,
-                            )
-                            .map(|p| p.display().to_string())
+                            last_err = e;
                         }
-                    };
+                    }
                 }
                 Ok(Err(e)) => last_err = e,
                 Err(_) => break,
@@ -622,23 +641,7 @@ where
             track.video_id,
             t_start.elapsed().as_millis()
         );
-        #[cfg(not(target_os = "android"))]
-        if yt_dlp_available() {
-            if let Ok(opened) = open_yt_dlp_stream(&track.video_id) {
-                let ext = cache_ext_for_content_type(&opened.content_type);
-                if let Ok(url) = start_loopback(opened, track.video_id.clone(), ext) {
-                    return Ok(url);
-                }
-            }
-        }
-        return resolve_with_mode(
-            &track.video_id,
-            1,
-            PLAY_RESOLVE_BUDGET,
-            Some(PLAY_RESOLVE_BUDGET),
-            false,
-        )
-        .map(|p| p.display().to_string());
+        return fallback_to_yt_dlp_or_file(&mut start_loopback);
     }
 
     // Untitled YouTube track: direct-URL streaming fast path only.
@@ -652,14 +655,7 @@ where
                         "stream loopback failed for {} ({e}) — falling back to yt-dlp",
                         track.video_id
                     );
-                    resolve_with_mode(
-                        &track.video_id,
-                        1,
-                        PLAY_RESOLVE_BUDGET,
-                        Some(PLAY_RESOLVE_BUDGET),
-                        false,
-                    )
-                    .map(|p| p.display().to_string())
+                    fallback_to_yt_dlp_or_file(&mut start_loopback)
                 }
             }
         }
@@ -669,23 +665,7 @@ where
                 track.video_id,
                 t_start.elapsed().as_millis()
             );
-            #[cfg(not(target_os = "android"))]
-            if yt_dlp_available() {
-                if let Ok(opened) = open_yt_dlp_stream(&track.video_id) {
-                    let ext = cache_ext_for_content_type(&opened.content_type);
-                    if let Ok(url) = start_loopback(opened, track.video_id.clone(), ext) {
-                        return Ok(url);
-                    }
-                }
-            }
-            resolve_with_mode(
-                &track.video_id,
-                1,
-                PLAY_RESOLVE_BUDGET,
-                Some(PLAY_RESOLVE_BUDGET),
-                false,
-            )
-            .map(|p| p.display().to_string())
+            fallback_to_yt_dlp_or_file(&mut start_loopback)
         }
     }
 }
@@ -920,7 +900,7 @@ fn open_yt_dlp_stream(video_id: &str) -> Result<super::sources::OpenedAudioStrea
         .spawn()
         .map_err(|e| format!("failed to launch yt-dlp -g: {e}"))?;
 
-    let mut stdout = child
+    let stdout = child
         .stdout
         .take()
         .ok_or_else(|| "yt-dlp stdout unavailable".to_string())?;
@@ -967,35 +947,13 @@ fn open_yt_dlp_stream(video_id: &str) -> Result<super::sources::OpenedAudioStrea
         .get(direct_url)
         .send()
         .map_err(|e| format!("yt-dlp stream GET: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("yt-dlp stream HTTP {}", resp.status()));
-    }
-    let ctype = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if !ctype.starts_with("audio/") && !ctype.starts_with("application/octet-stream") {
-        return Err(format!("yt-dlp stream content-type `{ctype}` is not audio"));
-    }
-    let content_length = resp.content_length();
-    let content_type = if ctype.starts_with("audio/") {
-        ctype
-            .split(';')
-            .next()
-            .unwrap_or("audio/mp4")
-            .trim()
-            .to_string()
-    } else {
-        "audio/mp4".into()
-    };
-    Ok(super::sources::OpenedAudioStream {
-        reader: Box::new(resp),
-        content_length,
-        content_type,
-        source_name: "yt-dlp-stream".into(),
-    })
+    super::sources::validate_audio_response(
+        resp,
+        super::sources::MAX_SOURCE_BYTES,
+        true,
+        "yt-dlp-stream".into(),
+        "yt-dlp stream",
+    )
 }
 
 /// LRU-prunes the stream cache to the cap by mtime (oldest first), keeping
@@ -1291,7 +1249,7 @@ mod tests {
         // `:` is reserved on Windows (os error 87 on rename — caught live by
         // the v0.7.0 tag's native Windows test run).  Landing and lookup
         // must encode identically, and legacy raw-named files still hit.
-        let tc = TestCache::acquire();
+        let _tc = TestCache::acquire();
         let dir = cache_dir();
         std::fs::create_dir_all(&dir).unwrap();
 
