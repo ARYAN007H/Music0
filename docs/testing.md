@@ -1,31 +1,29 @@
 # Testing
 
-Musico Online uses four test layers: hermetic Rust tests, opt-in live network
-tests, TypeScript engine tests, and browser assertion suites. The CI workflow
-runs the Rust suite on Linux; the release workflow repeats it on Linux, macOS,
-and Windows. The other layers are local tools.
+Music0 uses five test layers: hermetic Rust tests, Compose Multiplatform Kotlin
+checks, opt-in live network tests, TypeScript engine tests, and web-preview
+browser assertion suites. The CI workflow runs Rust, Compose Multiplatform, and
+TypeScript checks on Linux; the release workflow runs native builds across
+Linux, macOS, Windows, and Android.
 
-## 1. Test inventory
+## 1. Test layers
 
-| Layer | Count | Runs in CI | Needs |
-|---|---|---|---|
-| Rust workspace | **189** collected | Yes (minus playback) | Rust toolchain |
-| — `src-tauri` | 109 (13 `#[ignore]` live) | Yes, live skipped | Rust |
-| — `musico_recommender` | 62 unit + 1 doctest | Yes | Rust |
-| — `musico_playback` | 16 + 1 doctest | **No** (excluded) | Audio device, test WAV |
-| TypeScript engine | **20** | No | Node + `npm install` |
-| Browser suites | 10 files, ~151 assertions | No | Web preview + Playwright + Chrome |
-| Contrast gate | 6 palettes × 2 themes | No | Web preview + Playwright + Chrome |
+| Layer | Runs in CI | Needs |
+|---|---|---|
+| Rust workspace (`--exclude musico_playback`) | Yes (`rust-core`) | Rust toolchain + `libasound2-dev` |
+| — `musico_core` | Yes (`#[ignore]` live tests skipped) | Rust |
+| — `musico_recommender` | Yes | Rust |
+| — `musico_playback` | **No** (excluded) | Audio device, test WAV |
+| Compose Multiplatform (`:app:compileDebugKotlin`, `:desktopApp:compileKotlin`, `:shared:desktopTest`) | Yes (`compose-multiplatform`) | Java 17 + Gradle 8.10.2 + Android SDK |
+| TypeScript engine (`npm test`, `npm run build`) | Yes (`web-engine`) | Node 20 + `npm install` |
+| Browser suites (`scripts/browser_*_test.mjs`) | No | Web preview + Playwright + Chrome |
+| Contrast gate (`scripts/contrast_gate.mjs`) | No | Web preview + Playwright + Chrome |
 
-CI's command is:
+CI's Rust test command is:
 
 ```sh
 cargo test --workspace --exclude musico_playback
 ```
-
-That collects **172** tests: 109 app tests plus 63 recommender tests (62 unit +
-1 doctest). Thirteen of the app tests are `#[ignore]` live tests, so 159 run by
-default. The full workspace adds 17 playback tests (16 + 1 doctest) for 189.
 
 Why playback is excluded: `musico_playback/tests/engine_e2e.rs` opens a real
 audio device and plays a real file. GitHub runners have neither. The tests are
@@ -42,11 +40,11 @@ cargo test --workspace --exclude musico_playback
 Useful variants:
 
 ```sh
-cargo test -p musico-online                     # app crate only
+cargo test -p musico_core                       # core crate + online stack
 cargo test -p musico_recommender                # taste engine only
-cargo test -p musico-online online::            # module filter
-cargo test -p musico-online -- --list           # list collected tests
-cargo test -p musico-online -- --nocapture      # show prints
+cargo test -p musico_core online::              # module filter
+cargo test -p musico_core -- --list             # list collected tests
+cargo test -p musico_core -- --nocapture        # show prints
 ```
 
 Tests run in parallel by default. If a test touches process-global state
@@ -77,11 +75,11 @@ Live tests are marked `#[ignore]` so a normal `cargo test` never hits the
 network. Run them explicitly:
 
 ```sh
-cargo test -p musico-online live_ -- --ignored --nocapture
+cargo test -p musico_core live_ -- --ignored --nocapture
 ```
 
 `MUSICO_LIVE_TESTS=1` is a documentation convention; **the code does not read
-it**. The `--ignored` flag is the actual gate. The 13 live tests are:
+it**. The `--ignored` flag is the actual gate. Live tests include:
 
 | Test | Checks |
 |---|---|
@@ -106,7 +104,7 @@ run can leave residue. Use a temp cache if you care about a populated cache:
 
 ```sh
 MUSICO_CACHE_DIR=/tmp/musico-live-cache \
-  cargo test -p musico-online live_ -- --ignored --nocapture
+  cargo test -p musico_core live_ -- --ignored --nocapture
 ```
 
 ## 3. TypeScript tests
@@ -119,9 +117,9 @@ npm test        # tsx --test src/engine/*.test.ts
 npm run build   # tsc --noEmit typecheck
 ```
 
-The 20 tests are split across three files:
+Tests are split across three files:
 
-`recommender.test.ts` and `streamer.test.ts` (10) cover:
+`recommender.test.ts` and `streamer.test.ts` cover:
 
 - harmonic/Camelot transition scoring
 - vector standardization without NaN
@@ -134,8 +132,8 @@ The 20 tests are split across three files:
 - hedged source racing
 - progressive stream playability threshold
 
-`features.test.ts` (10, under the "Musico 10 Standout Capabilities Engine"
-suite) covers:
+`features.test.ts` (under the "Musico 10 Standout Capabilities Engine" suite)
+covers:
 
 - beat-aligned Auto-DJ crossfade clamping and bar alignment
 - Taste DNA persona re-ranking
@@ -262,18 +260,15 @@ cache (`#48`). Treat them as hard requirements.
 
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request:
 
-1. Checkout.
-2. Install Rust stable + cache.
-3. Install Linux Tauri dependencies.
-4. `cargo test --workspace --exclude musico_playback`.
+1. **`rust-core`**: installs `libasound2-dev pkg-config`, runs `cargo test --workspace --exclude musico_playback`, and builds `cargo build --release -p musico_core --lib`.
+2. **`compose-multiplatform`**: runs `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain`.
+3. **`web-engine`**: installs npm dependencies and runs `npm test && npm run build`.
 
-`.github/workflows/release.yml` repeats that test step on Linux, macOS, and
-Windows before building bundles. The macOS job runs natively on arm64, which
-also type-checks `cfg(target_os = "macos")` code; the Windows job does the same
-for `cfg(target_os = "windows")`.
+`.github/workflows/release.yml` runs native release builds and packaging across
+`linux-desktop`, `macos-desktop`, `windows-desktop`, and `android-native`.
 
-Not in CI: browser suites, the contrast gate, TypeScript tests, live tests, and
-Android builds. Run them locally when your change touches those areas.
+Not in CI: browser suites, the contrast gate, and live network tests. Run them
+locally when your change touches those areas.
 
 ## 8. Adding a test
 

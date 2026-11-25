@@ -1,5 +1,11 @@
 # IPC reference
 
+> **Note (v1.0.0 Compose Multiplatform):** This v0.7.0 Tauri command and event
+> catalog is retained for the [web preview bridge](../frontend/js/bridge.js)
+> mock contract. The production Android and Desktop Compose Multiplatform app
+> communicates with Rust through the JNI JSON `dispatch()` router in
+> `musico_core/src/mobile.rs`.
+
 The webview talks to Rust through Tauri's `invoke`/`emit` bridge. This
 document is the command and event catalog for **v0.7.0**. The registry is
 `src-tauri/src/lib.rs` (`tauri::generate_handler!`); handlers live in
