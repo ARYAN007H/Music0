@@ -73,14 +73,20 @@ const PLAY_BUDGET: Duration = Duration::from_secs(90);
 const MAX_AUDIO_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Dedicated client: saavn is an independent upstream — its failures must not
-/// share connection-pool state with InnerTube traffic.  Per-request timeouts
-/// are set on each call (3 s API / budget-bounded download).
+/// share connection-pool state with InnerTube traffic. Short API calls set a
+/// per-request `.timeout(...)`; live CDN streams omit `.timeout(...)` on the
+/// request so `blocking::ClientBuilder::timeout(15 s)` acts per `read()` chunk.
 static API_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
     reqwest::blocking::Client::builder()
         .user_agent(
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
              (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(15))
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(4)
+        .pool_idle_timeout(Duration::from_secs(60))
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 });
@@ -195,7 +201,49 @@ pub fn search_songs(query: &str, limit: usize) -> Vec<OnlineTrack> {
     search_songs_with_timeout(query, limit, API_TIMEOUT)
 }
 
-fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<OnlineTrack> {
+/// Internal search hit keeping `encrypted_media_url` + `has_320` returned by
+/// `search.getResults` so cross-source instant resolve skips the extra
+/// `song.getDetails` round-trip (cutting cold start from 3 RTTs to 2 RTTs).
+struct SearchHit {
+    track: OnlineTrack,
+    encrypted_media_url: Option<String>,
+    has_320: bool,
+}
+
+fn parse_search_hits(body: &str, limit: usize) -> Vec<SearchHit> {
+    let parsed: SearchJson = match serde_json::from_str(body) {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    parsed
+        .results
+        .iter()
+        .filter_map(|v| serde_json::from_value::<SongJson>(v.clone()).ok())
+        .filter_map(|song| {
+            let encrypted_media_url = song
+                .more_info
+                .as_ref()
+                .and_then(|m| m.encrypted_media_url.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            let has_320 = song
+                .more_info
+                .as_ref()
+                .and_then(|m| m.has_320.as_deref())
+                == Some("true");
+            let track = song_to_track(song)?;
+            Some(SearchHit {
+                track,
+                encrypted_media_url,
+                has_320,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
+fn search_hits_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<SearchHit> {
     let q = query.trim();
     if q.is_empty() || limit == 0 {
         return Vec::new();
@@ -214,16 +262,13 @@ fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Ve
     let Some(body) = body else {
         return Vec::new();
     };
-    let parsed: SearchJson = match serde_json::from_str(&body) {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
-    };
-    parsed
-        .results
-        .iter()
-        .filter_map(|v| serde_json::from_value::<SongJson>(v.clone()).ok())
-        .filter_map(song_to_track)
-        .take(limit)
+    parse_search_hits(&body, limit)
+}
+
+fn search_songs_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec<OnlineTrack> {
+    search_hits_with_timeout(query, limit, timeout)
+        .into_iter()
+        .map(|h| h.track)
         .collect()
 }
 
@@ -373,6 +418,49 @@ pub(crate) enum CrossSourceStream {
     Opened(OnlineTrack, super::sources::OpenedAudioStream),
 }
 
+/// Opens a direct JioSaavn CDN audio stream given an already-fetched
+/// `encrypted_media_url` + `has_320` flag (zero extra `song.getDetails` RTT).
+fn open_saavn_stream_from_encrypted(
+    enc: &str,
+    has_320: bool,
+    interactive: bool,
+) -> Result<super::sources::OpenedAudioStream, String> {
+    let base = decrypt_media_url(enc).ok_or("saavn stream: media url decrypt failed")?;
+    let settings = crate::config::AppSettings::load();
+    let pref_quality = if interactive {
+        settings.streaming_quality
+    } else {
+        settings.download_quality
+    };
+    let mut last_err = String::from("saavn stream: no candidates");
+    for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
+        // API_CLIENT has connect_timeout(2s) + client-level 15s chunk wait, so
+        // headers fail fast on a stalled CDN while slow-network full songs
+        // never hit an artificial whole-request cutoff.
+        let resp = match API_CLIENT.get(&url).send() {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("saavn stream: {e}");
+                continue;
+            }
+        };
+        match super::sources::validate_audio_response(
+            resp,
+            MAX_AUDIO_BYTES,
+            false,
+            SOURCE.to_string(),
+            "saavn stream",
+        ) {
+            Ok(opened) => return Ok(opened),
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
+        }
+    }
+    Err(last_err)
+}
+
 /// Opens a direct JioSaavn CDN audio response for stream-while-download without
 /// buffering the entire body into RAM first.
 pub(crate) fn open_saavn_stream(
@@ -390,70 +478,25 @@ pub(crate) fn open_saavn_stream(
         .map(str::trim)
         .filter(|e| !e.is_empty())
         .ok_or("saavn stream: no encrypted media url")?;
-    let base = decrypt_media_url(enc).ok_or("saavn stream: media url decrypt failed")?;
     let has_320 = song.more_info.as_ref().and_then(|m| m.has_320.as_deref()) == Some("true");
-    let settings = crate::config::AppSettings::load();
-    let pref_quality = if interactive {
-        settings.streaming_quality
-    } else {
-        settings.download_quality
-    };
-    let mut last_err = String::from("saavn stream: no candidates");
-    for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
-        let resp = match API_CLIENT
-            .get(&url)
-            .timeout(Duration::from_secs(180))
-            .send()
-        {
-            Ok(r) => r,
-            Err(e) => {
-                last_err = format!("saavn stream: {e}");
-                continue;
-            }
-        };
-        if !resp.status().is_success() {
-            last_err = format!("saavn stream: HTTP {}", resp.status());
-            continue;
-        }
-        let ctype = resp
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("audio/mp4")
-            .to_ascii_lowercase();
-        if !ctype.starts_with("audio/") {
-            last_err = format!("saavn stream: content-type `{ctype}` is not audio");
-            continue;
-        }
-        let content_length = resp.content_length();
-        if let Some(len) = content_length {
-            if len > MAX_AUDIO_BYTES {
-                last_err = format!("saavn stream: {len} B exceeds the cap");
-                continue;
-            }
-        }
-        return Ok(super::sources::OpenedAudioStream {
-            reader: Box::new(resp),
-            content_length,
-            content_type: ctype,
-            source_name: SOURCE.to_string(),
-        });
-    }
-    Err(last_err)
+    open_saavn_stream_from_encrypted(enc, has_320, interactive)
 }
 
-/// Streaming variant of [`try_cross_source_resolve`]: returns either an already
-/// cached JioSaavn file or an open CDN stream ready for the loopback range server.
-pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossSourceStream> {
-    if track.title.trim().is_empty() {
+/// Builds primary + romanized-tail query variants for cross-source matching.
+///
+/// YTM renders international songs as `"native - romanized"` (e.g.
+/// `"すずめ - Suzume (feat. Toaka)"`), and saavn's search returns zero results
+/// for mixed-script queries while the romanized tail hits directly.
+fn cross_source_queries(track: &OnlineTrack) -> Option<(String, String, Vec<String>)> {
+    let title = track.title.trim();
+    if title.is_empty() {
         return None;
     }
-    let req_title = norm_title(&track.title);
-    let req_artist = track.artist.to_lowercase();
+    let req_title = norm_title(title);
     if req_title.is_empty() {
         return None;
     }
-    let title = track.title.trim();
+    let req_artist = track.artist.to_lowercase();
     let mut queries = vec![format!("{} {}", title, track.artist)];
     if let Some(pos) = title.rfind(" - ") {
         let tail = title[pos + 3..].trim();
@@ -461,29 +504,71 @@ pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossS
             queries.push(format!("{} {}", tail, track.artist));
         }
     }
+    Some((req_title, req_artist, queries))
+}
+
+/// Checks title containment, artist-word overlap, and plausible duration.
+///
+/// Identity anchors are bidirectional alphanumeric title containment + artist
+/// word overlap. Duration is a ranking signal (releases legitimately drift
+/// 15–40 s across platforms) and only > 20% drift disqualifies.
+fn cross_source_candidate_matches(
+    req_title: &str,
+    req_artist: &str,
+    req_duration: Option<u32>,
+    candidate: &OnlineTrack,
+) -> bool {
+    let ct = norm_title(&candidate.title);
+    let ca = candidate.artist.to_lowercase();
+    let title_ok = !ct.is_empty() && (ct.contains(req_title) || req_title.contains(&ct));
+    let artist_ok = req_artist.is_empty()
+        || req_artist
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|tok| tok.chars().all(char::is_alphanumeric))
+            .any(|tok| tok.len() >= 2 && ca.contains(tok));
+    title_ok && artist_ok && duration_plausible(req_duration, candidate.duration_secs)
+}
+
+/// Picks the best-matching candidate ranked by minimum duration drift.
+fn pick_best_cross_source<T>(
+    candidates: Vec<T>,
+    req_title: &str,
+    req_artist: &str,
+    req_duration: Option<u32>,
+    track_of: impl Fn(&T) -> &OnlineTrack,
+) -> Option<T> {
+    candidates
+        .into_iter()
+        .filter(|c| cross_source_candidate_matches(req_title, req_artist, req_duration, track_of(c)))
+        .min_by_key(|c| duration_drift(req_duration, track_of(c).duration_secs))
+}
+
+/// Streaming variant of [`try_cross_source_resolve`]: returns either an already
+/// cached JioSaavn file or an open CDN stream ready for the loopback range server.
+pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossSourceStream> {
+    let (req_title, req_artist, queries) = cross_source_queries(track)?;
     for query in queries {
-        let candidates = search_songs_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
-        let matched = candidates
-            .into_iter()
-            .filter(|c| {
-                let ct = norm_title(&c.title);
-                let ca = c.artist.to_lowercase();
-                let title_ok = !ct.is_empty() && (ct.contains(&req_title) || req_title.contains(&ct));
-                let artist_ok = req_artist.is_empty()
-                    || req_artist
-                        .split(|c: char| !c.is_alphanumeric())
-                        .filter(|tok| tok.chars().all(char::is_alphanumeric))
-                        .any(|tok| tok.len() >= 2 && ca.contains(tok));
-                title_ok && artist_ok
-            })
-            .filter(|c| duration_plausible(track.duration_secs, c.duration_secs))
-            .min_by_key(|c| duration_drift(track.duration_secs, c.duration_secs));
+        let candidates = search_hits_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
+        let matched = pick_best_cross_source(
+            candidates,
+            &req_title,
+            &req_artist,
+            track.duration_secs,
+            |h| &h.track,
+        );
         if let Some(matched) = matched {
-            if let Some(hit) = stream::cached_file(&matched.song_id()) {
+            if let Some(hit) = stream::cached_file(&matched.track.song_id()) {
                 return Some(CrossSourceStream::Cached(hit));
             }
-            if let Ok(opened) = open_saavn_stream(&matched, true) {
-                return Some(CrossSourceStream::Opened(matched, opened));
+            // Fast 2-RTT path: decrypt encrypted_media_url directly from the
+            // search result without a redundant `song.getDetails` round-trip.
+            let opened = match matched.encrypted_media_url.as_deref() {
+                Some(enc) => open_saavn_stream_from_encrypted(enc, matched.has_320, true)
+                    .or_else(|_| open_saavn_stream(&matched.track, true)),
+                None => open_saavn_stream(&matched.track, true),
+            };
+            if let Ok(opened) = opened {
+                return Some(CrossSourceStream::Opened(matched.track, opened));
             }
         }
     }
@@ -494,56 +579,16 @@ pub(crate) fn try_cross_source_open_stream(track: &OnlineTrack) -> Option<CrossS
 /// match on JioSaavn's direct CDN for a track from another source (e.g. YouTube) so it can
 /// resolve in ~200ms via direct HTTPS instead of waiting on slow extractors.
 pub(crate) fn try_cross_source_resolve(track: &OnlineTrack) -> Option<PathBuf> {
-    if track.title.trim().is_empty() {
-        return None;
-    }
-    let req_title = norm_title(&track.title);
-    let req_artist = track.artist.to_lowercase();
-    if req_title.is_empty() {
-        return None;
-    }
-
-    // Query variants, tried in order. YTM renders international songs as
-    // "native - romanized" ("すずめ - Suzume (feat. Toaka)"), and saavn's
-    // search returns ZERO results for the mixed-script form while the
-    // romanized tail hits directly — so the tail is a real fallback, not
-    // a nicety.
-    let title = track.title.trim();
-    let mut queries = vec![format!("{} {}", title, track.artist)];
-    if let Some(pos) = title.rfind(" - ") {
-        let tail = title[pos + 3..].trim();
-        if !tail.is_empty() && tail != title {
-            queries.push(format!("{} {}", tail, track.artist));
-        }
-    }
-
+    let (req_title, req_artist, queries) = cross_source_queries(track)?;
     for query in queries {
         let candidates = search_songs_with_timeout(&query, 6, CROSS_SOURCE_SEARCH_TIMEOUT);
-        // Identity anchors: bidirectional ALPHANUMERIC title containment
-        // (punctuation variants — "(feat. Toaka)" vs "feat. Toaka" — must
-        // not break the match) + artist-word overlap. Duration is a
-        // RANKING signal, not a veto: releases drift across platforms
-        // (JioSaavn's single edit of a YTM album track legitimately
-        // differs by 15-40 s — Shinunoga E-Wa is 215 s on YTM, 185 s on
-        // saavn), and the old ±4 s hard window rejected the right song
-        // outright. Only absurd drift (> 20% relative) still disqualifies
-        // — that shape is a different recording (live/sped-up), and those
-        // differ in title anyway.
-        let matched = candidates
-            .into_iter()
-            .filter(|c| {
-                let ct = norm_title(&c.title);
-                let ca = c.artist.to_lowercase();
-                let title_ok = !ct.is_empty() && (ct.contains(&req_title) || req_title.contains(&ct));
-            let artist_ok = req_artist.is_empty()
-                || req_artist
-                    .split(|c: char| !c.is_alphanumeric())
-                    .filter(|tok| tok.chars().all(char::is_alphanumeric))
-                    .any(|tok| tok.len() >= 2 && ca.contains(tok));
-                title_ok && artist_ok
-            })
-            .filter(|c| duration_plausible(track.duration_secs, c.duration_secs))
-            .min_by_key(|c| duration_drift(track.duration_secs, c.duration_secs));
+        let matched = pick_best_cross_source(
+            candidates,
+            &req_title,
+            &req_artist,
+            track.duration_secs,
+            |t| t,
+        );
         if let Some(matched) = matched {
             if let Ok(path) = resolve_track(&matched, true) {
                 return Some(path);
@@ -660,6 +705,7 @@ fn media_candidates_with_quality(base: &str, has_320: bool, quality: &str) -> Ve
     candidates
 }
 
+#[cfg(test)]
 fn media_candidates(base: &str, has_320: bool) -> Vec<String> {
     let mut candidates = Vec::new();
     if has_320 {
@@ -1000,5 +1046,73 @@ mod tests {
         assert_eq!(norm_title("Shinunoga E-Wa"), norm_title("Shinunoga E Wa"));
         // Kana survives as identity, casing does not.
         assert_eq!(norm_title("すずめ - Suzume"), norm_title("すずめ - SUZUME"));
+    }
+
+    #[test]
+    fn search_hits_preserve_direct_encrypted_media_url() {
+        let _tc = TestCache::acquire();
+        let body = format!(
+            r#"{{"results":[{{"id":"BeXBcbVK","type":"song","title":"Believer",
+            "more_info":{{"duration":"204","320kbps":"true","encrypted_media_url":"{LIVE_CT}",
+            "artistMap":{{"primary_artists":[{{"name":"Imagine Dragons"}}]}}}}}}]}}"#
+        );
+        let hits = parse_search_hits(&body, 6);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].has_320);
+        assert_eq!(hits[0].encrypted_media_url.as_deref(), Some(LIVE_CT));
+        assert_eq!(
+            decrypt_media_url(hits[0].encrypted_media_url.as_deref().unwrap()).as_deref(),
+            Some(LIVE_PT_96)
+        );
+    }
+
+    fn test_track(video_id: &str, title: &str, artist: &str, duration_secs: Option<u32>) -> OnlineTrack {
+        OnlineTrack {
+            video_id: video_id.into(),
+            title: title.into(),
+            artist: artist.into(),
+            album: String::new(),
+            duration_secs,
+            thumbnail: None,
+            cached: false,
+            source: String::new(),
+            artist_browse_id: None,
+        }
+    }
+
+    #[test]
+    fn cross_source_queries_includes_romanized_tail_and_skips_blank() {
+        let blank = test_track("x", "   ", "Artist", None);
+        assert!(cross_source_queries(&blank).is_none());
+
+        let mixed = test_track("v1", "すずめ - Suzume (feat. Toaka)", "RADWIMPS", Some(236));
+        let (req_title, req_artist, queries) = cross_source_queries(&mixed).unwrap();
+        assert_eq!(req_title, "すずめsuzumefeattoaka");
+        assert_eq!(req_artist, "radwimps");
+        assert_eq!(
+            queries,
+            vec![
+                "すずめ - Suzume (feat. Toaka) RADWIMPS",
+                "Suzume (feat. Toaka) RADWIMPS",
+            ]
+        );
+    }
+
+    #[test]
+    fn pick_best_cross_source_matches_punctuation_and_ranks_by_duration() {
+        let candidates = vec![
+            test_track("far", "Suzume feat. Toaka", "RADWIMPS", Some(210)),
+            test_track("best", "Suzume (feat. Toaka)", "Radwimps, Toaka", Some(235)),
+            test_track("wrong-artist", "Suzume", "Cover Band", Some(236)),
+        ];
+        let best = pick_best_cross_source(
+            candidates,
+            &norm_title("Suzume (feat. Toaka)"),
+            "radwimps",
+            Some(236),
+            |t| t,
+        )
+        .expect("matching candidate expected");
+        assert_eq!(best.video_id, "best");
     }
 }

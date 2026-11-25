@@ -6,6 +6,7 @@ import io.github.aryan007h.musicoonline.core.CoreException
 import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
 import io.github.aryan007h.musicoonline.core.PlaylistImportResult
 import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
+import io.github.aryan007h.musicoonline.core.ResolvedTrack
 import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformPrefs
 import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
@@ -13,6 +14,7 @@ import io.github.aryan007h.musicoonline.platform.mapFiveBandsToTenDb
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.ResolveFailureAction
 import io.github.aryan007h.musicoonline.ui.ResolveFailurePolicy
+import io.github.aryan007h.musicoonline.ui.StreamResolvePolicy
 import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.HorizontalWheelAction
 import io.github.aryan007h.musicoonline.ui.resolveLanguageGenreStyle
@@ -366,5 +368,28 @@ class SharedCoreTests {
             visibleColumns = 4f,
         )
         assertEquals(1f, thumbEnd.progress, 1e-4f)
+    }
+
+    @Test
+    fun streamResolvePolicyEnablesProgressiveStreamingForInteractivePlaybackOnly() {
+        assertTrue(StreamResolvePolicy.allowProgressiveStream(background = false))
+        assertTrue(!StreamResolvePolicy.allowProgressiveStream(background = true))
+
+        val json = Json { ignoreUnknownKeys = true }
+        val streamReply = json.decodeFromString(
+            ResolvedTrack.serializer(),
+            """{"path":"http://127.0.0.1:45123/stream/abc","songId":"yt:xyz","mode":"stream","resolveMs":340}""",
+        )
+        assertEquals("http://127.0.0.1:45123/stream/abc", streamReply.path)
+        assertEquals("stream", streamReply.mode)
+        assertEquals(340L, streamReply.resolveMs)
+
+        // Backwards compatible when older core payloads omit mode/resolveMs.
+        val legacyReply = json.decodeFromString(
+            ResolvedTrack.serializer(),
+            """{"path":"/tmp/cached.m4a","songId":"yt:xyz"}""",
+        )
+        assertEquals("", legacyReply.mode)
+        assertEquals(0L, legacyReply.resolveMs)
     }
 }

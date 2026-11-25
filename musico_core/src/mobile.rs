@@ -37,14 +37,24 @@ static RECOMMENDER: OnceLock<Mutex<MusicRecommender>> = OnceLock::new();
 /// Desktop JVM audio playback engine (Android uses Media3/ExoPlayer instead).
 #[cfg(not(target_os = "android"))]
 static DESKTOP_PLAYER: OnceLock<Mutex<musico_playback::PlaybackEngine>> = OnceLock::new();
+#[cfg(not(target_os = "android"))]
+static DESKTOP_PLAYER_INIT: Mutex<()> = Mutex::new(());
 
 #[cfg(not(target_os = "android"))]
 fn desktop_player() -> Result<&'static Mutex<musico_playback::PlaybackEngine>, String> {
     if let Some(m) = DESKTOP_PLAYER.get() {
         return Ok(m);
     }
+    let _init_guard = DESKTOP_PLAYER_INIT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(m) = DESKTOP_PLAYER.get() {
+        return Ok(m);
+    }
     let engine = musico_playback::PlaybackEngine::new()
         .map_err(|e| format!("desktop audio init failed: {e}"))?;
+    let buf_kb = crate::config::AppSettings::load().instant_play_buffer_kb;
+    let _ = engine.set_instant_buffer_kb(buf_kb);
     let _ = DESKTOP_PLAYER.set(Mutex::new(engine));
     DESKTOP_PLAYER
         .get()
@@ -317,6 +327,16 @@ fn init_core(files: &str, cache: &str) {
     // Pre-warm loopback stream server and upstream TLS/visitor caches off-thread
     // so the very first track tap resolves in ~1-2 s instead of cold-starting TLS.
     crate::online::stream_server::prewarm();
+    // Pre-warm the Desktop CPAL audio engine off-thread so the first click never
+    // pays device-open latency (harmless no-op on headless test runners).
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = std::thread::Builder::new()
+            .name("musico-audio-prewarm".into())
+            .spawn(|| {
+                let _ = desktop_player();
+            });
+    }
     if !settings.offline_mode {
         crate::online::sources::prewarm_async();
         let _ = std::thread::Builder::new()
@@ -405,6 +425,7 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         // local loopback HTTP/1.1 range stream over `.part` so audio starts in
         // ~1–2 s instead of waiting for the full download.
         "track.resolve" => {
+            let t0 = std::time::Instant::now();
             let track = online_track_from_args(&args)?;
             let _ = with_recommender(|rec| {
                 remember_track_meta(rec, &track);
@@ -412,11 +433,11 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
             });
             let cached = crate::online::cached_file_for(&track.song_id())
                 .or_else(|| crate::online::cached_file_for(&track.video_id));
-            let path_str = if let Some(hit) = cached {
+            let (path_str, mode) = if let Some(hit) = cached {
                 crate::online::write_track_sidecar(&hit, &track);
                 let s = hit.display().to_string();
                 enqueue_background_index(&track, &s);
-                s
+                (s, "cached")
             } else {
                 ensure_online()?;
                 let background = args
@@ -433,20 +454,28 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                         let p = final_path.display().to_string();
                         enqueue_background_index(&index_track, &p);
                     })?;
-                    if !resolved.starts_with("http://") && !resolved.starts_with("https://") {
+                    let is_http = resolved.starts_with("http://") || resolved.starts_with("https://");
+                    if !is_http {
                         enqueue_background_index(&track, &resolved);
                     }
-                    resolved
+                    (resolved, if is_http { "stream" } else { "file" })
                 } else {
                     let path = crate::online::resolve_track(&track, !background)?;
                     let s = path.display().to_string();
                     enqueue_background_index(&track, &s);
-                    s
+                    (s, if background { "bg_file" } else { "file" })
                 }
             };
+            log::info!(
+                "track.resolve {} mode={mode} total_ms={}",
+                track.video_id,
+                t0.elapsed().as_millis()
+            );
             Ok(serde_json::json!({
                 "path": path_str,
                 "songId": track.song_id(),
+                "mode": mode,
+                "resolveMs": t0.elapsed().as_millis() as u64,
             }))
         }
 
