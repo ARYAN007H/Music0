@@ -14,6 +14,45 @@ hyphen is published as a GitHub prerelease.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-26
+
+### Added
+
+- **Linux AppImage & Flatpak packaging (PR #134):** added
+  `scripts/package_appimage.sh`, `scripts/package_flatpak.sh`, and
+  `flatpak/` AppStream/desktop manifests to `.github/workflows/release.yml`,
+  shipping `music0-linux-x86_64.AppImage` and `music0-linux-x86_64.flatpak`
+  with `yt-dlp` (`2026.10.26` built offline via `make yt-dlp-extra` with
+  `yt-dlp-ejs 0.8.0`) and `deno` (`v2.9.8`) bundled in `/app/bin`
+  ([`docs/flatpak.md`](docs/flatpak.md)).
+- **Download verification guide:** added
+  [`docs/verify-downloads.md`](docs/verify-downloads.md) documenting
+  `SHA256SUMS.txt` verification across OSes, VirusTotal checks, Android signing
+  certificate fingerprint checks, and Play Protect install guidance.
+
+### Changed
+
+- **Dial-Zero brand kit & screenshots:** applied the flat Teenage Engineering
+  Dial-Zero visual identity (`docs/brand/`) across desktop, Android, web/PWA
+  icons, and docs, and refreshed `README.md` screenshots for the Compose
+  Multiplatform release.
+- **Repository cleanup (PR #135):** removed retired/obsolete artifacts
+  (`bun.lock`, `musico_playback/Cargo.lock`, `musico_playback/scratch.rs`,
+  `handout.md`, `docs/ux-review.md`) and aligned `CONTRIBUTING.md`,
+  `docs/development.md`, `docs/testing.md`, and `docs/README.md` with Compose
+  Multiplatform.
+
+### Fixed / Performance
+
+- **Near-instant progressive playback on Desktop & Android (PR #133):**
+  - Added SSRF-safe `LoopbackHttpMediaSource` range-streaming from `.part`
+    files in `musico_playback` with 64 KiB PCM prefill, CPAL prewarm, and
+    Media3 `DefaultLoadControl` tuning (500 ms startup / 1.5 s rebuffer).
+  - Implemented hedged stream failover, `reqwest 0.12.28` streaming client
+    stall protection (`saavn.rs`, `sources.rs`), generation-race / early-EOF /
+    loopback stall cancellation fixes (`http_source.rs`, `lib.rs`), progressive
+    `yt-dlp -g` fallback (`stream.rs`), and restored workspace `Cargo.lock`.
+
 ## [1.0.0] - 2026-11-22
 
 **All-in Compose Multiplatform release** across **Android**, **Linux**,

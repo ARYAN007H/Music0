@@ -18,7 +18,7 @@ The streaming layer uses the same public technique as Metrolist / InnerTune /
 RiMusic (InnerTube + direct-URL resolvers + optional `yt-dlp`). It is built
 for online streaming and personal use.
 
-**Status:** **v1.0.0** · All-in Compose Multiplatform (Android + Linux · macOS ·
+**Status:** **v1.0.1** · All-in Compose Multiplatform (Android + Linux · macOS ·
 Windows) · pure-Rust `musico_core` JNI engine · optional web/PWA dev preview.
 
 <p align="center">
@@ -90,7 +90,7 @@ Windows) · pure-Rust `musico_core` JNI engine · optional web/PWA dev preview.
 
 ## Install
 
-Download the **v1.0.0** bundles from
+Download the **v1.0.1** bundles from
 [GitHub Releases](https://github.com/ARYAN007H/Music0/releases/latest).
 
 | Platform | Artifacts |
@@ -265,7 +265,7 @@ Browser suites and the WCAG contrast gate are documented in
 | [docs/](docs/README.md) | Deep dives: development, testing, frontend, online stack, storage, IPC, release, troubleshooting |
 | [docs/adr/](docs/adr/README.md) | Architecture decision records and their rationale |
 | [SECURITY.md](SECURITY.md) | Supported versions, threat model, reporting, privacy |
-| [CHANGELOG.md](CHANGELOG.md) | Release history through v1.0.0 |
+| [CHANGELOG.md](CHANGELOG.md) | Release history through v1.0.1 |
 | [ROADMAP.md](ROADMAP.md) | Plan of record and remaining phases |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 |
 

@@ -76,6 +76,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.1" date="2026-11-26">
+      <description>
+        <p>Near-instant progressive playback improvements, Linux AppImage and Flatpak bundles with offline yt-dlp-ejs and Deno, Dial-Zero brand kit, download verification guide, and repository cleanup.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-11-25">
       <description>
         <p>All-in Compose Multiplatform release backed by the pure-Rust musico_core JNI engine, plus Linux AppImage and Flatpak bundles.</p>
