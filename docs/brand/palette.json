@@ -1,0 +1,73 @@
+{
+  "brand": "Music0",
+  "concept": "TE Dial-Zero (Flat Hardware / Abstracted Disc & Stream)",
+  "style_mandate": "100% flat solid hex, zero gradients, zero blur/glows",
+  "ratio": {
+    "ground": "60%",
+    "figure": "30%",
+    "accent": "10%"
+  },
+  "tokens": {
+    "slate_teal": {
+      "hex": "#26444D",
+      "role": "Primary squircle ground & center hub (60%)"
+    },
+    "obsidian": {
+      "hex": "#161618",
+      "role": "Recessed dial well & hollow '0' void"
+    },
+    "warm_ivory": {
+      "hex": "#EFEAE4",
+      "role": "Sculptural disc-'0' ring & center '0' (30%)"
+    },
+    "terracotta_coral": {
+      "hex": "#E88D72",
+      "role": "Sole warm radial stream signal accent (10%)"
+    },
+    "studio_teal": {
+      "hex": "#4E7F8A",
+      "role": "Cool complement outer pulse arc"
+    },
+    "mono_white": {
+      "hex": "#F5F5F3",
+      "role": "Monochrome light mark"
+    },
+    "mono_dark": {
+      "hex": "#161618",
+      "role": "Monochrome dark mark"
+    }
+  },
+  "geometry": {
+    "squircle": "512x512 superellipse n=4.4",
+    "dial_well_radius": 226,
+    "disc_ring_radii": [
+      96,
+      182
+    ],
+    "disc_ring_arc_deg": [
+      18,
+      302
+    ],
+    "radial_stream_rays_deg": [
+      314,
+      366
+    ],
+    "outer_pulse_radii": [
+      194,
+      218
+    ],
+    "center_hub_radius": 74,
+    "zero_aperture": {
+      "outer": [
+        60,
+        96,
+        30
+      ],
+      "inner": [
+        26,
+        54,
+        13
+      ]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- TE Dial-Zero Android 13+ monochrome themed icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 79.297,62.220 A 26.599,26.599 0 1,1 68.095,31.443 L 61.120,42.605 A 13.437,13.437 0 1,0 66.779,58.152 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 72.477,34.866 A 26.599,26.599 0 0,1 80.454,56.780 L 67.363,55.405 A 13.437,13.437 0 0,0 63.334,44.334 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 76.478,30.724 A 32.358,32.358 0 0,1 86.181,57.382 L 82.363,56.981 A 28.519,28.519 0 0,0 73.811,33.485 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M 49.338,50.984 A 4.662,4.662 0 0,1 58.662,50.984 L 58.662,57.016 A 4.662,4.662 0 0,1 49.338,57.016 Z M 52.080,51.532 L 52.080,56.468 A 1.920,1.920 0 0,0 55.920,56.468 L 55.920,51.532 A 1.920,1.920 0 0,0 52.080,51.532 Z" />
+</vector>
