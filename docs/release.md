@@ -41,12 +41,12 @@ Keep versions synchronized across these files:
 ```sh
 # 1. Commit release bump & changelog on main
 git add -A
-git commit -m "chore(release): v1.0.0 — all-in Compose Multiplatform"
+git commit -m "chore(release): v1.0.1"
 git push origin main
 
 # 2. Tag and push to trigger .github/workflows/release.yml
-git tag -a v1.0.0 -m "Music0 v1.0.0 — Compose Multiplatform (Android, Linux, macOS, Windows)"
-git push origin v1.0.0
+git tag -a v1.0.1 -m "Music0 v1.0.1 — Compose Multiplatform (Android, Linux, macOS, Windows)"
+git push origin v1.0.1
 ```
 
 ## 4. Verify without tagging
@@ -64,7 +64,7 @@ gh run watch
 
 | Job | Runner | Artifacts |
 |---|---|---|
-| `linux-desktop` | `ubuntu-latest` | `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, `music0-linux-x86_64.tar.gz` |
+| `linux-desktop` | `ubuntu-latest` | `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, `music0-linux-x86_64.AppImage`, `music0-linux-x86_64.flatpak`, `music0-linux-x86_64.tar.gz` |
 | `macos-desktop` | `macos-latest` | `Music0-macos-arm64.dmg`, `Music0-macos-arm64.app.tar.gz` |
 | `windows-desktop` | `windows-latest` | `Music0-windows-x86_64.msi`, `Music0-windows-x86_64.zip` |
 | `android-native` | `ubuntu-latest` | Signed `musico-online-native-aarch64.apk` |
