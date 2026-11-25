@@ -1,9 +1,11 @@
 # Contributing to Musico Online
 
-Thanks for wanting to help. Musico Online is a deliberately small, local-first
-music player: a Tauri 2 desktop shell, a Rust audio engine, a Rust recommender,
-and a no-build frontend. Contributions of every size are welcome — from a typo
-in the docs to a new catalog surface or a playback fix.
+Thanks for wanting to help. Music0 (Musico Online) is a Compose Multiplatform
+music player for Android and Desktop backed by a pure-Rust JNI core
+(`musico_core`), a Rust audio engine (`musico_playback`), a local recommender
+(`musico_recommender`), plus an optional web/PWA preview. Contributions of every
+size are welcome — from a typo in the docs to a new catalog surface or playback
+fix.
 
 This guide is the contract for changes. If something here is unclear, open an
 issue with the `question` label rather than guessing.
@@ -33,14 +35,14 @@ Be direct about code, generous about people.
 
 | Area | Good first issues | Notes |
 |---|---|---|
-| **Frontend / UI** | Views, empty states, keyboard/a11y, responsive polish | `frontend/` — no build step, easy to preview in a browser |
-| **Catalog surfaces** | Shelf renderers, detail-page layout, search scopes | `src-tauri/src/online/catalog.rs`, `parse.rs`, `frontend/js/online.js` |
+| **Frontend / UI** | Shared CMP UI or web preview polish | `android/shared/` (CMP) and `frontend/` (web preview) |
+| **Catalog surfaces** | Shelf renderers, detail-page layout, search scopes | `musico_core/src/online/catalog.rs`, `parse.rs`, `frontend/js/online.js` |
 | **Playback** | Gapless edge cases, crossfade, device handling | `musico_playback/` — opinionated; discuss first |
 | **Recommender** | Signals, mixes, stats, playlist logic | `musico_recommender/` — pure Rust, highly testable |
-| **Online stack** | Source health, failover, metadata, lyrics | `src-tauri/src/online/` |
-| **Tests** | Live-test hardening, browser assertions, fixtures | `scripts/`, `#[cfg(test)]`, `src/engine/*.test.ts` |
+| **Online stack** | Source health, failover, metadata, lyrics | `musico_core/src/online/` |
+| **Tests** | Live-test hardening, unit assertions, fixtures | `musico_core/`, `android/shared/src/desktopTest/`, `scripts/`, `src/engine/*.test.ts` |
 | **Docs** | Tutorials, troubleshooting, screenshots | `docs/`, `README.md`, `ROADMAP.md` |
-| **Platforms** | macOS/Windows/Linux packaging, Android/iOS | CI and `src-tauri/tauri.conf.json` |
+| **Platforms** | macOS/Windows/Linux/Android builds & packaging | `.github/workflows/`, `android/app/`, `android/desktopApp/` |
 
 Deliberate non-goals: accounts, cloud sync, social feeds, DRM content, and
 lyrics licensing. See `ROADMAP.md §0`.
@@ -50,31 +52,26 @@ lyrics licensing. See `ROADMAP.md §0`.
 | Tool | Version | Why |
 |---|---|---|
 | **Rust** | 1.78+ (edition 2021) | Workspace `rust-version` |
-| **Cargo** | Stable | Build/test |
-| **Node.js** | 20+ (or Bun 1.1+) | Web preview, TypeScript tests, Tauri CLI |
-| **Tauri CLI** | 2.x | `cargo tauri …` or `tauri …` |
-| **yt-dlp** | Current | Fallback stream resolver (optional for browsing) |
-| **Playwright + Google Chrome** | Current | Browser assertion suites (optional) |
-| **Python 3** | 3.8+ | `scripts/gen_test_tone.sh`, static preview server |
+| **Cargo** | Stable | Build/test Rust crates |
+| **Java & Gradle** | JDK 17+, Gradle 8.10.2 | Compose Multiplatform Android & Desktop |
+| **Node.js** | 20+ | Web preview, TypeScript tests, browser suites |
+| **yt-dlp** | Current | Fallback stream resolver on Desktop (optional for browsing) |
+| **Playwright + Google Chrome** | Current | Web-preview browser assertion suites (optional) |
+| **Python 3** | 3.8+ | `scripts/gen_test_tone.sh`, static file checks |
 
 ### Linux
 
-Install the Tauri system dependencies (same list CI uses):
+Install the audio build dependencies (matching `.github/workflows/ci.yml` — no WebKitGTK/GTK required):
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y \
-  libasound2-dev pkg-config libfontconfig1-dev \
-  libwebkit2gtk-4.1-dev libgtk-3-dev \
-  libayatana-appindicator3-dev librsvg2-dev \
-  patchelf libwayland-dev libxkbcommon-dev
+sudo apt-get install -y libasound2-dev pkg-config
 ```
 
 On Arch:
 
 ```sh
-sudo pacman -S --needed base-devel webkit2gtk-4.1 gtk3 libayatana-appindicator \
-  librsvg alsa-lib fontconfig
+sudo pacman -S --needed base-devel alsa-lib pkgconf
 ```
 
 `yt-dlp` is available as `pacman -S yt-dlp` / `apt install yt-dlp` /
@@ -82,25 +79,22 @@ sudo pacman -S --needed base-devel webkit2gtk-4.1 gtk3 libayatana-appindicator \
 
 ### macOS
 
-- Xcode Command Line Tools (`xcode-select --install`).
-- Rust targets for a universal build: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`.
-- The app is unsigned in CI; local builds may also need an ad-hoc signature.
+- Xcode Command Line Tools (`xcode-select --install`) and Java 17+.
+- Release builds are unsigned; first launch may need right-click → **Open** or `xattr -cr`.
 
 ### Windows
 
-- MSVC toolchain (`rustup default stable-msvc`) and the WebView2 runtime
-  (preinstalled on current Windows 10/11).
+- MSVC toolchain (`rustup default stable-msvc`) and Java 17+.
 - Build from a Developer PowerShell so `link.exe` is on `PATH`.
 
 ### Android
 
-Android is built locally; it is not part of the GitHub release matrix. Follow
-the Tauri 2 Android prerequisites (Android Studio, SDK/NDK, `aarch64-linux-android`
-targets), then:
+Cross-compile `musico_core` with `cargo-ndk` (Android SDK + NDK configured),
+then assemble with Gradle:
 
 ```sh
-cargo tauri android init
-cargo tauri android build --apk
+(cd musico_core && cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release --lib)
+gradle -p android :app:assembleDebug
 ```
 
 The pure-Rust resolver pool exists so Android can play without spawning
@@ -112,52 +106,20 @@ The pure-Rust resolver pool exists so Android can play without spawning
 git clone https://github.com/ARYAN007H/Music0.git
 cd Music0
 
-# Rust workspace
-cargo build -p musico-online
+# 1. Build the pure-Rust JNI core library
+cargo build --release -p musico_core --lib
 
-# Frontend/web dependencies
+# 2. Run Compose Multiplatform Desktop (auto-discovers target/release)
+gradle -p android :desktopApp:run
+```
+
+For web-preview work:
+
+```sh
 npm install
-
-# Tauri CLI (one of these)
-cargo install tauri-cli --version '^2'
-# or: npm install --global @tauri-apps/cli@^2
+npm run dev              # http://localhost:3000
+PORT=8143 npm run dev    # what the browser suites expect
 ```
-
-### Run the desktop app in development
-
-Tauri's `devUrl` points at `http://localhost:1420`, but the repository has no
-bundler dev server. Serve the static frontend in one terminal and run Tauri in
-another:
-
-```sh
-# terminal 1 — static frontend
-python3 -m http.server 1420 --directory frontend
-
-# terminal 2 — native shell
-cargo tauri dev
-```
-
-You can also build a production bundle and run it:
-
-```sh
-cargo tauri build
-# Linux: target/release/bundle/{deb,rpm,appimage}/
-# macOS: target/release/bundle/dmg/
-# Windows: target/release/bundle/{msi,nsis}/
-```
-
-### Run the web preview (no Rust shell)
-
-The Express + TypeScript runtime is useful for UI-only work and PWA checks:
-
-```sh
-npm run dev          # http://localhost:3000
-PORT=8143 npm run dev  # what the browser suites expect
-```
-
-It serves the same `frontend/` assets with a seeded demo catalog and
-synthesized audio. It is **not** the production backend and it binds
-`0.0.0.0` — do not expose it to an untrusted network.
 
 ### Install browser-test dependencies
 
@@ -172,10 +134,11 @@ are running the browser suites.
 ## Project layout
 
 ```text
-src-tauri/           Tauri app: commands, state, online stack, platform glue
+android/             Compose Multiplatform app (:shared UI/ViewModel, :app Android, :desktopApp JVM)
+musico_core/         Pure-Rust JNI core (`mobile.rs`), online stack, lyrics, config, identity
 musico_playback/     Audio engine (decoder, CPAL, EQ, DSP)
 musico_recommender/  Offline taste engine + sled persistence
-frontend/            No-build UI (classic scripts + Preact/htm core)
+frontend/            Web/PWA preview UI (classic scripts + Preact/htm core)
 src/engine/          TypeScript engine for the web/PWA runtime
 server.ts            Express web preview + demo RPC
 scripts/             Browser suites, contrast gate, test-tone generator
@@ -223,9 +186,9 @@ Example: `feat/queue-drag-reorder`.
 - Edit the smallest region that does the job.
 - No drive-by refactors, whole-file rewrites, or reformatting of untouched
   code.
-- `src-tauri/src/commands.rs` is a shared hotspot: **append**, do not reorder
-  or reformat existing commands.
-- `src-tauri/src/online/parse.rs` is the only response-shape-sensitive file;
+- `musico_core/src/mobile.rs` is the shared JNI command router: keep command
+  dispatch consistent across `android/` callers.
+- `musico_core/src/online/parse.rs` is the only response-shape-sensitive file;
   keep parsing changes there.
 - Frontend asset changes must bump the `?v=` query strings in
   `frontend/index.html` (see [docs/frontend.md](docs/frontend.md#6-cache-busting)).
@@ -243,15 +206,17 @@ Use the PR template. A good PR:
 
 ### 5. CI
 
-`ci.yml` runs on every pull request:
+`.github/workflows/ci.yml` runs three jobs on pushes to `main` and pull requests:
 
 ```sh
 cargo test --workspace --exclude musico_playback
+cargo build --release -p musico_core --lib
+gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
+npm test && npm run build
 ```
 
-Playback tests are excluded because CI runners have no audio device. The
-macOS and Windows release jobs also type-check their platform-specific code
-when a release is built.
+Playback e2e tests are excluded because CI runners have no audio device. The
+macOS and Windows release jobs also build and package their native targets.
 
 ### 6. Independent review
 
@@ -315,19 +280,22 @@ The full test strategy is in [docs/testing.md](docs/testing.md). The commands
 you will use most:
 
 ```sh
-# Rust suite CI runs (172 tests; 13 live tests are ignored by default)
+# Rust suite CI runs (live tests are #[ignore]-gated by default)
 cargo test --workspace --exclude musico_playback
 
-# Full workspace, including the audio-device end-to-end tests (189 tests)
+# Full workspace, including the audio-device end-to-end tests
 bash scripts/gen_test_tone.sh
 cargo test --workspace
 
-# TypeScript engine (20 tests) + typecheck
+# Compose Multiplatform Kotlin compile + shared JVM tests
+gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
+
+# TypeScript engine tests + typecheck
 npm test
 npm run build
 
 # Opt-in live network tests (needs network; some need yt-dlp)
-cargo test -p musico-online live_ -- --ignored --nocapture
+cargo test -p musico_core live_ -- --ignored --nocapture
 
 # Browser suites (server on 8143; Playwright + Chrome required)
 PORT=8143 npm run dev

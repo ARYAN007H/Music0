@@ -1,6 +1,6 @@
 //! Synced (karaoke) lyrics via LRCLIB.net (issue #61) — a free, keyless,
 //! community-run lyrics database.  This is the single highest-impact player
-//! upgrade per docs/ux-review.md: YouTube Music only exposes unsynced text,
+//! upgrade for synced playback: YouTube Music only exposes unsynced text,
 //! LRCLIB has timestamped LRC for most catalog.
 //!
 //! # API shape — live-verified 2026-11-01

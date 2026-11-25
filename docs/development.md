@@ -12,65 +12,52 @@ For the workflow (branches, PRs, review), read
 |---|---|---|
 | Rust | stable, MSRV 1.78 | Workspace crates |
 | Cargo | bundled with Rust | Builds and tests |
+| Java & Gradle | JDK 17+, Gradle 8.10.2 | Compose Multiplatform Android & Desktop |
 | Node.js | 20+ recommended | Web preview, TypeScript engine, browser suites |
-| Tauri CLI | 2.x | `cargo tauri dev`, `cargo tauri build` |
-| `yt-dlp` | current | Last-resort stream resolver |
+| `yt-dlp` | current | Last-resort stream resolver on Desktop |
 | `playwright` + Chrome | current | Browser suites only (not a runtime dependency) |
 
 ### Linux system packages
 
-The release workflow installs this set; `ci.yml` installs the subset needed to
-compile and test (without the bundling tools):
+CI installs this minimal set (no WebKitGTK/GTK packages required):
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y \
-  libasound2-dev pkg-config libfontconfig1-dev \
-  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-  librsvg2-dev patchelf libwayland-dev libxkbcommon-dev
+sudo apt-get install -y libasound2-dev pkg-config
 ```
 
-`libasound2-dev` is required by CPAL; the WebKitGTK/GTK packages are required
-by Tauri. A running PipeWire/PulseAudio server is needed to *run* the app, but
-not to compile it.
+`libasound2-dev` is required by CPAL. A running PipeWire/PulseAudio server is
+needed to *run* desktop audio playback, but not to compile it.
 
 ### macOS
 
-Install Xcode Command Line Tools (`xcode-select --install`). For a universal
-build, add both Rust targets:
-
-```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-```
+Install Xcode Command Line Tools (`xcode-select --install`) and Java 17+.
 
 ### Windows
 
-Install the MSVC build tools, Rust, and WebView2 (present by default on
-Windows 11). The release workflow builds with the
-`x86_64-pc-windows-msvc` target.
+Install the MSVC build tools, Rust, and Java 17+. The release workflow builds
+with the `x86_64-pc-windows-msvc` target.
 
-### Android (optional)
+### Android
 
-Android builds need the Android SDK, NDK, and a JDK, configured for Tauri 2:
+Cross-compile `musico_core` for `arm64-v8a` using `cargo-ndk` (with Android
+SDK/NDK configured), then assemble the debug APK:
 
 ```sh
-cargo tauri android init
-cargo tauri android build --apk
+(cd musico_core && cargo ndk -t arm64-v8a -o ../android/app/src/main/jniLibs build --release --lib)
+gradle -p android :app:assembleDebug
 ```
 
-The app crate exposes a `cdylib` for the Android JNI entry point. Desktop-only
-dependencies (`rfd`, `tauri-plugin-single-instance`) are `cfg`-gated out on
-Android. Android uses the pure-Rust resolvers (Piped, Invidious, InnerTube
-Direct, JioSaavn) because it cannot spawn `yt-dlp`. Android is not built by CI;
-expect to debug the local toolchain.
+Android uses the pure-Rust resolvers (Piped, Invidious, InnerTube Direct,
+JioSaavn) because it cannot spawn `yt-dlp`.
 
 ## 2. First build
 
 ```sh
-cargo build -p musico-online   # app crate only (fastest useful check)
-cargo build --workspace        # all three crates
-npm install                    # web preview + TypeScript tests
-cargo install tauri-cli --version '^2'
+cargo build --release -p musico_core --lib   # JNI core cdylib
+cargo test --workspace --exclude musico_playback
+gradle -p android :desktopApp:run            # Compose Desktop
+npm install                                  # web preview + TypeScript tests
 ```
 
 If `cargo` cannot find a linker or `pkg-config`, install the system packages
@@ -78,24 +65,15 @@ above before retrying. Do not add vendored binaries to the repository.
 
 ## 3. Running the app
 
-### Desktop (Tauri)
-
-The repository has **no frontend bundler**. `src-tauri/tauri.conf.json` sets
-`devUrl` to `http://localhost:1420` and leaves `beforeDevCommand` empty, so
-serve the static frontend yourself:
+### Desktop (Compose Multiplatform)
 
 ```sh
-# terminal 1
-python3 -m http.server 1420 --directory frontend
-
-# terminal 2
-cargo tauri dev
+cargo build --release -p musico_core --lib
+gradle -p android :desktopApp:run
 ```
 
-The webview loads `frontend/index.html` directly. There is no compile step for
-HTML, CSS, or the classic JS; editing those files and reloading the webview is
-enough for most UI work a static server can serve. Rust changes trigger a
-rebuild in the Tauri dev process.
+The Desktop JVM app auto-discovers `target/release/libmusico_online_lib.*` (or
+accepts `MUSICO_NATIVE_LIB=/path/to/lib`).
 
 ### Web / PWA preview
 
@@ -111,26 +89,9 @@ untrusted network.
 
 ### Production bundle
 
-```sh
-cargo tauri build
-```
-
-Artifacts land under `target/release/bundle/`:
-
-- Linux: `deb/`, `rpm/`, `appimage/`
-- macOS: `dmg/`, `macos/`
-- Windows: `msi/`, `nsis/`
-
-The release workflow uses `tauri build --bundles deb,rpm,appimage`,
-`--target universal-apple-darwin --bundles dmg,app`, and `--bundles msi,nsis`.
-See [release.md](release.md).
-
-### Useful flags
-
-- `cargo run -p musico-online -- --scan-on-start` forces a library scan even
-  when a music folder was already configured.
-- Starting a second instance focuses the existing window instead of opening a
-  second DB/audio engine (desktop only).
+See [release.md](release.md) and the **Packaging Desktop installers** section
+of [README.md](../README.md#packaging-desktop-installers-compose-multiplatform)
+for `.deb`, `.rpm`, `.dmg`, `.msi`, and `.apk` packaging commands.
 
 ## 4. Configuration
 
@@ -145,21 +106,20 @@ See [release.md](release.md).
 | `~/.cache/musico-online/covers/` | Cover-art cache |
 | `~/.cache/musico-online/library.json` | Local scan metadata cache |
 
-All paths derive from `src-tauri/src/identity.rs`. The `musico-online`
+All paths derive from `musico_core/src/identity.rs`. The `musico-online`
 namespace is deliberate so the app can run next to the offline Musico install.
 See [data-storage.md](data-storage.md) for the full schema.
 
 ### Settings
 
-`src-tauri/src/config.rs` defines `AppSettings`. Every field has a serde
+`musico_core/src/config.rs` defines `AppSettings`. Every field has a serde
 default, so old or partial JSON stays loadable. Adding a field means:
 
 1. Add it to `AppSettings` with `#[serde(default)]` or a `#[serde(default = "…")]`.
 2. Add it to `impl Default`.
-3. Apply it in `commands::apply_settings_to_engine` if it affects audio.
-4. Expose it in `frontend/index.html` + `frontend/js/app.js` if it is a UI
-   setting.
-5. Add a round-trip or partial-JSON test in `config.rs`.
+3. Apply it in `musico_core/src/mobile.rs` if it affects playback/runtime state.
+4. Expose it in the Settings UI (`android/shared/.../settings/SettingsScreen.kt`).
+5. Add a round-trip or partial-JSON test in `musico_core/src/config.rs`.
 6. Document it in [data-storage.md](data-storage.md).
 
 ### Environment variables
@@ -184,17 +144,13 @@ is what gates live tests; run them with `-- --ignored`.
 
 ```sh
 tail -f ~/.local/share/musico-online/musico.log
-RUST_LOG=debug cargo tauri dev
+RUST_LOG=debug gradle -p android :desktopApp:run
 ```
 
-- Startup logs the recommender path, single-instance behavior, batch resume,
-  audio-engine initialization, and platform media-control setup.
+- Startup logs recommender bootstrap, stream-server prewarm, and platform/audio initialization.
 - Online failures are intentionally quiet in the UI but logged at `debug!`
   (fast-path instance failures) or `warn!` (parse-to-zero, batch failure).
-- The event bridge polls playback events every 50 ms; `playback-event` is the
-  single stream the frontend uses for transport truth.
-- For DOM/CSS work, use the web preview and browser devtools. In a debug Tauri
-  build, use the webview inspector where the platform exposes it.
+- For web-preview DOM/CSS work, use `npm run dev` and browser devtools.
 
 There is no telemetry endpoint and no remote logging. A bug report must include
 a manually copied log excerpt.
@@ -203,36 +159,23 @@ a manually copied log excerpt.
 
 ### Add an IPC command
 
-1. Implement the handler in `src-tauri/src/commands.rs`:
+For the Compose Multiplatform JNI bridge in `musico_core/src/mobile.rs`:
+
+1. Handle the command name in `dispatch()` inside `musico_core/src/mobile.rs`:
 
    ```rust
-   #[tauri::command]
-   pub fn my_command(state: State<AppState>, song_id: String) -> Result<String, String> {
-       // validate → dispatch → return a serializable value
-       Ok(song_id)
-   }
+   "my.command" => handle_my_command(&args),
    ```
 
-   Use `async fn` for anything that can block; bridge to blocking work with
-   `tauri::async_runtime::spawn_blocking`. Return `Result<T, String>` so the
-   webview sees a rejected promise on failure.
-
-2. Register it in `src-tauri/src/lib.rs` inside `tauri::generate_handler!`.
-   Registering is mandatory — an unregistered command fails at runtime.
-
-3. Call it from JS with **camelCase** arguments (Tauri maps `song_id` to
-   `songId`):
-
-   ```js
-   const value = await Bridge.invoke('my_command', { songId: 'yt:abc' });
-   ```
-
-4. Add the command to [ipc.md](ipc.md), a test if the behavior is non-trivial,
-   and a `CHANGELOG.md` entry if it is user-visible.
+2. Validate inputs cleanly and return `Result<serde_json::Value, String>` so
+   errors serialize back via `MusicoCoreCodec`.
+3. Call it from Kotlin with `MusicoCore.call("my.command", args)` and add tests
+   in `musico_core` and `android/shared/src/desktopTest/`.
+4. For the web-preview bridge reference, see [ipc.md](ipc.md).
 
 ### Add an online source
 
-1. Add a module under `src-tauri/src/online/` and a stable source namespace
+1. Add a module under `musico_core/src/online/` and a stable source namespace
    (for example `"saavn"`). The namespace is part of every persisted song id:
    `yt:<video_id>` or `<source>:<id>`.
 2. Extend `OnlineTrack` / parsing in `online/models.rs` and
@@ -243,7 +186,7 @@ a manually copied log excerpt.
    the existing `.part` → verify → rename → prune pattern.
 5. Add hermetic tests for selection, validation, and failure. Add one
    `#[ignore]` live test.
-6. Update `get_platform_capabilities` if the source is platform-dependent.
+6. Update `dispatch()` capability metadata if the source is platform-dependent.
 7. Update [online-stack.md](online-stack.md) and the source/legal note.
 
 Do not add a source that requires a private credential to the repository. The
@@ -292,16 +235,16 @@ musico_recommender/   Local recommender, no network
   src/library.rs      Saved albums/artists/tracks
   src/user_playlists.rs
 
-src-tauri/            Tauri app
-  src/commands.rs     IPC handlers (append-only hotspot)
-  src/state.rs        AppState
-  src/event_bridge.rs Playback poller + advance policy
-  src/scanner.rs      Library scan + metadata/cover cache
-  src/online/         Catalog + stream stack
-  src/mpris.rs        Linux MPRIS
-  src/media_controls.rs macOS/Windows media controls
+android/              Compose Multiplatform app (:shared, :app, :desktopApp)
 
-frontend/             No-build UI
+musico_core/          Pure-Rust JNI core (`mobile.rs`) + online stack
+  src/mobile.rs       JNI command dispatcher (`dispatch`)
+  src/config.rs       AppSettings + migrations
+  src/identity.rs     Data/cache/config namespace
+  src/lyrics.rs       LRC parser
+  src/online/         Catalog, resolvers, stream server, batch downloads
+
+frontend/             Web/PWA preview UI
 src/engine/           TypeScript engine for server.ts
 scripts/              Browser suites + contrast gate
 ```
