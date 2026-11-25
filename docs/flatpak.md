@@ -1,26 +1,28 @@
-# Flatpak packaging
+# Flatpak & AppImage packaging
 
-The Linux Flatpak build lives in [`flatpak/`](../flatpak). It is the same code
-as the `.deb`/`.rpm`/`.AppImage` builds, packaged for the Flathub sandbox.
+The Linux desktop distribution manifests live in [`flatpak/`](../flatpak),
+shared by `scripts/package_appimage.sh` and `scripts/package_flatpak.sh` to
+produce `music0-linux-x86_64.AppImage` and `music0-linux-x86_64.flatpak` from
+the Compose Multiplatform `:desktopApp:createDistributable` app image.
 
 | File | Purpose |
 |---|---|
-| `io.github.aryan007h.Music0.yml` | The manifest: runtime, permissions, modules, sources |
+| `io.github.aryan007h.Music0.yml` | Flatpak manifest: Freedesktop runtime, sandbox permissions, bundled `yt-dlp` (`yt-dlp-ejs`) and `deno`, and staged Compose Desktop tree |
 | `io.github.aryan007h.Music0.metainfo.xml` | AppStream metadata shown in software centres |
-| `io.github.aryan007h.Music0.desktop` | Desktop entry and `StartupWMClass` |
-| `cargo-sources.json` | Vendored crates.io sources for the offline build |
+| `io.github.aryan007h.Music0.desktop` | Desktop entry (`Exec=music0 %U`, icons, `StartupWMClass`) |
 
 ## App identity
 
-The Flatpak app id is `io.github.aryan007h.Music0`. It follows Flathub's
+The Linux desktop app id is `io.github.aryan007h.Music0`. It follows Flathub's
 GitHub-namespace convention instead of claiming a domain the project does not
-own, and it matches the Tauri identifier in `src-tauri/tauri.conf.json`.
+own.
 
 The **storage namespace did not change**. See
-[ADR 0002](adr/0002-separate-app-identity.md): data, cache and config paths
-derive from `identity.rs` (`musico-online`), not from the Tauri identifier.
-
-Inside the sandbox those directories appear under the app's private prefix:
+[ADR 0002](adr/0002-separate-app-identity.md): data, cache, and config paths
+derive from `musico_core::identity::DATA_SUBDIR` (`musico-online`), not from
+the package id. `DesktopPlatformHost` respects `XDG_DATA_HOME` and
+`XDG_CACHE_HOME` before initializing `MusicoCore`, so inside the Flatpak sandbox
+storage automatically resolves under `~/.var/app/io.github.aryan007h.Music0/`:
 
 | Path | Outside Flatpak | Inside Flatpak |
 |---|---|---|
@@ -28,85 +30,61 @@ Inside the sandbox those directories appear under the app's private prefix:
 | Cache | `~/.cache/musico-online` | `~/.var/app/io.github.aryan007h.Music0/cache/musico-online` |
 | Config | `~/.config/musico-online` | `~/.var/app/io.github.aryan007h.Music0/config/musico-online` |
 
-## Build locally
+## Build & install locally
 
-Prerequisites: `flatpak` and `flatpak-builder`, with the Flathub remote
-configured. The manifest pins `org.gnome.Platform//51` and the Rust SDK
-extension; `flatpak-builder` installs them on first use.
+Prerequisites: Rust stable (MSRV 1.78), Java 17, Gradle 8.10.2, `libasound2-dev`,
+`flatpak`, and `flatpak-builder`.
 
 ```sh
-# one-time: the runtimes the manifest asks for
-flatpak install flathub org.gnome.Platform//51 org.gnome.Sdk//51 \
-  org.freedesktop.Sdk.Extension.rust-stable
+# 1. Build the Rust JNI core and stage it into Desktop resources
+cargo build --release -p musico_core --lib
+mkdir -p android/desktopApp/resources/linux
+cp target/release/libmusico_online_lib.so android/desktopApp/resources/linux/
 
-# build and install the result for the current user
-flatpak-builder --user --install --force-clean \
-  --state-dir=build/.flatpak \
-  build io.github.aryan007h.Music0.yml
+# 2. Build the Compose Multiplatform distributable tree
+gradle -p android :desktopApp:createDistributable
 
+# 3. Package AppImage and/or Flatpak bundle
+bash scripts/package_appimage.sh
+bash scripts/package_flatpak.sh
+
+# 4. Install and run the single-file Flatpak bundle
+flatpak install --user dist/music0-linux-x86_64.flatpak
 flatpak run io.github.aryan007h.Music0
 ```
 
-To test a working tree instead of the release tag, point a copy of the manifest
-at the checkout:
-
-```yaml
-sources:
-  - type: dir
-    path: /absolute/path/to/Music0
-  - cargo-sources.json
-```
-
-The offline build needs `cargo-sources.json`. Regenerate it whenever
-`Cargo.lock` changes:
-
-```sh
-python3 flatpak-cargo-generator.py Cargo.lock -o flatpak/cargo-sources.json
-```
-
-[`flatpak-cargo-generator.py`](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo)
-is not vendored in this repository; fetch it from `flatpak-builder-tools`.
+`scripts/package_flatpak.sh` stages the prebuilt `createDistributable` directory
+together with `flatpak/` and `android/desktopApp/icons/` in a temporary
+workspace, adds the `--user` Flathub remote if absent, invokes
+`flatpak-builder --user --force-clean --disable-rofiles-fuse`, and exports a
+self-contained `dist/music0-linux-x86_64.flatpak` with `--runtime-repo` set so
+end-user installs automatically fetch `org.freedesktop.Platform//25.08`.
 
 ## Sandbox behaviour
 
 | Area | Behaviour |
 |---|---|
-| Network | `--share=network`; the catalog and resolvers need it |
-| Audio | `--socket=pulseaudio`; `musico_playback` talks to ALSA, which the runtime routes to PipeWire/PulseAudio |
-| Library folder | `--filesystem=xdg-music:ro` by default. Add more with Flatseal, or keep music under `~/Music` |
-| Downloads | Written to the app-private cache; the sandbox has no writable host paths |
-| Media keys / MPRIS | Owns `org.mpris.MediaPlayer2.musico-online`; Flatpak grants the app-id name automatically |
-| `yt-dlp` | Bundled inside the sandbox at `/app/bin/yt-dlp` |
+| Network | `--share=network`; catalog and stream resolvers need it |
+| Display | `--socket=x11`, `--socket=wayland`, `--share=ipc`, `--device=dri` (`--socket=x11` is kept explicit because Java AWT/Skiko requires X11/XWayland even on Wayland sessions) |
+| Audio | `--socket=pulseaudio`; `musico_playback` (CPAL) talks to ALSA, which the Freedesktop runtime routes to PipeWire/PulseAudio |
+| Library folder | `--filesystem=xdg-music:ro` by default (`~/Music`). Grant additional folders via Flatseal if needed |
+| Cache & DB | Written under the sandboxed XDG directories above |
+| Media keys / MPRIS | Owns `org.mpris.MediaPlayer2.musico-online`; Flatpak grants the app-id D-Bus name automatically |
+| Notifications | `--talk-name=org.freedesktop.Notifications` |
+| `yt-dlp` | Bundled inside the sandbox at `/app/bin/yt-dlp` (with `yt-dlp-ejs`) |
+| `deno` | Bundled inside the sandbox at `/app/bin/deno` |
 
-### Why `yt-dlp` is bundled
+### Why `yt-dlp` and `deno` are bundled
 
 `resolve_stream()` shells out to `yt-dlp`. A Flatpak cannot see the host's
-`PATH`, so an app that expects a system `yt-dlp` silently loses its last-resort
-resolver, batch downloads and retry/resume. The manifest builds the zipapp
-from the pinned upstream source and installs it into `/app`, which puts it on
-the sandbox `PATH`. The trade-off is that the bundled copy only updates when a
-new build is released.
+`PATH`, so an app expecting a system `yt-dlp` or JavaScript runtime would lose
+its fallback resolver (`yt-dlp` disables external EJS downloads by default
+and defaults `--js-runtimes` to `deno`). The manifest builds the `yt-dlp-extra`
+zipapp offline from the pinned upstream source archive plus the pinned
+`yt-dlp-ejs` wheel using Python, `make`, and `zip` from
+`org.freedesktop.Sdk//25.08`, installs it to `/app/bin/yt-dlp`, and installs the
+matching pinned `deno` release binary to `/app/bin/deno`.
 
-Bump both the URL and the `sha256` in the `yt-dlp` module, then update the
-version note here:
-
-- Current bundled version: **2026.10.26**
-
-## Release checklist
-
-1. Bump the version in `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and
-   `package.json` (see `CHANGELOG.md`).
-2. `cargo update -p musico-online` so `Cargo.lock` records the new version.
-3. Regenerate `flatpak/cargo-sources.json`.
-4. Add a `<release>` entry to the metainfo file.
-5. Point the manifest's `tag:` at the new release tag and update `commit:`
-   to that tag's commit.
-6. Build locally before opening the Flathub update PR.
-
-## Submitting to Flathub
-
-The first submission is a pull request to
-[`flathub/flathub`](https://github.com/flathub/flathub) adding the manifest to
-the repository root. After it merges, Flathub creates
-`flathub/io.github.aryan007h.Music0`, and subsequent releases are updates
-to that repository.
+- Current bundled `yt-dlp` version: **2026.10.26**
+- Current bundled `yt-dlp-ejs` version: **0.8.0**
+- Current bundled `deno` version: **2.9.8**

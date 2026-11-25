@@ -89,7 +89,7 @@ If the first instance is hung, kill it before relaunching.
 If FUSE is unavailable:
 
 ```sh
-./Musico*.AppImage --appimage-extract-and-run
+./music0-linux-x86_64.AppImage --appimage-extract-and-run
 ```
 
 or install `libfuse2` for your distribution. The release workflow sets

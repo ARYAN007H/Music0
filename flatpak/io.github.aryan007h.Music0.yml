@@ -1,0 +1,97 @@
+app-id: io.github.aryan007h.Music0
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: music0
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  # Java 17 AWT / Skiko requires X11/XWayland even on Wayland sessions.
+  # Never use --socket=fallback-x11 alongside --socket=wayland, as that
+  # suppresses DISPLAY when Wayland is active and crashes startup.
+  - --socket=x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  # Local music library reader; stream cache and library DB stay inside the
+  # sandboxed XDG data/cache directories under ~/.var/app/io.github.aryan007h.Music0.
+  - --filesystem=xdg-music:ro
+  - --own-name=org.mpris.MediaPlayer2.musico-online
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  # Deno is yt-dlp's default JS runtime for YouTube EJS challenges and must live
+  # inside /app/bin because the Flatpak sandbox hides the host PATH.
+  # The upstream release zip contains a bare `deno` binary with no parent folder,
+  # so strip-components: 0 prevents flatpak-builder from stripping the binary.
+  - name: deno
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 deno /app/bin/deno
+      - install -Dm644 LICENSE.md /app/share/licenses/deno/LICENSE.md
+      - DENO_NO_UPDATE_CHECK=1 /app/bin/deno --version
+    sources:
+      - type: archive
+        url: https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-unknown-linux-gnu.zip
+        sha256: e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609
+        strip-components: 0
+        only-arches:
+          - x86_64
+      - type: archive
+        url: https://github.com/denoland/deno/releases/download/v2.9.8/deno-aarch64-unknown-linux-gnu.zip
+        sha256: d49596c20b9788cf8f5d8ddf644103d4bde56ed239753f0bdb92ba9361d51905
+        strip-components: 0
+        only-arches:
+          - aarch64
+      - type: file
+        url: https://raw.githubusercontent.com/denoland/deno/v2.9.8/LICENSE.md
+        sha256: f62497fffecc0852960c8d3e6934b9db86d16396e9b604072e923892cae3a588
+
+  # yt-dlp is bundled inside /app/bin because the Flatpak sandbox does not see
+  # the host's PATH. Built offline via `make yt-dlp-extra` using Python, make,
+  # and zip from org.freedesktop.Sdk, pre-extracting the pinned yt-dlp-ejs wheel
+  # so `current-ejs-version` records `.ejs-0.8.0` and skips `pip download`.
+  - name: yt-dlp
+    buildsystem: simple
+    build-commands:
+      - python3 -m zipfile -e yt_dlp_ejs-0.8.0-py3-none-any.whl .
+      - make yt-dlp-extra
+      - python3 -c "import zipfile; n = set(zipfile.ZipFile('yt-dlp').namelist()); assert {'yt_dlp_ejs/yt/solver/core.min.js', 'yt_dlp_ejs/yt/solver/lib.min.js'} <= n"
+      - install -Dm755 yt-dlp /app/bin/yt-dlp
+      - install -Dm644 yt-dlp.1 /app/share/man/man1/yt-dlp.1
+      - install -Dm644 LICENSE /app/share/licenses/yt-dlp/LICENSE
+      - install -Dm644 yt_dlp_ejs-0.8.0.dist-info/licenses/LICENSE /app/share/licenses/yt-dlp-ejs/LICENSE
+      - /app/bin/yt-dlp --ignore-config --version
+    sources:
+      - type: archive
+        url: https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.tar.gz
+        sha256: 21f942d258d25cc4e60b4982a25c423460f0bebb835f38e6dfd1fcb140087f95
+      - type: file
+        url: https://files.pythonhosted.org/packages/py3/y/yt_dlp_ejs/yt_dlp_ejs-0.8.0-py3-none-any.whl
+        sha256: 79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4
+        dest-filename: yt_dlp_ejs-0.8.0-py3-none-any.whl
+
+  # Packages the prebuilt Compose Multiplatform `createDistributable` tree
+  # (jpackage launcher, bundled JRE, Skiko/Compose JARs, and libmusico_online_lib.so)
+  # staged at `staging/` by scripts/package_flatpak.sh.
+  - name: music0
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/music0 /app/bin
+      - cp -a dist-app/. /app/lib/music0/
+      - |
+        LAUNCHER_COUNT=$(find /app/lib/music0/bin -mindepth 1 -maxdepth 1 -type f -perm -0100 | wc -l)
+        [ "$LAUNCHER_COUNT" -eq 1 ] || { echo "Expected 1 executable launcher in /app/lib/music0/bin, found $LAUNCHER_COUNT" >&2; exit 1; }
+        LAUNCHER=$(find /app/lib/music0/bin -mindepth 1 -maxdepth 1 -type f -perm -0100)
+        printf '#!/bin/sh\nexec "%s" "$@"\n' "$LAUNCHER" > /app/bin/music0
+        chmod 0755 /app/bin/music0
+      - install -Dm644 io.github.aryan007h.Music0.desktop /app/share/applications/io.github.aryan007h.Music0.desktop
+      - install -Dm644 io.github.aryan007h.Music0.metainfo.xml /app/share/metainfo/io.github.aryan007h.Music0.metainfo.xml
+      - install -Dm644 icons/32x32.png /app/share/icons/hicolor/32x32/apps/io.github.aryan007h.Music0.png
+      - install -Dm644 icons/128x128.png /app/share/icons/hicolor/128x128/apps/io.github.aryan007h.Music0.png
+      - install -Dm644 icons/128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.aryan007h.Music0.png
+      - install -Dm644 icons/icon.png /app/share/icons/hicolor/512x512/apps/io.github.aryan007h.Music0.png
+    sources:
+      - type: dir
+        path: staging
