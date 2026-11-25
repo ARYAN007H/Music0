@@ -7,7 +7,7 @@ the Compose Multiplatform `:desktopApp:createDistributable` app image.
 
 | File | Purpose |
 |---|---|
-| `io.github.aryan007h.Music0.yml` | Flatpak manifest: Freedesktop runtime, sandbox permissions, bundled `yt-dlp`, and staged Compose Desktop tree |
+| `io.github.aryan007h.Music0.yml` | Flatpak manifest: Freedesktop runtime, sandbox permissions, bundled `yt-dlp` (`yt-dlp-ejs`) and `deno`, and staged Compose Desktop tree |
 | `io.github.aryan007h.Music0.metainfo.xml` | AppStream metadata shown in software centres |
 | `io.github.aryan007h.Music0.desktop` | Desktop entry (`Exec=music0 %U`, icons, `StartupWMClass`) |
 
@@ -71,14 +71,20 @@ end-user installs automatically fetch `org.freedesktop.Platform//25.08`.
 | Cache & DB | Written under the sandboxed XDG directories above |
 | Media keys / MPRIS | Owns `org.mpris.MediaPlayer2.musico-online`; Flatpak grants the app-id D-Bus name automatically |
 | Notifications | `--talk-name=org.freedesktop.Notifications` |
-| `yt-dlp` | Bundled inside the sandbox at `/app/bin/yt-dlp` |
+| `yt-dlp` | Bundled inside the sandbox at `/app/bin/yt-dlp` (with `yt-dlp-ejs`) |
+| `deno` | Bundled inside the sandbox at `/app/bin/deno` |
 
-### Why `yt-dlp` is bundled
+### Why `yt-dlp` and `deno` are bundled
 
 `resolve_stream()` shells out to `yt-dlp`. A Flatpak cannot see the host's
-`PATH`, so an app expecting a system `yt-dlp` would lose its fallback
-resolver. The manifest builds the zipapp from the pinned upstream source using
-Python, `make`, and `zip` from `org.freedesktop.Sdk//25.08` and installs it to
-`/app/bin/yt-dlp`.
+`PATH`, so an app expecting a system `yt-dlp` or JavaScript runtime would lose
+its fallback resolver (`yt-dlp` disables external EJS downloads by default
+and defaults `--js-runtimes` to `deno`). The manifest builds the `yt-dlp-extra`
+zipapp offline from the pinned upstream source archive plus the pinned
+`yt-dlp-ejs` wheel using Python, `make`, and `zip` from
+`org.freedesktop.Sdk//25.08`, installs it to `/app/bin/yt-dlp`, and installs the
+matching pinned `deno` release binary to `/app/bin/deno`.
 
-- Current bundled version: **2026.10.26**
+- Current bundled `yt-dlp` version: **2026.10.26**
+- Current bundled `yt-dlp-ejs` version: **0.8.0**
+- Current bundled `deno` version: **2.9.8**
