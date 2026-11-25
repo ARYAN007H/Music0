@@ -12,3 +12,4 @@ android/desktopApp/resources/*/*.so
 android/desktopApp/resources/*/*.dylib
 android/desktopApp/resources/*/*.dll
 android/app/src/main/jniLibs/
+.flatpak-builder/

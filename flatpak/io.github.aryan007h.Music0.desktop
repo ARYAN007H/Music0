@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Music0
+GenericName=Music Player
+Comment=Expressive Material 3 music player with local library and online streaming
+Exec=music0 %U
+Icon=io.github.aryan007h.Music0
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;player;audio;stream;library;playlist;
+StartupNotify=true
+StartupWMClass=io-github-aryan007h-musicoonline-desktop-MainKt

@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   linux-desktop:
-    name: Linux x86_64 (Compose Multiplatform deb / rpm / tar.gz)
+    name: Linux x86_64 (Compose Multiplatform deb / rpm / AppImage / Flatpak / tar.gz)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
       - name: Install build & packaging dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config rpm fakeroot binutils
+          sudo apt-get install -y libasound2-dev pkg-config rpm fakeroot binutils flatpak flatpak-builder desktop-file-utils appstream
 
       - name: Rust core tests
         run: cargo test --workspace --exclude musico_playback
@@ -90,6 +90,13 @@ jobs:
           APP_DIR=$(ls -1 android/desktopApp/build/compose/binaries/main/app | head -1)
           [ -n "$APP_DIR" ] || { echo "No Linux app image produced" >&2; exit 1; }
           tar czf dist/music0-linux-x86_64.tar.gz -C android/desktopApp/build/compose/binaries/main/app "$APP_DIR"
+          bash scripts/package_appimage.sh --output dist/music0-linux-x86_64.AppImage
+
+      - name: Allow unprivileged user namespaces for Flatpak build
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Build Linux Flatpak bundle
+        run: bash scripts/package_flatpak.sh --output dist/music0-linux-x86_64.flatpak
 
       - uses: actions/upload-artifact@v4
         with:
@@ -406,6 +413,6 @@ jobs:
             **Music0 (Compose Multiplatform)** — One Material 3 Expressive player across **Android**, **Linux**, **macOS**, and **Windows**, backed by a pure-Rust JNI core (`musico_core`, zero Tauri/WebView).
 
             - **Android** — signed `musico-online-native-aarch64.apk` (64-bit ARM; Media3 ExoPlayer + AudioFX EQ + pure-Rust InnerTube/JioSaavn/Piped streaming).
-            - **Linux x86_64** — `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, or portable `music0-linux-x86_64.tar.gz` (bundled JVM + native `musico_playback` DSP audio engine).
+            - **Linux x86_64** — `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, `music0-linux-x86_64.AppImage`, `music0-linux-x86_64.flatpak`, or portable `music0-linux-x86_64.tar.gz` (bundled JVM + native `musico_playback` DSP audio engine; Flatpak also bundles `yt-dlp`).
             - **macOS Apple Silicon** — `Music0-macos-arm64.dmg` or `Music0-macos-arm64.app.tar.gz`. Unsigned: on first launch, right-click → **Open** (or `xattr -cr /Applications/Music0.app`).
             - **Windows x86_64** — `Music0-windows-x86_64.msi` installer or portable `Music0-windows-x86_64.zip`. Unsigned: click **More info → Run anyway** on SmartScreen.

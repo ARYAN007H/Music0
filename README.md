@@ -96,7 +96,7 @@ Download the **v1.0.0** bundles from
 | Platform | Artifacts |
 |---|---|
 | **Android (aarch64)** | Signed `musico-online-native-aarch64.apk` |
-| **Linux x86_64** | `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, or portable `music0-linux-x86_64.tar.gz` |
+| **Linux x86_64** | `music0-linux-x86_64.deb`, `music0-linux-x86_64.rpm`, `music0-linux-x86_64.AppImage`, `music0-linux-x86_64.flatpak`, or portable `music0-linux-x86_64.tar.gz` |
 | **macOS Apple Silicon** | `Music0-macos-arm64.dmg` or `Music0-macos-arm64.app.tar.gz` |
 | **Windows x86_64** | `Music0-windows-x86_64.msi` or portable `Music0-windows-x86_64.zip` |
 
@@ -155,9 +155,12 @@ Stage the compiled Rust core into `android/desktopApp/resources/<os>/` so it is
 bundled inside the native package, then build the OS distribution:
 
 ```sh
-# Linux (deb / rpm / distributable)
+# Linux (deb / rpm / distributable / AppImage / Flatpak)
+mkdir -p android/desktopApp/resources/linux
 cp target/release/libmusico_online_lib.so android/desktopApp/resources/linux/
 gradle -p android :desktopApp:packageDeb :desktopApp:packageRpm :desktopApp:createDistributable
+bash scripts/package_appimage.sh
+bash scripts/package_flatpak.sh   # optional: requires flatpak & flatpak-builder
 
 # macOS (dmg)
 cp target/release/libmusico_online_lib.dylib android/desktopApp/resources/macos/
@@ -276,7 +279,8 @@ musico_recommender/   Local recommender + sled persistence
 frontend/             Optional web/PWA preview UI
 src/engine/           TypeScript engine for the web/PWA preview
 server.ts             Express demo runtime (not the production backend)
-scripts/              Browser suites, contrast gate, test-tone generator
+flatpak/              Linux desktop entry, AppStream metainfo, and Flatpak manifest
+scripts/              AppImage/Flatpak packaging scripts, browser suites, contrast gate, test-tone generator
 docs/                 Deep dives, brand assets, screenshots, and ADRs
 .github/              CI/release workflows, issue and PR templates
 ```

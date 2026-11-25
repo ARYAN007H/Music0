@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   linux:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'gemini/') || startsWith(github.head_ref, 'fix/')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'gemini/') || startsWith(github.head_ref, 'fix/') || startsWith(github.head_ref, 'feat/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
       - name: Install audio system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config
+          sudo apt-get install -y libasound2-dev pkg-config desktop-file-utils appstream
 
       - name: Build Rust JNI core (libmusico_online_lib.so)
         run: cargo build --release -p musico_core --lib
@@ -50,7 +50,7 @@ jobs:
       - name: Android SDK environment
         run: echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
-      - name: Package prebuilt desktop bundle
+      - name: Package prebuilt desktop bundle & AppImage
         run: |
           gradle -p android :desktopApp:createDistributable --console=plain
           mkdir -p dist-desktop
@@ -58,12 +58,23 @@ jobs:
           APPDIR=$(find android/desktopApp/build/compose/binaries -type d -name app | head -1)
           [ -n "$APPDIR" ] || { echo "Compose app bundle not found" >&2; exit 1; }
           cp -r "$APPDIR" dist-desktop/app
-          cd dist-desktop
-          zip -qr ../musico-desktop-test.zip .
+          (
+            cd dist-desktop
+            zip -qr ../musico-desktop-test.zip .
+          )
+          mkdir -p dist-appimage
+          bash scripts/package_appimage.sh --output dist-appimage/music0-linux-x86_64.AppImage
 
       - name: Upload prebuilt desktop bundle
         uses: actions/upload-artifact@v4
         with:
           name: desktop-app-test
           path: musico-desktop-test.zip
+          if-no-files-found: error
+
+      - name: Upload preview AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-app-appimage
+          path: dist-appimage/music0-linux-x86_64.AppImage
           if-no-files-found: error
