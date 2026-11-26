@@ -25,6 +25,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::client::http_client;
 use super::models::OnlineTrack;
+#[cfg(not(target_os = "android"))]
 use musico_playback::SongInfo;
 
 /// Cache size cap (LRU-pruned after each download).
@@ -324,28 +325,37 @@ fn video_lock(video_id: &str) -> Arc<Mutex<()>> {
 /// Cached yt-dlp presence: the check spawns a process per call and resolve
 /// runs on every play — a hidden per-play cost.  Both results cached; a user
 /// who installs yt-dlp mid-session waits out the TTL (or restarts).
+#[cfg(not(target_os = "android"))]
 const YTDLP_CHECK_TTL: Duration = Duration::from_secs(600);
+#[cfg(not(target_os = "android"))]
 static YTDLP_CHECK: LazyLock<Mutex<Option<(Instant, bool)>>> = LazyLock::new(|| Mutex::new(None));
 
 /// Returns `true` when the yt-dlp binary is available and runnable.
 pub fn yt_dlp_available() -> bool {
-    if let Ok(guard) = YTDLP_CHECK.lock() {
-        if let Some((at, ok)) = *guard {
-            if at.elapsed() < YTDLP_CHECK_TTL {
-                return ok;
+    #[cfg(target_os = "android")]
+    {
+        return false;
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        if let Ok(guard) = YTDLP_CHECK.lock() {
+            if let Some((at, ok)) = *guard {
+                if at.elapsed() < YTDLP_CHECK_TTL {
+                    return ok;
+                }
             }
         }
+        let ok = Command::new("yt-dlp")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok();
+        if let Ok(mut guard) = YTDLP_CHECK.lock() {
+            *guard = Some((Instant::now(), ok));
+        }
+        ok
     }
-    let ok = Command::new("yt-dlp")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok();
-    if let Ok(mut guard) = YTDLP_CHECK.lock() {
-        *guard = Some((Instant::now(), ok));
-    }
-    ok
 }
 
 /// Resolves `video_id` to a local audio file: returns the cached file when
@@ -1133,6 +1143,7 @@ pub fn cache_cover_art(song_id: &str, thumbnail: Option<&str>) {
 /// Builds the final SongInfo for the engine: probes duration when the search
 /// metadata lacked it, and warms the cover cache (a no-op when
 /// [`resolve_track`] already fetched it under the download).
+#[cfg(not(target_os = "android"))]
 pub fn to_song_info(track: &OnlineTrack, file_path: &Path) -> SongInfo {
     let duration = track
         .duration_secs

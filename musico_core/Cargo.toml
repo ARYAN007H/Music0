@@ -11,7 +11,6 @@ name = "musico_online_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-musico_playback = { path = "../musico_playback" }
 musico_recommender = { path = "../musico_recommender" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,6 +29,13 @@ rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "http2"] }
 # Cross-platform JNI bridge for Compose Multiplatform (Android + Desktop JVM).
 jni = "0.21"
+
+# Desktop uses musico_playback (Symphonia + CPAL + 10-band DSP) over JNI.
+# Android uses Media3 / ExoPlayer instead — gating musico_playback out on Android
+# avoids compiling/linking cpal -> oboe C++ and prevents libc++_shared.so
+# symbol mismatches (__gxx_personality_v0) at dlopen time.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+musico_playback = { path = "../musico_playback" }
 
 # Android logcat logger (stderr/file logs are unreadable on unrooted devices).
 [target.'cfg(target_os = "android")'.dependencies]

@@ -53,9 +53,11 @@ pub use saavn::{search_songs, SEARCH_MERGE_LIMIT};
 pub use search::{search, search_suggestions};
 pub use stream::{
     cache_usage_bytes, cached_file_for, clear_cache, list_cached_files, prune_cache_to_cap,
-    read_track_sidecar, resolve_stream, resolve_track, resolve_track_streaming, to_song_info,
+    read_track_sidecar, resolve_stream, resolve_track, resolve_track_streaming,
     write_track_sidecar, yt_dlp_available,
 };
+#[cfg(not(target_os = "android"))]
+pub use stream::to_song_info;
 #[allow(unused_imports)]
 use stream::cached_file;
 

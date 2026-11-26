@@ -16,6 +16,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -36,6 +37,10 @@ const MAX_RETAINED_SESSIONS: usize = 24;
 const IO_CHUNK_BYTES: usize = 16 * 1024;
 /// Maximum HTTP header lines accepted on a single loopback connection.
 const MAX_HEADER_LINES: usize = 64;
+/// Maximum bytes accepted per HTTP request/header line on loopback.
+const MAX_HEADER_LINE_BYTES: usize = 8 * 1024;
+/// Upper bound on concurrent loopback connection handler threads.
+const MAX_ACTIVE_CONNECTIONS: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RangeParse {
@@ -227,6 +232,67 @@ pub(crate) fn prewarm() {
         });
 }
 
+fn sanitize_content_type(raw: &str) -> String {
+    let trimmed = raw.split(';').next().unwrap_or("").trim();
+    if !trimmed.is_empty()
+        && trimmed.len() <= 64
+        && trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'/' | b'-' | b'+' | b'.'))
+        && trimmed.contains('/')
+    {
+        trimmed.to_ascii_lowercase()
+    } else {
+        "audio/mp4".to_string()
+    }
+}
+
+fn is_valid_token(token: &str) -> bool {
+    token.len() == 32 && token.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+struct ActiveConnGuard(Arc<AtomicUsize>);
+impl ActiveConnGuard {
+    fn try_acquire(counter: &Arc<AtomicUsize>, limit: usize) -> Option<Self> {
+        let mut cur = counter.load(Ordering::Acquire);
+        while cur < limit {
+            match counter.compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return Some(Self(Arc::clone(counter))),
+                Err(observed) => cur = observed,
+            }
+        }
+        None
+    }
+}
+impl Drop for ActiveConnGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Ensures waiting range readers never deadlock if the pump thread panics or exits early.
+struct SessionPanicGuard {
+    session: Arc<StreamSession>,
+    completed: bool,
+}
+
+impl Drop for SessionPanicGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            let _ = std::fs::remove_file(&self.session.part_path);
+            let mut g = self.session.state.lock().unwrap_or_else(|e| e.into_inner());
+            if !g.done {
+                if g.error.is_none() {
+                    g.error = Some("stream producer terminated unexpectedly".into());
+                }
+                g.done = true;
+                self.session.cv.notify_all();
+            }
+        }
+    }
+}
+
 impl LoopbackStreamServer {
     /// Starts a new loopback HTTP/1.1 range server on `127.0.0.1:0`.
     pub(crate) fn start() -> Result<Self, String> {
@@ -239,16 +305,32 @@ impl LoopbackStreamServer {
         let sessions: Arc<Mutex<HashMap<String, Arc<StreamSession>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let accept_sessions = sessions.clone();
+        let active_conns = Arc::new(AtomicUsize::new(0));
 
         std::thread::Builder::new()
             .name("musico-stream-srv".into())
             .spawn(move || {
                 for incoming in listener.incoming() {
-                    let Ok(stream) = incoming else { continue };
+                    let Ok(mut stream) = incoming else { continue };
+                    let Some(guard) =
+                        ActiveConnGuard::try_acquire(&active_conns, MAX_ACTIVE_CONNECTIONS)
+                    else {
+                        let _ = write_simple_response(
+                            &mut stream,
+                            "503 Service Unavailable",
+                            "too many concurrent streams",
+                        );
+                        continue;
+                    };
                     let map = accept_sessions.clone();
+                    // On spawn failure the un-run closure is dropped synchronously,
+                    // releasing both `guard` and `stream`.
                     let _ = std::thread::Builder::new()
                         .name("musico-stream-conn".into())
-                        .spawn(move || handle_connection(stream, &map));
+                        .spawn(move || {
+                            let _guard = guard;
+                            handle_connection(stream, &map);
+                        });
                 }
             })
             .map_err(|e| format!("spawn stream server thread: {e}"))?;
@@ -257,6 +339,7 @@ impl LoopbackStreamServer {
         Ok(Self { port, sessions })
     }
 
+    #[cfg(test)]
     pub(crate) fn port(&self) -> u16 {
         self.port
     }
@@ -285,7 +368,7 @@ impl LoopbackStreamServer {
         let session = Arc::new(StreamSession::new(
             cfg.part_path.clone(),
             cfg.final_path.clone(),
-            cfg.content_type.clone(),
+            sanitize_content_type(&cfg.content_type),
             cfg.expected_total,
         ));
 
@@ -321,6 +404,10 @@ impl LoopbackStreamServer {
         std::thread::Builder::new()
             .name("musico-stream-pump".into())
             .spawn(move || {
+                let mut panic_guard = SessionPanicGuard {
+                    session: Arc::clone(&producer_session),
+                    completed: false,
+                };
                 let result = pump_into_part(
                     &mut reader,
                     &producer_session,
@@ -330,6 +417,7 @@ impl LoopbackStreamServer {
                 );
                 match result {
                     Ok(final_path) => {
+                        panic_guard.completed = true;
                         on_complete(final_path);
                     }
                     Err(e) => {
@@ -341,6 +429,7 @@ impl LoopbackStreamServer {
                         g.error = Some(e);
                         g.done = true;
                         producer_session.cv.notify_all();
+                        panic_guard.completed = true;
                     }
                 }
             })
@@ -417,6 +506,28 @@ fn pump_into_part<R: Read>(
     Ok(session.final_path.clone())
 }
 
+enum BoundedLine {
+    Line(String),
+    Eof,
+    TooLong,
+}
+
+fn read_bounded_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> std::io::Result<BoundedLine> {
+    let mut buf = Vec::new();
+    let n = reader
+        .take(max_bytes as u64 + 1)
+        .read_until(b'\n', &mut buf)?;
+    if n == 0 {
+        return Ok(BoundedLine::Eof);
+    }
+    if n > max_bytes {
+        return Ok(BoundedLine::TooLong);
+    }
+    let text = String::from_utf8(buf)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8"))?;
+    Ok(BoundedLine::Line(text))
+}
+
 fn handle_connection(
     mut stream: TcpStream,
     sessions: &Arc<Mutex<HashMap<String, Arc<StreamSession>>>>,
@@ -430,10 +541,18 @@ fn handle_connection(
     };
     let mut reader = BufReader::new(read_clone);
 
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line).unwrap_or(0) == 0 {
-        return;
-    }
+    let request_line = match read_bounded_line(&mut reader, MAX_HEADER_LINE_BYTES) {
+        Ok(BoundedLine::Line(line)) if line.ends_with('\n') => line,
+        Ok(BoundedLine::TooLong) => {
+            let _ = write_simple_response(&mut stream, "414 URI Too Long", "request line too long");
+            return;
+        }
+        Ok(BoundedLine::Eof) => return,
+        Ok(BoundedLine::Line(_)) | Err(_) => {
+            let _ = write_simple_response(&mut stream, "400 Bad Request", "malformed request line");
+            return;
+        }
+    };
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let path = parts.next().unwrap_or("");
@@ -443,20 +562,46 @@ fn handle_connection(
     }
 
     let mut range_header: Option<String> = None;
+    let mut headers_terminated = false;
     for _ in 0..MAX_HEADER_LINES {
-        let mut line = String::new();
-        if reader.read_line(&mut line).unwrap_or(0) == 0 {
-            break;
-        }
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("range") {
-                range_header = Some(value.trim().to_string());
+        match read_bounded_line(&mut reader, MAX_HEADER_LINE_BYTES) {
+            Ok(BoundedLine::Line(line)) if line.ends_with('\n') => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    headers_terminated = true;
+                    break;
+                }
+                if let Some((name, value)) = trimmed.split_once(':') {
+                    if name.trim().eq_ignore_ascii_case("range") {
+                        range_header = Some(value.trim().to_string());
+                    }
+                }
+            }
+            Ok(BoundedLine::TooLong) => {
+                let _ = write_simple_response(
+                    &mut stream,
+                    "431 Request Header Fields Too Large",
+                    "header line too large",
+                );
+                return;
+            }
+            Ok(BoundedLine::Eof) | Ok(BoundedLine::Line(_)) | Err(_) => {
+                let _ = write_simple_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    "incomplete or malformed headers",
+                );
+                return;
             }
         }
+    }
+    if !headers_terminated {
+        let _ = write_simple_response(
+            &mut stream,
+            "431 Request Header Fields Too Large",
+            "too many headers",
+        );
+        return;
     }
 
     let clean_path = path.split('?').next().unwrap_or(path);
@@ -464,6 +609,10 @@ fn handle_connection(
         let _ = write_simple_response(&mut stream, "404 Not Found", "not found");
         return;
     };
+    if !is_valid_token(token) {
+        let _ = write_simple_response(&mut stream, "404 Not Found", "invalid session");
+        return;
+    }
 
     let session = {
         let map = sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -476,11 +625,17 @@ fn handle_connection(
 
     // Snapshot known total length. If unknown and caller requests a non-zero
     // or suffix range, wait for download completion so Content-Range is exact.
-    let mut known_total = {
+    let (mut known_total, mut failed_err) = {
         let g = session.state.lock().unwrap_or_else(|e| e.into_inner());
-        g.total_bytes
-            .or_else(|| if g.done { Some(g.bytes_written) } else { None })
+        let total = g
+            .total_bytes
+            .or_else(|| if g.done { Some(g.bytes_written) } else { None });
+        (total, g.error.clone())
     };
+    if let Some(err) = failed_err {
+        let _ = write_simple_response(&mut stream, "502 Bad Gateway", &err);
+        return;
+    }
 
     if known_total.is_none() {
         if let Some(ref rh) = range_header {
@@ -495,11 +650,16 @@ fn handle_connection(
                 while !g.done && g.total_bytes.is_none() {
                     g = session.cv.wait(g).unwrap_or_else(|e| e.into_inner());
                 }
+                failed_err = g.error.clone();
                 known_total = g
                     .total_bytes
                     .or_else(|| if g.done { Some(g.bytes_written) } else { None });
             }
         }
+    }
+    if let Some(err) = failed_err {
+        let _ = write_simple_response(&mut stream, "502 Bad Gateway", &err);
+        return;
     }
 
     let parsed_range = match range_header.as_deref() {
@@ -1057,5 +1217,117 @@ mod tests {
             body.len()
         );
         assert!(!final_path.exists(), "failed stream must not finalize");
+    }
+
+    #[test]
+    fn sanitizes_content_type_and_rejects_bad_tokens() {
+        assert_eq!(sanitize_content_type("audio/mp4; codecs=\"mp4a.40.2\""), "audio/mp4");
+        assert_eq!(sanitize_content_type("Audio/WebM"), "audio/webm");
+        assert_eq!(
+            sanitize_content_type("audio/mp4\r\nX-Injected: evil"),
+            "audio/mp4"
+        );
+        assert_eq!(sanitize_content_type("not-a-mime"), "audio/mp4");
+
+        assert!(is_valid_token(&generate_session_token()));
+        assert!(!is_valid_token("too-short"));
+        assert!(!is_valid_token("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+        assert!(!is_valid_token("../../etc/passwd................"));
+    }
+
+    #[test]
+    fn oversized_request_line_and_malformed_token_fail_cleanly() {
+        let srv = LoopbackStreamServer::start().expect("server starts");
+        let port = srv.port();
+
+        let (status, _, _) = http_get(port, "/stream/not-a-32-char-hex-token", None);
+        assert!(status.starts_with("HTTP/1.1 404"), "expected 404, got {status}");
+
+        let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        sock.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let huge_path = "a".repeat(MAX_HEADER_LINE_BYTES + 256);
+        sock.write_all(format!("GET /stream/{huge_path} HTTP/1.1\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut resp = Vec::new();
+        sock.read_to_end(&mut resp).unwrap();
+        let resp_str = String::from_utf8_lossy(&resp);
+        assert!(
+            resp_str.starts_with("HTTP/1.1 414"),
+            "oversized request line must return 414, got: {resp_str:?}"
+        );
+    }
+
+    #[test]
+    fn oversized_or_unterminated_headers_reject_valid_stream_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let srv = LoopbackStreamServer::start().expect("server starts");
+        let port = srv.port();
+        let payload = vec![0x5Au8; 64 * 1024];
+
+        let url = srv
+            .start_session(
+                Cursor::new(payload),
+                StreamSessionConfig {
+                    part_path: tmp.path().join("hdr.m4a.part"),
+                    final_path: tmp.path().join("hdr.m4a"),
+                    content_type: "audio/mp4".into(),
+                    expected_total: Some(64 * 1024),
+                    min_file_bytes: 16 * 1024,
+                    max_file_bytes: 64 * 1024 * 1024,
+                    initial_ready_bytes: 32 * 1024,
+                    initial_ready_timeout: Duration::from_secs(5),
+                },
+                |_| {},
+            )
+            .expect("session starts");
+        let path = url
+            .strip_prefix(&format!("http://127.0.0.1:{port}"))
+            .unwrap()
+            .to_string();
+
+        // 1. Oversized header line after valid request line -> 431 (must NOT serve 200 OK).
+        let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        sock.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let big_val = "x".repeat(MAX_HEADER_LINE_BYTES + 256);
+        sock.write_all(format!("GET {path} HTTP/1.1\r\nX-Evil: {big_val}\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut resp = Vec::new();
+        sock.read_to_end(&mut resp).unwrap();
+        let resp_str = String::from_utf8_lossy(&resp);
+        assert!(
+            resp_str.starts_with("HTTP/1.1 431"),
+            "oversized header line must return 431, got: {resp_str:?}"
+        );
+
+        // 2. Too many header lines without empty terminator -> 431 (must NOT serve 200 OK).
+        let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        sock.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut req = format!("GET {path} HTTP/1.1\r\n");
+        for i in 0..MAX_HEADER_LINES {
+            req.push_str(&format!("X-Pad-{i}: 1\r\n"));
+        }
+        req.push_str("\r\n");
+        sock.write_all(req.as_bytes()).unwrap();
+        let mut resp = Vec::new();
+        sock.read_to_end(&mut resp).unwrap();
+        let resp_str = String::from_utf8_lossy(&resp);
+        assert!(
+            resp_str.starts_with("HTTP/1.1 431"),
+            "excessive header count must return 431, got: {resp_str:?}"
+        );
+
+        // 3. Truncated headers reaching EOF before blank line -> 400 (must NOT serve 200 OK).
+        let mut sock = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        sock.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        sock.write_all(format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n").as_bytes())
+            .unwrap();
+        sock.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut resp = Vec::new();
+        sock.read_to_end(&mut resp).unwrap();
+        let resp_str = String::from_utf8_lossy(&resp);
+        assert!(
+            resp_str.starts_with("HTTP/1.1 400"),
+            "truncated headers must return 400, got: {resp_str:?}"
+        );
     }
 }

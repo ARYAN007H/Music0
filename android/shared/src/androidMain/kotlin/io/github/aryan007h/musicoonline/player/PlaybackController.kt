@@ -3,8 +3,10 @@ package io.github.aryan007h.musicoonline.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -58,11 +60,16 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
     private val _gaplessAdvanced = MutableSharedFlow<String>(extraBufferCapacity = 4)
     override val gaplessAdvanced: SharedFlow<String> = _gaplessAdvanced
 
+    private val _playbackError = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    override val playbackError: SharedFlow<String> = _playbackError
+
     private var controller: MediaController? = null
+    @Volatile
+    private var released = false
     private val obtainMutex = Mutex()
     private var pollJob: Job? = null
     private var stagedNextTrack: OnlineTrack? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {
         // Pre-bind PlaybackService on app launch so the first track tap doesn't
@@ -73,11 +80,17 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
     }
 
     private suspend fun obtain(): MediaController {
+        check(!released) { "PlaybackController has been released" }
         controller?.let { return it }
         return obtainMutex.withLock {
-            controller ?: withContext(Dispatchers.Main) {
+            check(!released) { "PlaybackController has been released" }
+            controller ?: withContext(Dispatchers.Main.immediate) {
                 val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
                 MediaController.Builder(context, token).buildAsync().await().also { c ->
+                    if (released) {
+                        c.release()
+                        error("PlaybackController released during bind")
+                    }
                     controller = c
                     c.addListener(object : Player.Listener {
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -86,9 +99,21 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
 
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             _isBuffering.value = playbackState == Player.STATE_BUFFERING
+                            if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
+                                _isPlaying.value = false
+                            }
                             if (playbackState == Player.STATE_ENDED) {
                                 _trackEnded.tryEmit(Unit)
                             }
+                        }
+
+                        override fun onPlayerError(error: PlaybackException) {
+                            Log.w(TAG, "ExoPlayer error (${error.errorCodeName}): ${error.message}", error)
+                            _isBuffering.value = false
+                            _isPlaying.value = false
+                            _playbackError.tryEmit(
+                                error.localizedMessage ?: error.message ?: "Playback error (${error.errorCodeName})",
+                            )
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -150,7 +175,7 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
             .build()
     }
 
-    override suspend fun playFile(filePath: String, track: OnlineTrack) {
+    override suspend fun playFile(filePath: String, track: OnlineTrack) = withContext(Dispatchers.Main.immediate) {
         val c = obtain()
         stagedNextTrack = null
         _positionMs.value = 0
@@ -161,10 +186,10 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
         _nowPlaying.value = track
     }
 
-    override suspend fun stageNextFile(filePath: String, track: OnlineTrack) {
+    override suspend fun stageNextFile(filePath: String, track: OnlineTrack) = withContext(Dispatchers.Main.immediate) {
         val c = obtain()
-        if (c.mediaItemCount == 0) return
-        if (stagedNextTrack?.videoId == track.videoId && c.mediaItemCount >= 2) return
+        if (c.mediaItemCount == 0) return@withContext
+        if (stagedNextTrack?.videoId == track.videoId && c.mediaItemCount >= 2) return@withContext
         while (c.mediaItemCount > 1) {
             c.removeMediaItem(c.mediaItemCount - 1)
         }
@@ -172,15 +197,15 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
         c.addMediaItem(buildMediaItem(filePath, track))
     }
 
-    override suspend fun clearStagedNext() {
-        val c = controller ?: return
+    override suspend fun clearStagedNext() = withContext(Dispatchers.Main.immediate) {
+        val c = controller ?: return@withContext
         stagedNextTrack = null
         while (c.mediaItemCount > 1) {
             c.removeMediaItem(c.mediaItemCount - 1)
         }
     }
 
-    override suspend fun togglePlayPause() {
+    override suspend fun togglePlayPause() = withContext(Dispatchers.Main.immediate) {
         val c = obtain()
         if (c.isPlaying) c.pause() else c.play()
     }
@@ -189,17 +214,17 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
         PlaybackPrefs.setSkipSilence(enabled)
     }
 
-    override suspend fun setSpeed(speed: Float) {
+    override suspend fun setSpeed(speed: Float) = withContext(Dispatchers.Main.immediate) {
         obtain().setPlaybackSpeed(speed.coerceIn(0.5f, 2f))
     }
 
-    override suspend fun setVolume(volume: Float) {
+    override suspend fun setVolume(volume: Float) = withContext(Dispatchers.Main.immediate) {
         val clamped = volume.coerceIn(0f, 1f)
         _volume.value = clamped
         controller?.volume = clamped
     }
 
-    override suspend fun seekTo(ms: Long) {
+    override suspend fun seekTo(ms: Long) = withContext(Dispatchers.Main.immediate) {
         val c = obtain()
         val duration = c.duration
         val target = if (duration > 0) ms.coerceIn(0, duration) else ms.coerceAtLeast(0)
@@ -208,13 +233,22 @@ class PlaybackController(private val context: Context) : PlatformPlayback {
     }
 
     override fun release() {
+        released = true
         scope.cancel()
         pollJob = null
-        controller?.release()
+        val c = controller
         controller = null
+        if (c != null) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                c.release()
+            } else {
+                android.os.Handler(android.os.Looper.getMainLooper()).post { c.release() }
+            }
+        }
     }
 
     private companion object {
+        const val TAG = "Music0Playback"
         const val POLL_INTERVAL_MS = 200L
     }
 }

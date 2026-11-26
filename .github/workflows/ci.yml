@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   rust-core:
@@ -14,6 +15,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -29,7 +32,32 @@ jobs:
         # #[ignore]-gated behind MUSICO_LIVE_TESTS.
 
       - name: Verify Compose Multiplatform JNI cdylib builds
-        run: cargo build --release -p musico_core --lib
+        run: |
+          cargo build --release -p musico_core --lib
+          nm -D --defined-only target/release/libmusico_online_lib.so | grep -q 'Java_io_github_aryan007h_musicoonline_core_MusicoCore_initNative'
+          nm -D --defined-only target/release/libmusico_online_lib.so | grep -q 'Java_io_github_aryan007h_musicoonline_core_MusicoCore_invoke'
+
+      - name: Android SDK environment
+        run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          NDK=$(ls -d /usr/local/lib/android/sdk/ndk/* | sort -V | tail -1)
+          [ -n "$NDK" ] || { echo "No Android NDK found under /usr/local/lib/android/sdk/ndk" >&2; exit 1; }
+          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+      - name: Install cargo-ndk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Build and verify Android arm64 JNI cdylib
+        run: |
+          rm -rf "$RUNNER_TEMP/jniLibs"
+          (cd musico_core && cargo ndk -t arm64-v8a -o "$RUNNER_TEMP/jniLibs" build --release --lib)
+          bash scripts/verify_android_so.sh \
+            --so "$RUNNER_TEMP/jniLibs/arm64-v8a/libmusico_online_lib.so" \
+            --jni-dir "$RUNNER_TEMP/jniLibs/arm64-v8a" \
+            --check-musico-jni
 
   compose-multiplatform:
     name: Compose Multiplatform (Android + Desktop)

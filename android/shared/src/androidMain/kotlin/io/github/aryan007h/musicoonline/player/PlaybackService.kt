@@ -1,5 +1,6 @@
 package io.github.aryan007h.musicoonline.player
 
+import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -75,7 +76,17 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
-        mediaSession = MediaSession.Builder(this, player).build()
+        val builder = MediaSession.Builder(this, player)
+        packageManager.getLaunchIntentForPackage(packageName)?.let { launchIntent ->
+            val pi = PendingIntent.getActivity(
+                this,
+                0,
+                launchIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            builder.setSessionActivity(pi)
+        }
+        mediaSession = builder.build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =

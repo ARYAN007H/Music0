@@ -51,6 +51,7 @@ object UpdateManager {
     const val UPDATE_DIR = "updates"
     const val APK_NAME = "musico-update.apk"
     private const val MIN_APK_BYTES = 1_000_000
+    private const val MAX_REDIRECTS = 5
     private const val CHANNEL_UPDATES = "app_updates"
     private const val NOTIF_ID_UPDATE = 41
 
@@ -125,13 +126,8 @@ object UpdateManager {
             ?.takeIf { it.length == 64 && it.all { c -> c.isDigit() || c in 'a'..'f' } }
         val digest = expectedSha?.let { MessageDigest.getInstance("SHA-256") }
 
-        val conn = URL(info.assetUrl).openConnection() as HttpURLConnection
+        val conn = openHttpsConnection(info.assetUrl, "Music0-Android/${info.current}")
         try {
-            conn.instanceFollowRedirects = true
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 30_000
-            conn.setRequestProperty("User-Agent", "Music0-Android/${info.current}")
-            conn.connect()
             val total = conn.contentLengthLong.takeIf { it > 0 } ?: info.assetSizeBytes
             conn.inputStream.use { input ->
                 part.outputStream().use { out ->
@@ -175,6 +171,54 @@ object UpdateManager {
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun openHttpsConnection(
+        initialUrl: String,
+        userAgent: String,
+    ): HttpURLConnection {
+        var current = URL(initialUrl)
+        for (hop in 0..MAX_REDIRECTS) {
+            if (current.protocol != "https") {
+                throw IllegalArgumentException("Update download URL must use HTTPS")
+            }
+            val conn = (current.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 10_000
+                readTimeout = 30_000
+                setRequestProperty("User-Agent", userAgent)
+            }
+            try {
+                val code = conn.responseCode
+                if (code in 301..303 || code == 307 || code == 308) {
+                    val location = conn.getHeaderField("Location")
+                    conn.disconnect()
+                    if (location.isNullOrBlank()) {
+                        throw IllegalStateException("Update redirect missing Location header (HTTP $code)")
+                    }
+                    if (hop == MAX_REDIRECTS) {
+                        throw IllegalStateException("Too many update download redirects")
+                    }
+                    val next = URL(current, location)
+                    if (next.protocol != "https") {
+                        throw IllegalStateException("Refusing non-HTTPS update redirect")
+                    }
+                    current = next
+                    continue
+                }
+                if (conn.url.protocol != "https") {
+                    throw IllegalStateException("Refusing non-HTTPS update redirect")
+                }
+                if (code !in 200..299) {
+                    throw IllegalStateException("Update download returned HTTP $code")
+                }
+                return conn
+            } catch (t: Throwable) {
+                conn.disconnect()
+                throw t
+            }
+        }
+        throw IllegalStateException("Too many update download redirects")
     }
 
     private fun verifyApk(file: File, info: UpdateInfo): Boolean {

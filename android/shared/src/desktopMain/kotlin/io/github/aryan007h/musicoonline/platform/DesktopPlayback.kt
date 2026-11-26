@@ -54,6 +54,9 @@ class DesktopPlayback : PlatformPlayback {
     private val _gaplessAdvanced = MutableSharedFlow<String>(extraBufferCapacity = 4)
     override val gaplessAdvanced: SharedFlow<String> = _gaplessAdvanced
 
+    private val _playbackError = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    override val playbackError: SharedFlow<String> = _playbackError
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollJob: Job? = null
     private var stagedNextTrack: OnlineTrack? = null
@@ -73,12 +76,16 @@ class DesktopPlayback : PlatformPlayback {
                         val ended = st["ended"]?.jsonPrimitive?.booleanOrNull ?: false
                         val endedSongId = st["endedSongId"]?.jsonPrimitive?.contentOrNull
                         val currentSongId = st["currentSongId"]?.jsonPrimitive?.contentOrNull
+                        val errorMsg = st["error"]?.jsonPrimitive?.contentOrNull
 
                         _isPlaying.value = playing
                         _isBuffering.value = buffering
                         if (posMs >= 0L) _positionMs.value = posMs
                         if (durMs > 0L) _durationMs.value = durMs
                         if (vol != null) _volume.value = vol.coerceIn(0f, 1f)
+                        if (!errorMsg.isNullOrBlank()) {
+                            _playbackError.tryEmit(errorMsg)
+                        }
 
                         val staged = stagedNextTrack
                         if (staged != null && currentSongId == staged.videoId && _nowPlaying.value?.videoId != staged.videoId) {

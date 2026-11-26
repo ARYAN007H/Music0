@@ -308,26 +308,39 @@ jobs:
         env:
           MUSICO_VERSION_OVERRIDE: ${{ inputs.version_name || '' }}
 
-      - name: Ensure libc++_shared.so is packed
+      - name: Sync libc++_shared.so with ELF DT_NEEDED
         run: |
-          if [ -f android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so ] && \
-             [ "$(stat -c%s android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so)" -gt 100000 ]; then
-            echo "cargo-ndk already packed a real libc++_shared.so"
-            exit 0
+          SO=android/app/src/main/jniLibs/arm64-v8a/libmusico_online_lib.so
+          LIBCXX_DEST=android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so
+          if readelf -d "$SO" | grep -q '(NEEDED).*\[libc++_shared\.so\]'; then
+            if [ -f "$LIBCXX_DEST" ] && [ "$(stat -c%s "$LIBCXX_DEST")" -gt 100000 ]; then
+              echo "cargo-ndk already packed a real libc++_shared.so"
+            else
+              LIBCXX=""
+              for NDK_DIR in $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
+                LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
+                  -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
+                [ -n "$LIBCXX" ] && break
+              done
+              if [ -z "$LIBCXX" ]; then
+                echo "No real arm64 libc++_shared.so in any installed NDK" >&2
+                exit 1
+              fi
+              echo "Packing $LIBCXX"
+              mkdir -p android/app/src/main/jniLibs/arm64-v8a
+              cp "$LIBCXX" "$LIBCXX_DEST"
+            fi
+          else
+            echo "libmusico_online_lib.so has no DT_NEEDED libc++_shared.so; removing unused libc++_shared.so if present"
+            rm -f "$LIBCXX_DEST"
           fi
-          LIBCXX=""
-          for NDK_DIR in $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
-            LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
-              -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
-            [ -n "$LIBCXX" ] && break
-          done
-          if [ -z "$LIBCXX" ]; then
-            echo "No real arm64 libc++_shared.so in any installed NDK" >&2
-            exit 1
-          fi
-          echo "Packing $LIBCXX"
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          cp "$LIBCXX" android/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Verify Android native library ELF & symbols
+        run: |
+          bash scripts/verify_android_so.sh \
+            --so android/app/src/main/jniLibs/arm64-v8a/libmusico_online_lib.so \
+            --jni-dir android/app/src/main/jniLibs/arm64-v8a \
+            --check-musico-jni
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -377,6 +390,29 @@ jobs:
           cp "$APK" dist/musico-online-native-aarch64.apk
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BT/apksigner" verify dist/musico-online-native-aarch64.apk
+          TMP_APK_LIBS=$(mktemp -d)
+          python3 -c '
+          import os, sys, zipfile
+          apk, out = sys.argv[1], sys.argv[2]
+          extracted = 0
+          with zipfile.ZipFile(apk) as z:
+              for info in z.infolist():
+                  if info.filename.startswith("lib/arm64-v8a/") and info.filename.endswith(".so"):
+                      dest = os.path.join(out, os.path.basename(info.filename))
+                      with z.open(info) as src, open(dest, "wb") as dst:
+                          dst.write(src.read())
+                      extracted += 1
+          if extracted == 0:
+              raise SystemExit(f"ERROR: no lib/arm64-v8a/*.so found in {apk}")
+          ' dist/musico-online-native-aarch64.apk "$TMP_APK_LIBS"
+          bash scripts/verify_android_so.sh \
+            --so "$TMP_APK_LIBS/libmusico_online_lib.so" \
+            --jni-dir "$TMP_APK_LIBS" \
+            --check-musico-jni
+          for so in "$TMP_APK_LIBS"/*.so; do
+            bash scripts/verify_android_so.sh --so "$so" --jni-dir "$TMP_APK_LIBS"
+          done
+          rm -rf "$TMP_APK_LIBS"
 
       - uses: actions/upload-artifact@v4
         with:

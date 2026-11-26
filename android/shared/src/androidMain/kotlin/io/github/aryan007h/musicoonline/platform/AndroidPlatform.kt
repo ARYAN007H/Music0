@@ -161,7 +161,9 @@ actual fun showPlatformToast(message: String) {
 actual fun openExternalUrl(url: String) {
     val ctx = AndroidPlatformHost.contextOrNull() ?: return
     runCatching {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+        val uri = Uri.parse(url)
+        if (uri.scheme?.lowercase() !in setOf("https", "http")) return
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         ctx.startActivity(intent)

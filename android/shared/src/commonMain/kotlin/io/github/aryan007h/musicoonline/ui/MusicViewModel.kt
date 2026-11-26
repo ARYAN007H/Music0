@@ -302,6 +302,7 @@ class MusicViewModel(
         scope.launch { playback.volume.collect { v -> _state.update { it.copy(volume = v) } } }
         scope.launch { playback.trackEnded.collect { onTrackEnded() } }
         scope.launch { playback.gaplessAdvanced.collect { vid -> onGaplessTransition(vid) } }
+        scope.launch { playback.playbackError.collect { msg -> fail("Playback error: $msg") } }
 
         loadLocalPrefs()
         loadCoreSettings()

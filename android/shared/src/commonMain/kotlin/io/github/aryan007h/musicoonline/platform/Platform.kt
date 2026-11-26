@@ -30,6 +30,7 @@ interface PlatformPlayback {
     val volume: StateFlow<Float>
     val trackEnded: SharedFlow<Unit>
     val gaplessAdvanced: SharedFlow<String>
+    val playbackError: SharedFlow<String>
 
     suspend fun playFile(filePath: String, track: OnlineTrack)
     suspend fun stageNextFile(filePath: String, track: OnlineTrack)

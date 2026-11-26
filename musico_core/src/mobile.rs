@@ -25,6 +25,7 @@ use musico_recommender::user_playlists::PlaylistTrack;
 use musico_recommender::{LikeState, MusicRecommender};
 
 static MOBILE_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static MOBILE_INIT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serializes the settings read-merge-save cycle: two overlapping toggles
 /// from `Dispatchers.IO` must not lose a write (review P2-7).
@@ -276,6 +277,12 @@ pub extern "system" fn Java_io_github_aryan007h_musicoonline_core_MusicoCore_ini
     };
     let files = String::from(files);
     let cache = String::from(cache);
+    let _init_guard = MOBILE_INIT_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if MOBILE_INITIALIZED.load(Ordering::Acquire) {
+        return;
+    }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         init_core(&files, &cache);
         MOBILE_INITIALIZED.store(true, Ordering::Release);
@@ -514,6 +521,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
                 .get("videoId")
                 .and_then(|v| v.as_str())
                 .ok_or("missing videoId")?;
+            if !is_safe_track_id(video_id) {
+                return Err("invalid videoId".into());
+            }
             let tracks = crate::online::radio_tracks(video_id)?;
             Ok(serde_json::json!({ "tracks": tracks }))
         }
@@ -1499,9 +1509,9 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         "player.play_file" => desktop_play_file(&args),
         "player.preload_next" => desktop_preload_next(&args),
         "player.toggle" => desktop_toggle(),
-        "player.pause" => desktop_simple_cmd(|e| e.pause()),
-        "player.resume" => desktop_simple_cmd(|e| e.resume()),
-        "player.stop" => desktop_simple_cmd(|e| e.stop()),
+        "player.pause" => desktop_pause(),
+        "player.resume" => desktop_resume(),
+        "player.stop" => desktop_stop(),
         "player.seek" => desktop_seek(&args),
         "player.set_volume" => desktop_set_volume(&args),
         "player.set_eq" => desktop_set_eq(&args),
@@ -1577,6 +1587,21 @@ fn desktop_simple_cmd(
     let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     f(&guard).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "ok": true }))
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_pause() -> Result<serde_json::Value, String> {
+    desktop_simple_cmd(|e| e.pause())
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_resume() -> Result<serde_json::Value, String> {
+    desktop_simple_cmd(|e| e.resume())
+}
+
+#[cfg(not(target_os = "android"))]
+fn desktop_stop() -> Result<serde_json::Value, String> {
+    desktop_simple_cmd(|e| e.stop())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1674,10 +1699,16 @@ fn desktop_toggle() -> Result<serde_json::Value, String> {
     Err("player.toggle is desktop-only; Android uses Media3".into())
 }
 #[cfg(target_os = "android")]
-fn desktop_simple_cmd(
-    _f: impl FnOnce(&musico_playback::PlaybackEngine) -> Result<(), musico_playback::PlaybackError>,
-) -> Result<serde_json::Value, String> {
-    Err("desktop player command unavailable on Android".into())
+fn desktop_pause() -> Result<serde_json::Value, String> {
+    Err("player.pause is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_resume() -> Result<serde_json::Value, String> {
+    Err("player.resume is desktop-only; Android uses Media3".into())
+}
+#[cfg(target_os = "android")]
+fn desktop_stop() -> Result<serde_json::Value, String> {
+    Err("player.stop is desktop-only; Android uses Media3".into())
 }
 #[cfg(target_os = "android")]
 fn desktop_seek(_args: &serde_json::Value) -> Result<serde_json::Value, String> {
@@ -1795,6 +1826,14 @@ fn online_track_from_playlist(t: &PlaylistTrack) -> crate::online::OnlineTrack {
     }
 }
 
+fn is_safe_track_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 /// Builds an [`crate::online::OnlineTrack`] from loose JNI args: accepts both
 /// camelCase (`videoId`, `durationSecs`, `artistBrowseId`) and snake_case
 /// (`video_id`, `duration_secs`, `artist_browse_id`).
@@ -1806,13 +1845,7 @@ fn online_track_from_args(args: &serde_json::Value) -> Result<crate::online::Onl
         .and_then(|v| v.as_str())
         .ok_or("missing videoId")?
         .to_string();
-    if video_id.is_empty() || video_id.len() > 64 {
-        return Err("invalid videoId".into());
-    }
-    if !video_id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
+    if !is_safe_track_id(&video_id) {
         return Err("invalid videoId".into());
     }
     let s = |k: &str| {
@@ -2045,5 +2078,17 @@ mod tests {
             r#"{"mode":"file","fileName":"empty.csv","content":""}"#
         )
         .is_err());
+    }
+
+    #[test]
+    fn online_related_rejects_invalid_video_id() {
+        ensure_test_core();
+        for bad in ["", "../etc", "a/b", "bad id", "abc$123"] {
+            assert!(
+                dispatch("online.related", &serde_json::json!({ "videoId": bad }).to_string())
+                    .is_err(),
+                "expected invalid videoId `{bad}` to be rejected"
+            );
+        }
     }
 }
