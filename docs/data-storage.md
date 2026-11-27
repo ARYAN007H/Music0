@@ -15,14 +15,14 @@ When Compose Multiplatform starts:
 2. [`musico_core/src/mobile.rs`](../musico_core/src/mobile.rs) exports `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` = `filesDir` and `XDG_CACHE_HOME` = `cacheDir`.
 3. `identity.rs` calls `dirs::{data_dir,config_dir,cache_dir}().join("musico-online")`.
 
-As a result, Rust artifacts (`db/`, `settings.json`, `online/`, `covers/`) currently live inside a **nested `musico-online/` subdirectory** under `filesDir` / `cacheDir`, and `settings.json` lives inside `dataDir` rather than `~/.config/musico-online/`:
+As a result (given `dirs` 5.0.1's per-OS resolution: Linux/Android read `XDG_*`, macOS reads `$HOME`, and Windows calls Win32 `SHGetKnownFolderPath` ignoring `HOME`/`XDG_*`):
 
 | Platform | UI Prefs / Posters (Kotlin) | Rust `db/` & `settings.json` | Rust Stream & Cover Caches |
 |---|---|---|---|
 | **Linux (native)** | `~/.local/share/musico-online/ui_prefs.json` · Posters: `~/Pictures/Music0/` | `~/.local/share/musico-online/musico-online/{db/,settings.json}` | `~/.cache/musico-online/musico-online/{online/,covers/}` |
 | **Linux (Flatpak)** | `~/.var/app/io.github.aryan007h.Music0/data/musico-online/ui_prefs.json` | `~/.var/app/io.github.aryan007h.Music0/data/musico-online/musico-online/{db/,settings.json}` | `~/.var/app/io.github.aryan007h.Music0/cache/musico-online/musico-online/{online/,covers/}` |
-| **macOS** | `~/Library/Application Support/musico-online/ui_prefs.json` · Posters: `~/Pictures/Music0/` | `~/Library/Application Support/musico-online/musico-online/{db/,settings.json}` | `~/Library/Caches/musico-online/musico-online/{online/,covers/}` |
-| **Windows** | `%APPDATA%\musico-online\ui_prefs.json` · Posters: `%USERPROFILE%\Pictures\Music0\` | `%APPDATA%\musico-online\musico-online\{db\,settings.json}` | `%LOCALAPPDATA%\musico-online\cache\musico-online\{online\,covers\}` |
+| **macOS** | `~/Library/Application Support/musico-online/ui_prefs.json` · Posters: `~/Pictures/Music0/` | `~/Library/Application Support/musico-online/Library/Application Support/musico-online/{db/,settings.json}` | `~/Library/Application Support/musico-online/Library/Caches/musico-online/{online/,covers/}` |
+| **Windows** | `%APPDATA%\musico-online\ui_prefs.json` · Posters: `%USERPROFILE%\Pictures\Music0\` | `%APPDATA%\musico-online\{db\,settings.json}` | `%LOCALAPPDATA%\musico-online\{online\,covers\}` |
 | **Android** | `SharedPreferences("musico_ui")` · Posters: `<cacheDir>/lyric_cards/` | `<filesDir>/musico-online/{db/,settings.json}` | `<cacheDir>/musico-online/{online/,covers/}` |
 
 > Note: `musico.log` and `library.json` no longer exist in `v1.0.x` (removed with Tauri / `scanner.rs`). Desktop logs go to `stderr` via `env_logger`; Android logs go to Logcat tag `musico-native`.
@@ -89,15 +89,15 @@ Opened lazily by `recommender()` in [`musico_core/src/mobile.rs`](../musico_core
 |---|---|---|
 | *(default tree)* | `adapt:weights`, `profile:vec`, `profile:ts`, `profile:n`, `profile:subprofiles`, `path:{file_path}` | `adapt.rs`, `profile.rs`, `vector_store.rs` |
 | `songs` | `song_id` → bincode `SongRecord` (30-dim acoustic features) | `musico-mobile-indexer` thread (`mobile.rs`) |
-| `events` | timestamp-prefixed key → bincode `PlayEvent` (append-only) | `rec.on_song_changed`, `rec.on_song_ended` |
-| `sessions` | session id → bincode `SessionState` | `session.rs` |
+| `events` | `{song_id}:{event_id}` → bincode `PlayEvent` (append-only) | `rec.on_song_ended` |
+| `sessions` | `"current"` → bincode `SessionState`; `"ext"` → bincode `SessionExt` | `session.rs` (`rec.on_song_changed`, `rec.on_song_ended`) |
 | `scores` | `song_id` → bincode per-song score | `recommender.rs` |
 | `likes` | `song_id` / `video_id` → `LikeState` | `library.likes.set`, `library.migrate_legacy` |
-| `artists` | artist name → bincode `ArtistStats` | `on_song_ended`, `bump_artist_listen` |
+| `artists` | `a:{artist}` → bincode `ArtistScoreCache` | `on_song_ended`, `bump_artist_listen` |
 | `context` | time-of-day bucket → bincode context weights | `context.rs` |
 | `clusters` | cluster id → bincode cluster metadata | `clusters.rs` |
-| `lib:album` / `lib:artist` / `lib:playlist` / `lib:track` | `id` → JSON `CatalogEntry` | `library.put`, `library.likes.set`, `library.migrate_legacy` |
-| `lib:playlists` | `playlist_id` → JSON `UserPlaylist` | `playlist.*`, `library.playlist.import` |
+| `lib:album` / `lib:artist` / `lib:track` | `id` → bincode `CatalogEntry` | `library.put`, `library.likes.set`, `library.migrate_legacy` |
+| `lib:playlists` | `playlist_id` → bincode `UserPlaylist` | `playlist.*`, `library.playlist.import` |
 
 ### Core bridge trees (`musico_core/src/mobile.rs`)
 

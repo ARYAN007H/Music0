@@ -95,7 +95,7 @@ Single-flight, cancelable importer (`musico_core/src/online/playlist_import.rs`)
 
 | Command | Request Args | Response `data` | Notes |
 |---|---|---|---|
-| `library.put` | `{ kind, id, title, subtitle?, thumbnail?, browseId?, params?, videoId? }` | `{ saved: true }` | Saves `CatalogEntry` (`album`, `artist`, `playlist`, `track`). |
+| `library.put` | `{ kind, id, title, subtitle?, thumbnail?, browseId?, params?, videoId? }` | `{ saved: true }` | Saves bincode `CatalogEntry` (`kind`: `"album"`, `"artist"`, or `"track"`). |
 | `library.remove` | `{ kind, id }` | `{ removed: true }` | Removes `CatalogEntry`. |
 | `library.list` | `{ kind }` | `{ entries: CatalogEntry[] }` | Lists saved entries by kind. |
 | `library.likes.set` | `{ track: OnlineTrack, liked?: bool }` | `{ liked: bool }` | Syncs `likes`, `lib:track`, and `mobile:track_meta` together. |
@@ -142,7 +142,7 @@ Compiled on `cfg(not(target_os = "android"))`. On Android these return `"player.
 
 ## Appendix A: Web Preview Bridge
 
-The unreleased browser/PWA preview (`npm start` → `server.ts` + `frontend/`) does **not** use `musico_core`. Instead, [`frontend/js/bridge.js`](../frontend/js/bridge.js) implements a 77-case mock/HTTP dispatcher (`Bridge.invoke`) talking to Express routes in [`server.ts`](../server.ts):
+The unreleased browser/PWA preview (`npm start` → `server.ts` + `frontend/`) does **not** use `musico_core`. Instead, [`frontend/js/bridge.js`](../frontend/js/bridge.js) implements an 83-case mock/HTTP dispatcher (`Bridge.invoke`) talking to Express routes in [`server.ts`](../server.ts):
 
 - `POST /api/invoke/:cmd` (plus `POST /api/invoke/cross_source_check`)
 - `GET /api/audio/:trackId` (streams demo audio for browser preview playback)

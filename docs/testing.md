@@ -9,7 +9,7 @@ Music0 uses five test layers: hermetic Rust tests, Compose Multiplatform Kotlin 
 | Rust workspace (`--exclude musico_playback`) | Yes (`rust-core`) | Rust toolchain + `libasound2-dev` |
 | — `musico_core` | Yes (`#[ignore]` live tests skipped; `mobile.rs` + `stream_server.rs` included) | Rust |
 | — `musico_recommender` | Yes | Rust |
-| — `musico_playback` | **No** (excluded in CI; 28 unit tests + 4 device E2E tests) | Audio device + test WAV for E2E |
+| — `musico_playback` | **No** (excluded in CI; 27 unit tests + 4 device E2E tests) | Audio device + test WAV for E2E |
 | Compose Multiplatform (`:app:compileDebugKotlin`, `:desktopApp:compileKotlin`, `:shared:desktopTest`) | Yes (`compose-multiplatform`) | Java 17 + Gradle 8.10.2 + Android SDK |
 | TypeScript engine (`npm test`, `npm run build`) | Yes (`web-engine`) | Node 20 + `npm install` |
 | Browser suites (`scripts/browser_*_test.mjs`) | No | Web preview + Playwright + Chrome |
@@ -21,7 +21,7 @@ CI's Rust test command is:
 cargo test --workspace --exclude musico_playback
 ```
 
-Why `musico_playback` is excluded in CI: `musico_playback/tests/engine_e2e.rs` opens a real audio device and plays a real file, and GitHub runners have no audio device. Run `cargo test -p musico_playback --lib` locally for the 28 hermetic unit tests (including `http_source.rs`, `queue.rs`, `eq.rs`, `decoder.rs`), or run the full crate with a test tone.
+Why `musico_playback` is excluded in CI: `musico_playback/tests/engine_e2e.rs` opens a real audio device and plays a real file, and GitHub runners have no audio device. Run `cargo test -p musico_playback --lib` locally for the 27 hermetic unit tests (including `http_source.rs`, `queue.rs`, `eq.rs`, `decoder.rs`), or run the full crate with a test tone.
 
 ## 2. Rust tests
 
@@ -38,12 +38,12 @@ cargo test -p musico_core                       # core crate, mobile.rs dispatch
 cargo test -p musico_recommender                # taste engine only
 cargo test -p musico_core online::              # online module filter
 cargo test -p musico_core mobile::              # JNI dispatcher & version tests
-cargo test -p musico_playback --lib             # 28 hermetic playback/loopback unit tests
+cargo test -p musico_playback --lib             # 27 hermetic playback/loopback unit tests
 cargo test -p musico_core -- --list             # list collected tests
 cargo test -p musico_core -- --nocapture        # show prints
 ```
 
-Tests run in parallel by default. If a test touches process-global state (environment variables, the stream cache, a sled DB), it must isolate itself — see §5.
+Tests run in parallel by default. If a test touches process-global state (environment variables, the stream cache, a sled DB), it must isolate itself — see §6.
 
 ### Playback end-to-end
 
@@ -52,7 +52,7 @@ bash scripts/gen_test_tone.sh        # writes /tmp/musico-test-tone.wav
 cargo test -p musico_playback
 ```
 
-`MUSICO_TEST_WAV` points at a different file if needed. Alongside the 28 hermetic unit tests (`http_source.rs` loopback client, `queue.rs`, `eq.rs`, `decoder.rs`, `lib.rs`), the 4 end-to-end tests in `engine_e2e.rs` cover:
+`MUSICO_TEST_WAV` points at a different file if needed. Alongside the 27 hermetic unit tests (`http_source.rs` loopback client, `queue.rs`, `eq.rs`, `decoder.rs`, `lib.rs`), the 4 end-to-end tests in `engine_e2e.rs` cover:
 
 - play → position updates → `SongEnded`
 - seek updates position

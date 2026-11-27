@@ -121,7 +121,7 @@ See [data-storage.md](data-storage.md) for Windows, macOS, Flatpak, and Android 
 | `MUSICO_PIPED_INSTANCES` | Comma-separated Piped hosts. Empty disables Piped. |
 | `MUSICO_INVIDIOUS_INSTANCES` | Comma-separated Invidious hosts. Empty disables Invidious. |
 | `MUSICO_INNERTUBE_DIRECT` | Blank `""` disables `InnerTubeDirectSource` (for hermetic tests). Any unset or non-empty value keeps it enabled (`music.youtube.com`). |
-| `MUSICO_SAAVN_API` | Overrides the JioSaavn API base (proxy/mirror); blank disables Saavn. |
+| `MUSICO_SAAVN_API` | Overrides the JioSaavn API base (proxy/mirror); blank falls back to the default endpoint. |
 | `MUSICO_LRCLIB_API` | Overrides the LRCLIB base URL. |
 | `MUSICO_TEST_WAV` | Path to the test tone used by `musico_playback` E2E tests (default `/tmp/musico-test-tone.wav`). |
 

@@ -143,7 +143,7 @@ docs/                       Technical guides, ADRs, verification guide, brand gu
 ## 8. State, persistence, and caches
 
 See [docs/data-storage.md](docs/data-storage.md) for the complete layout. Key details:
-- Because `DesktopPlatformHost` / Android `MainActivity` pass `musico-online` / app-private directories into `MusicoCore.init()` and `identity.rs` joins `DATA_SUBDIR` (`"musico-online"`) again, Rust files (`db/`, `settings.json`, `online/`, `covers/`) reside in a double-nested `musico-online/musico-online/` folder on Desktop Linux/macOS/Windows (`settings.json` inside `dataDir`, not `~/.config/musico-online/`).
+- Because `DesktopPlatformHost` / Android `MainActivity` pass `musico-online` / app-private directories into `MusicoCore.init()` and `identity.rs` joins `DATA_SUBDIR` (`"musico-online"`) again, Rust files (`db/`, `settings.json`, `online/`, `covers/`) resolve to a double-nested `musico-online/musico-online/` folder on Linux/Android and `~/Library/Application Support/musico-online/Library/{Application Support,Caches}/musico-online/` on macOS (while Windows `SHGetKnownFolderPath` stays single-nested under `%APPDATA%\musico-online\` and `%LOCALAPPDATA%\musico-online\`).
 - Compose UI preferences live separately in `<dataDir>/ui_prefs.json` (Desktop) or `SharedPreferences("musico_ui")` (Android).
 - Key env overrides: `MUSICO_NATIVE_LIB`, `MUSICO_ONLINE_CACHE_MB`, `MUSICO_PIPED_INSTANCES`, `MUSICO_INVIDIOUS_INSTANCES`, `MUSICO_INNERTUBE_DIRECT` (blank disables), `MUSICO_SAAVN_API`, `MUSICO_VERSION_OVERRIDE`, `RUST_LOG`.
 

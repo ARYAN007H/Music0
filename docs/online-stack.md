@@ -8,7 +8,7 @@ The online stack is the bridge between a UI request (`online.*`, `track.resolve`
 
 | File | Concern |
 |---|---|
-| `mod.rs` | Re-exports, `fetch_track_metadata`, and 6 cross-module `live_*` tests |
+| `mod.rs` | Re-exports, `fetch_track_metadata`, and 12 cross-module `live_*` tests |
 | `client.rs` | Shared HTTP client, InnerTube `WEB_REMIX` identity, auto-refreshing `clientVersion`, RAII concurrency cap (`2`), 1 retry |
 | `models.rs` | Wire structs (`OnlineTrack`, `BrowsePage`, `SearchResultPage`, `ShelfItem`, `song_id()`) |
 | `parse.rs` | All InnerTube JSON shape parsing (the only drift-sensitive file) |
@@ -86,7 +86,7 @@ Pre-warming and offline downloads run the same cache check and parallel JioSaavn
 | `MUSICO_PIPED_INSTANCES` | 6 default Piped hosts | Comma-separated override; blank `""` disables Piped |
 | `MUSICO_INVIDIOUS_INSTANCES` | 4 default Invidious hosts | Comma-separated override; blank `""` disables Invidious |
 | `MUSICO_INNERTUBE_DIRECT` | Enabled | Blank `""` disables `InnerTubeDirectSource` (hermetic tests) |
-| `MUSICO_SAAVN_API` | `https://www.jiosaavn.com/api.php` | Overrides JioSaavn endpoint; blank `""` disables Saavn |
+| `MUSICO_SAAVN_API` | `https://www.jiosaavn.com/api.php` | Overrides JioSaavn endpoint; blank `""` falls back to default |
 | `MUSICO_ONLINE_CACHE_MB` | `1024` (over `settings.json`) | Stream cache cap in MiB |
 
 | Operation | Budget / Timeout |
