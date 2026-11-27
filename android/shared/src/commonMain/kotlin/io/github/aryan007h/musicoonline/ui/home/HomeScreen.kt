@@ -297,7 +297,7 @@ object HomeMoodFilter {
         "Made for You" -> listOf("made for", "because you", "mix", "discover", "repeat", "pick", "for you", "recommend")
         "Chill" -> listOf("chill", "lofi", "lo-fi", "calm", "ambient", "acoustic", "relax", "soft", "late night", "unplugged", "indie")
         "Energize" -> listOf("energize", "energy", "party", "dance", "upbeat", "pop", "hits", "trending", "electronic", "club")
-        "Focus" -> listOf("focus", "study", "instrumental", "piano", "classical", "ambient", "deep", "work", "concentration")
+        "Focus" -> listOf("focus", "study", "instrumental", "piano", "classical", "ambient", "deep work", "coding", "concentration")
         "Workout" -> listOf("workout", "gym", "run", "running", "hype", "hip-hop", "hip hop", "rap", "pump", "cardio", "power")
         else -> emptyList()
     }
