@@ -208,7 +208,8 @@ fun MusicoApp(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            val isWidescreen = maxWidth >= 840.dp
+            val windowMaxWidth = maxWidth
+            val isWidescreen = windowMaxWidth >= 840.dp
 
             val playerOpen = state.overlay == AppOverlay.PLAYER
             val pushOpen = state.overlay == AppOverlay.DETAIL || state.overlay == AppOverlay.COLLECTION
@@ -269,7 +270,7 @@ fun MusicoApp(
             ) {
                 if (isWidescreen) {
                     // ── Widescreen Desktop / Tablet Shell ────────────────────────
-                    val railWidth = DesktopLayoutMetrics.railWidthDp(maxWidth.value).dp
+                    val railWidth = DesktopLayoutMetrics.railWidthDp(windowMaxWidth.value).dp
                     Row(Modifier.fillMaxSize()) {
                         DesktopNavigationRail(
                             state = state,
