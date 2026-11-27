@@ -1042,6 +1042,28 @@ html[data-skin="m3e"] .shelf-seeall {
   box-shadow: none !important;
 }
 
+html[data-skin="m3e"] .detail-play,
+html[data-skin="m3e"] .detail-play-btn {
+  background: var(--m3-primary) !important;
+  background-image: none !important;
+  color: var(--m3-on-primary) !important;
+  border: 0 !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+
+html[data-skin="m3e"] .detail-play svg,
+html[data-skin="m3e"] .detail-play-btn svg {
+  color: var(--m3-on-primary) !important;
+  fill: var(--m3-on-primary) !important;
+}
+
+html[data-skin="m3e"] .detail-art:not([style*="url("]) {
+  background-color: var(--m3-primary-container) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
 /* Focus Rings */
 html[data-skin="m3e"] button:focus-visible,
 html[data-skin="m3e"] input:focus-visible,
