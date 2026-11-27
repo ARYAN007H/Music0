@@ -83,6 +83,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -166,6 +167,7 @@ fun Artwork(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = Musico.extras.cardRadius,
+    shape: Shape? = null,
     placeholderIcon: ImageVector = Icons.Filled.MusicNote,
 ) {
     val platformContext = LocalPlatformContext.current
@@ -176,22 +178,23 @@ fun Artwork(
             .build()
     }
     val safeCorner = cornerRadius.coerceAtLeast(0.dp)
+    val resolvedShape = shape ?: RoundedCornerShape(safeCorner)
     SubcomposeAsyncImage(
         model = request,
         contentDescription = contentDescription,
         contentScale = ContentScale.Crop,
-        modifier = modifier.clip(RoundedCornerShape(safeCorner)),
-        loading = { ArtworkPlaceholder(safeCorner, placeholderIcon) },
-        error = { ArtworkPlaceholder(safeCorner, placeholderIcon) },
+        modifier = modifier.clip(resolvedShape),
+        loading = { ArtworkPlaceholder(resolvedShape, placeholderIcon) },
+        error = { ArtworkPlaceholder(resolvedShape, placeholderIcon) },
     )
 }
 
 @Composable
-private fun ArtworkPlaceholder(cornerRadius: Dp, icon: ImageVector) {
+private fun ArtworkPlaceholder(shape: Shape, icon: ImageVector) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(cornerRadius.coerceAtLeast(0.dp)))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
@@ -220,7 +223,7 @@ fun SectionHeader(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            title.uppercase(),
+            title,
             style = Musico.type.section,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
@@ -301,11 +304,11 @@ fun TrackRow(
 ) {
     val bg by animateColorAsState(
         targetValue = if (isCurrent) {
-            Musico.extras.primary.copy(alpha = 0.14f)
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = if (Musico.extras.isDark) 0.50f else 0.72f)
         } else {
             Color.Transparent
         },
-        animationSpec = MusicoMotion.gentle(),
+        animationSpec = MusicoMotion.effectsFast(),
         label = "rowBg",
     )
     Surface(
@@ -366,7 +369,7 @@ fun TrackRow(
                 Text(
                     track.title.ifEmpty { "Untitled" },
                     style = Musico.type.title,
-                    color = if (isCurrent) Musico.extras.mint else MaterialTheme.colorScheme.onBackground,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.basicMarquee(),
@@ -716,7 +719,7 @@ fun MiniPlayFab(
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color(0xFF05291D),
+                    tint = Musico.extras.onMint,
                     modifier = Modifier.size(26.dp),
                 )
             }

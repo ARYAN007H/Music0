@@ -12,16 +12,12 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,12 +39,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Lyrics
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
@@ -72,12 +70,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -91,26 +86,33 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.EnhancedLyrics
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.ConnectedButtonOption
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveActionPill
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveConnectedButtonGroup
 import io.github.aryan007h.musicoonline.ui.components.ExpressivePlayPauseButton
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveTransportButton
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveWavySeekBar
-import io.github.aryan007h.musicoonline.ui.components.LikeButton
 import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalPagerScroll
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
-import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
+import io.github.aryan007h.musicoonline.ui.theme.safePositiveScale
 import kotlinx.coroutines.launch
 
 /**
- * Full-Screen Now Playing Studio:
- * - On compact screens (< 840dp): 3-page HorizontalPager (Living Breathing Artwork,
- *   Full-Screen Lyrics Studio, Up Next Queue) with 1:1 vertical drag-to-collapse.
- * - On Desktop / Tablet (>= 840dp): Apple-Music-style Widescreen Split Stage with
- *   breathing cover art + transport on the left and live Flowing Verse Cinema (or
- *   Up Next Queue toggle) side-by-side on the right!
+ * Full-Screen Material 3 Expressive Now Playing Studio (Light & Dark adaptive):
+ * - Follows Google's Material 3 Expressive Media Player blueprint:
+ *   inline-timestamped wavy seekbar, chunky tonal squircle Prev/Next buttons flanking
+ *   a wider morphing primary Play/Pause squircle/pill, elevated secondary pill action
+ *   row, and tactile bottom contextual chips (`Style`, `Lyrics`, `Queue`).
+ * - Compact (< 840dp): 3-page HorizontalPager (Player, Lyrics Studio, Up Next) with
+ *   1:1 vertical drag-to-collapse.
+ * - Widescreen (>= 840dp): Split Stage with expressive player on the left and live
+ *   Lyrics Studio / Up Next Queue switched via an M3E Connected Button Group on the right.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -154,9 +156,6 @@ fun NowPlayingScreen(
     )
     var pureCinema by remember { mutableStateOf(false) }
 
-    // Keep LyricsPane and QueuePage state alive when resizing across 840dp
-    // (mirrors MainTabContent in MusicoApp). Compose's movableContentOf only
-    // supports up to 4 parameters, so pass compact state holders.
     val sharedLyricsPane = remember {
         movableContentOf<LyricsSlotState> { s ->
             LyricsPane(
@@ -184,7 +183,6 @@ fun NowPlayingScreen(
             QueuePage(
                 queue = s.queue,
                 queueIndex = s.queueIndex,
-                glowColor = s.glowColor,
                 onPlayFromQueue = onPlayFromQueue,
                 onRemoveFromQueue = onRemoveFromQueue,
             )
@@ -205,7 +203,6 @@ fun NowPlayingScreen(
     val queueSlotState = QueueSlotState(
         queue = queue,
         queueIndex = queueIndex,
-        glowColor = atmosphere.glow,
     )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -229,6 +226,7 @@ fun NowPlayingScreen(
                 onLikeToggle = onLikeToggle,
                 onRepeatToggle = onRepeatToggle,
                 onAddToPlaylist = onAddToPlaylist,
+                onCycleBackdrop = onCycleBackdrop,
                 lyricsContent = { sharedLyricsPane(lyricsSlotState) },
                 queueContent = { sharedQueuePane(queueSlotState) },
             )
@@ -240,6 +238,7 @@ fun NowPlayingScreen(
                 smoothPositionMs = smoothPositionMs,
                 durationMs = durationMs,
                 atmosphere = atmosphere,
+                queueSize = queue.size,
                 liked = liked,
                 repeatAll = repeatAll,
                 initialPage = initialPage,
@@ -253,6 +252,7 @@ fun NowPlayingScreen(
                 onLikeToggle = onLikeToggle,
                 onRepeatToggle = onRepeatToggle,
                 onAddToPlaylist = onAddToPlaylist,
+                onCycleBackdrop = onCycleBackdrop,
                 onDragProgressChange = onDragProgressChange,
                 lyricsContent = { sharedLyricsPane(lyricsSlotState) },
                 queueContent = { sharedQueuePane(queueSlotState) },
@@ -276,7 +276,6 @@ private data class LyricsSlotState(
 private data class QueueSlotState(
     val queue: List<OnlineTrack>,
     val queueIndex: Int,
-    val glowColor: Color,
 )
 
 // ── Widescreen Split Stage (Desktop / Tablet >= 840dp) ────────────────────
@@ -301,6 +300,7 @@ private fun WidescreenSplitNowPlaying(
     onLikeToggle: () -> Unit,
     onRepeatToggle: () -> Unit,
     onAddToPlaylist: (OnlineTrack) -> Unit,
+    onCycleBackdrop: () -> Unit,
     lyricsContent: @Composable () -> Unit,
     queueContent: @Composable () -> Unit,
 ) {
@@ -313,52 +313,39 @@ private fun WidescreenSplitNowPlaying(
             .navigationBarsPadding()
             .padding(horizontal = 36.dp, vertical = 20.dp),
     ) {
-        // Minimal studio top bar
+        // Minimal M3 Expressive top bar
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Surface(
-                shape = MusicoShapes.chip,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.pressable(onClick = onCollapse, pressedScale = 0.94f),
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(Icons.Filled.ExpandMore, contentDescription = "Collapse", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-                    Text("Back", color = MaterialTheme.colorScheme.onSurface, style = Musico.type.caption, fontWeight = FontWeight.SemiBold)
-                }
-            }
+            ContextualBottomChip(
+                icon = Icons.Filled.ExpandMore,
+                label = "Back",
+                active = false,
+                onClick = onCollapse,
+            )
 
-            // Right-pane switcher: Lyrics Studio ⇄ Up Next (native M3E tonal segmented container)
-            Surface(
-                shape = MusicoShapes.chip,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ) {
-                Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SplitStageTab(
-                        icon = Icons.Filled.Lyrics,
-                        label = "Lyrics Studio",
-                        selected = !rightTabQueue,
-                        accent = MaterialTheme.colorScheme.onSecondaryContainer,
-                        onClick = { rightTabQueue = false },
-                    )
-                    SplitStageTab(
-                        icon = Icons.Filled.QueueMusic,
-                        label = "Up Next · $queueSize",
-                        selected = rightTabQueue,
-                        accent = MaterialTheme.colorScheme.onSecondaryContainer,
-                        onClick = { rightTabQueue = true },
-                    )
-                }
-            }
+            // M3E Connected Button Group switching Lyrics Studio <-> Up Next
+            ExpressiveConnectedButtonGroup(
+                options = listOf(
+                    ConnectedButtonOption(false, "Lyrics Studio", Icons.Filled.Lyrics),
+                    ConnectedButtonOption(true, "Up Next · $queueSize", Icons.Filled.QueueMusic),
+                ),
+                selected = rightTabQueue,
+                onSelect = { rightTabQueue = it },
+                height = 42.dp,
+                emphasized = false,
+                unselectedColor = if (Musico.extras.isDark) {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLowest
+                },
+                modifier = Modifier.width(308.dp),
+            )
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
 
         Row(
             Modifier
@@ -367,11 +354,11 @@ private fun WidescreenSplitNowPlaying(
             horizontalArrangement = Arrangement.spacedBy(44.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Left Stage: Living Breathing Artwork + Track Meta + Seek + Transport
+            // Left Stage: Expressive Artwork + Title + Inline Wavy Seek + M3E Transport Cluster + Pill Row
             Column(
                 modifier = Modifier
                     .weight(0.46f)
-                    .widthIn(max = 460.dp)
+                    .widthIn(max = 440.dp)
                     .fillMaxHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -383,75 +370,74 @@ private fun WidescreenSplitNowPlaying(
                     atmosphere = atmosphere,
                     onTogglePlay = onTogglePlay,
                     modifier = Modifier
-                        .fillMaxWidth(0.84f)
+                        .fillMaxWidth(0.76f)
                         .aspectRatio(1f),
                 )
-                Spacer(Modifier.height(26.dp))
-                Row(
-                    Modifier.fillMaxWidth(0.92f),
-                    verticalAlignment = Alignment.CenterVertically,
+                Spacer(Modifier.height(22.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(0.94f),
+                    horizontalAlignment = Alignment.Start,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            activeTrack.title.ifEmpty { "Untitled" },
-                            color = Color.White,
-                            style = Musico.type.display.copy(fontSize = 24.sp),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.basicMarquee(),
-                        )
-                        Text(
-                            activeTrack.artist.ifEmpty { activeTrack.album }.ifEmpty { "Unknown artist" },
-                            color = Color.White.copy(alpha = 0.70f),
-                            style = Musico.type.body,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    IconButton(onClick = { hapticTick(); onAddToPlaylist(activeTrack) }) {
-                        Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add to playlist", tint = Color.White.copy(alpha = 0.85f))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    LikeButton(liked = liked, onToggle = onLikeToggle, size = 24.dp)
+                    Text(
+                        activeTrack.title.ifEmpty { "Untitled" },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = Musico.type.headline.copy(fontSize = 24.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.basicMarquee(),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        activeTrack.artist.ifEmpty { activeTrack.album }.ifEmpty { "Unknown artist" },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = Musico.type.body,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Spacer(Modifier.height(14.dp))
-                SeekBar(
+                Spacer(Modifier.height(16.dp))
+                ExpressiveInlineSeekBar(
                     positionMs = smoothPositionMs,
                     durationMs = durationMs,
                     isPlaying = isPlaying,
-                    activeColor = MaterialTheme.colorScheme.primary,
                     onSeek = onSeek,
-                    horizontalPadding = 16.dp,
+                    modifier = Modifier.fillMaxWidth(0.96f),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
+                ExpressiveTransportCluster(
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    onPrevious = onPrevious,
+                    onTogglePlay = onTogglePlay,
+                    onNext = onNext,
+                )
+                Spacer(Modifier.height(14.dp))
+                ExpressiveSecondaryActionRow(
+                    liked = liked,
+                    repeatAll = repeatAll,
+                    onRepeatToggle = onRepeatToggle,
+                    onLikeToggle = onLikeToggle,
+                    onAddToPlaylist = { onAddToPlaylist(activeTrack) },
+                    modifier = Modifier.fillMaxWidth(0.90f),
+                )
+                Spacer(Modifier.height(14.dp))
                 Row(
-                    Modifier
-                        .fillMaxWidth(0.92f)
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(0.90f),
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { hapticTick(); onRepeatToggle() }) {
-                        Icon(
-                            Icons.Filled.Repeat,
-                            contentDescription = "Repeat",
-                            tint = if (repeatAll) atmosphere.glow else Color.White.copy(alpha = 0.65f),
-                        )
-                    }
-                    TransportButton(onClick = onPrevious, size = 34.dp) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(34.dp))
-                    }
-                    BigPlayButton(isPlaying = isPlaying, isBuffering = isBuffering, onClick = onTogglePlay, size = 68.dp)
-                    TransportButton(onClick = onNext, size = 34.dp) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(34.dp))
-                    }
-                    IconButton(onClick = { rightTabQueue = !rightTabQueue }) {
-                        Icon(
-                            if (rightTabQueue) Icons.Filled.Lyrics else Icons.Filled.QueueMusic,
-                            contentDescription = "Toggle queue",
-                            tint = atmosphere.glow,
-                        )
-                    }
+                    ContextualBottomChip(
+                        icon = Icons.Filled.AutoAwesome,
+                        label = "Backdrop",
+                        active = false,
+                        onClick = onCycleBackdrop,
+                    )
+                    ContextualBottomChip(
+                        icon = if (rightTabQueue) Icons.Filled.Lyrics else Icons.Filled.QueueMusic,
+                        label = if (rightTabQueue) "Lyrics" else "Queue",
+                        active = true,
+                        onClick = { rightTabQueue = !rightTabQueue },
+                    )
                 }
             }
 
@@ -477,33 +463,6 @@ private fun WidescreenSplitNowPlaying(
     }
 }
 
-@Composable
-private fun SplitStageTab(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    selected: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .clip(MusicoShapes.chip)
-            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-            .pressable(onClick = onClick, pressedScale = 0.94f)
-            .padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(icon, contentDescription = null, tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-        Text(
-            label,
-            style = Musico.type.tabularCaption,
-            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
-    }
-}
-
 // ── Compact Phone Pager (< 840dp) ─────────────────────────────────────────
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -515,6 +474,7 @@ private fun CompactPagerNowPlaying(
     smoothPositionMs: Long,
     durationMs: Long,
     atmosphere: ArtworkAtmosphere,
+    queueSize: Int,
     liked: Boolean,
     repeatAll: Boolean,
     initialPage: Int,
@@ -528,6 +488,7 @@ private fun CompactPagerNowPlaying(
     onLikeToggle: () -> Unit,
     onRepeatToggle: () -> Unit,
     onAddToPlaylist: (OnlineTrack) -> Unit,
+    onCycleBackdrop: () -> Unit,
     onDragProgressChange: (Float) -> Unit,
     lyricsContent: @Composable () -> Unit,
     queueContent: @Composable () -> Unit,
@@ -547,7 +508,7 @@ private fun CompactPagerNowPlaying(
     val collapseThresholdPx = with(density) { 150.dp.toPx() }
     val animDragOffset by animateFloatAsState(
         targetValue = dragOffsetPx,
-        animationSpec = MusicoMotion.spatial(),
+        animationSpec = MusicoMotion.spatialDefault(),
         label = "npDragOffset",
     )
 
@@ -598,48 +559,96 @@ private fun CompactPagerNowPlaying(
                 ) {
                     Box(
                         Modifier
-                            .width(38.dp)
+                            .width(40.dp)
                             .height(4.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.28f)),
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
                     )
                 }
 
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onCollapse) {
-                        Icon(Icons.Filled.ExpandMore, contentDescription = "Collapse player", tint = Color.White, modifier = Modifier.size(30.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = if (Musico.extras.isDark) {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerLowest
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .pressable(onClick = onCollapse, pressedScale = 0.90f),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.ExpandMore,
+                                contentDescription = "Collapse player",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
                     }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         Text(
                             when (pagerState.currentPage) {
-                                1 -> "LYRICS"
-                                2 -> "UP NEXT"
+                                1 -> "LYRICS STUDIO"
+                                2 -> "UP NEXT · $queueSize"
                                 else -> "NOW PLAYING"
                             },
-                            fontSize = 10.sp,
-                            letterSpacing = 3.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = atmosphere.glow.copy(alpha = 0.85f),
+                            style = Musico.type.overline,
+                            letterSpacing = 1.8.sp,
+                            color = MaterialTheme.colorScheme.primary,
                         )
-                        Text(
-                            activeTrack.title.ifEmpty { "Untitled" },
-                            color = Color.White,
-                            style = Musico.type.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.basicMarquee(),
-                        )
+                        if (pagerState.currentPage != 0) {
+                            Text(
+                                activeTrack.title.ifEmpty { "Untitled" },
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = Musico.type.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.basicMarquee(),
+                            )
+                        }
                     }
-                    IconButton(onClick = { hapticTick(); onAddToPlaylist(activeTrack) }) {
-                        Icon(Icons.Filled.PlaylistAdd, contentDescription = "Add to playlist", tint = Color.White.copy(alpha = 0.88f))
-                    }
-                    Box(Modifier.padding(end = 8.dp)) {
-                        LikeButton(liked = liked, onToggle = onLikeToggle, size = 24.dp)
+
+                    // Page dots inline on the right for clean balance
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        repeat(3) { i ->
+                            val active = pagerState.currentPage == i
+                            val dotW by animateDpAsState(
+                                targetValue = if (active) 16.dp else 6.dp,
+                                animationSpec = MusicoMotion.spatialFast(),
+                                label = "npTopDot$i",
+                            )
+                            val dotC by animateColorAsState(
+                                targetValue = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                animationSpec = MusicoMotion.effectsFast(),
+                                label = "npTopDotC$i",
+                            )
+                            Box(
+                                Modifier
+                                    .size(width = safeCornerDp(dotW), height = 6.dp)
+                                    .clip(CircleShape)
+                                    .background(dotC)
+                                    .clickable {
+                                        hapticTick()
+                                        scope.launch { pagerState.animateScrollToPage(i) }
+                                    },
+                            )
+                        }
                     }
                 }
             }
@@ -664,95 +673,78 @@ private fun CompactPagerNowPlaying(
             enter = fadeIn(tween(MusicoMotion.MED)),
             exit = fadeOut(tween(MusicoMotion.FAST)),
         ) {
-            Column(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    repeat(3) { i ->
-                        val active = pagerState.currentPage == i
-                        val dotWidth by animateDpAsState(
-                            targetValue = if (active) 18.dp else 6.dp,
-                            animationSpec = MusicoMotion.expressive(),
-                            label = "npDotW$i",
-                        )
-                        val dotColor by animateColorAsState(
-                            targetValue = when {
-                                active -> Color.White
-                                i == 1 -> atmosphere.glow.copy(alpha = 0.65f)
-                                else -> Color.White.copy(alpha = 0.28f)
-                            },
-                            animationSpec = MusicoMotion.gentle(),
-                            label = "npDotC$i",
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable {
-                                    hapticTick()
-                                    scope.launch { pagerState.animateScrollToPage(i) }
-                                }
-                                .padding(horizontal = 5.dp, vertical = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(width = dotWidth.coerceAtLeast(0.dp), height = 5.dp)
-                                    .clip(CircleShape)
-                                    .background(dotColor),
-                            )
-                        }
-                    }
-                }
-
-                SeekBar(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // 1. Inline-timestamped M3 Expressive Wavy Seekbar
+                ExpressiveInlineSeekBar(
                     positionMs = smoothPositionMs,
                     durationMs = durationMs,
                     isPlaying = isPlaying,
-                    activeColor = MaterialTheme.colorScheme.primary,
                     onSeek = onSeek,
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
+                Spacer(Modifier.height(14.dp))
+
+                // 2. M3 Expressive Mixed-Geometry Transport Cluster (Squircle Prev · Wide Morphing Play/Pause · Squircle Next)
+                ExpressiveTransportCluster(
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    onPrevious = onPrevious,
+                    onTogglePlay = onTogglePlay,
+                    onNext = onNext,
+                )
+
+                Spacer(Modifier.height(14.dp))
+
+                // 3. Elevated Secondary Pill Action Row (Repeat circle · Like stadium pill · Playlist stadium pill)
+                ExpressiveSecondaryActionRow(
+                    liked = liked,
+                    repeatAll = repeatAll,
+                    onRepeatToggle = onRepeatToggle,
+                    onLikeToggle = onLikeToggle,
+                    onAddToPlaylist = { onAddToPlaylist(activeTrack) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Spacer(Modifier.height(14.dp))
+
+                // 4. Bottom Contextual Tonal Chips (Backdrop · Lyrics · Queue)
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 28.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val repeatScale by animateFloatAsState(
-                        targetValue = if (repeatAll) 1.12f else 1f,
-                        animationSpec = MusicoMotion.snappy(),
-                        label = "npRepeatScale",
+                    ContextualBottomChip(
+                        icon = Icons.Filled.AutoAwesome,
+                        label = "Backdrop",
+                        active = false,
+                        onClick = onCycleBackdrop,
                     )
-                    IconButton(onClick = { hapticTick(); onRepeatToggle() }) {
-                        Icon(
-                            Icons.Filled.Repeat,
-                            contentDescription = if (repeatAll) "Repeat on" else "Repeat off",
-                            tint = if (repeatAll) atmosphere.glow else Color.White.copy(alpha = 0.72f),
-                            modifier = Modifier.scale(repeatScale.coerceAtLeast(0.01f)),
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ContextualBottomChip(
+                            icon = Icons.Filled.Lyrics,
+                            label = "Lyrics",
+                            active = pagerState.currentPage == 1,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(if (pagerState.currentPage == 1) 0 else 1)
+                                }
+                            },
                         )
-                    }
-                    TransportButton(onClick = onPrevious, size = 38.dp) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(38.dp))
-                    }
-                    BigPlayButton(isPlaying = isPlaying, isBuffering = isBuffering, onClick = onTogglePlay)
-                    TransportButton(onClick = onNext, size = 38.dp) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(38.dp))
-                    }
-                    val onLyricsPage = pagerState.currentPage == 1
-                    IconButton(onClick = {
-                        hapticTick()
-                        scope.launch { pagerState.animateScrollToPage(if (onLyricsPage) 0 else 1) }
-                    }) {
-                        Icon(
-                            Icons.Filled.Lyrics,
-                            contentDescription = if (onLyricsPage) "Show artwork" else "Show lyrics",
-                            tint = if (onLyricsPage) atmosphere.glow else Color.White.copy(alpha = 0.78f),
+                        ContextualBottomChip(
+                            icon = Icons.Filled.QueueMusic,
+                            label = "Queue",
+                            active = pagerState.currentPage == 2,
+                            onClick = {
+                                scope.launch {
+                                    pagerState.animateScrollToPage(if (pagerState.currentPage == 2) 0 else 2)
+                                }
+                            },
                         )
                     }
                 }
@@ -761,7 +753,217 @@ private fun CompactPagerNowPlaying(
     }
 }
 
-// ── Living Breathing Artwork (Apple Music spring scale + cover glow halo) ──
+// ── M3 Expressive Shared Player Sub-Components ────────────────────────────
+
+@Composable
+private fun ExpressiveTransportCluster(
+    isPlaying: Boolean,
+    isBuffering: Boolean,
+    onPrevious: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ExpressiveTransportButton(
+            icon = Icons.Filled.SkipPrevious,
+            contentDescription = "Previous",
+            onClick = onPrevious,
+            width = 74.dp,
+            height = 68.dp,
+            iconSize = 30.dp,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        ExpressivePlayPauseButton(
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            onClick = onTogglePlay,
+            width = 96.dp,
+            height = 72.dp,
+            containerColorPaused = MaterialTheme.colorScheme.primary,
+            containerColorPlaying = MaterialTheme.colorScheme.primary,
+            contentColorPaused = MaterialTheme.colorScheme.onPrimary,
+            contentColorPlaying = MaterialTheme.colorScheme.onPrimary,
+        )
+        ExpressiveTransportButton(
+            icon = Icons.Filled.SkipNext,
+            contentDescription = "Next",
+            onClick = onNext,
+            width = 74.dp,
+            height = 68.dp,
+            iconSize = 30.dp,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+    }
+}
+
+@Composable
+private fun ExpressiveSecondaryActionRow(
+    liked: Boolean,
+    repeatAll: Boolean,
+    onRepeatToggle: () -> Unit,
+    onLikeToggle: () -> Unit,
+    onAddToPlaylist: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ExpressiveActionPill(
+            icon = Icons.Filled.Repeat,
+            contentDescription = if (repeatAll) "Repeat on" else "Repeat off",
+            onClick = onRepeatToggle,
+            active = repeatAll,
+            height = 48.dp,
+            modifier = Modifier.width(50.dp),
+        )
+        ExpressiveActionPill(
+            icon = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+            contentDescription = if (liked) "Remove from liked" else "Like song",
+            label = if (liked) "Liked" else "Like",
+            onClick = onLikeToggle,
+            active = liked,
+            height = 48.dp,
+            containerColor = if (liked) {
+                MaterialTheme.colorScheme.tertiaryContainer
+            } else if (Musico.extras.isDark) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            },
+            contentColor = if (liked) {
+                MaterialTheme.colorScheme.onTertiaryContainer
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            modifier = Modifier.weight(1f),
+        )
+        ExpressiveActionPill(
+            icon = Icons.Filled.PlaylistAdd,
+            contentDescription = "Add to playlist",
+            label = "Save",
+            onClick = onAddToPlaylist,
+            active = false,
+            height = 48.dp,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ContextualBottomChip(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val bg by animateColorAsState(
+        targetValue = if (active) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = MusicoMotion.effectsFast(),
+        label = "ctxChipBg",
+    )
+    val fg by animateColorAsState(
+        targetValue = if (active) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = MusicoMotion.effectsFast(),
+        label = "ctxChipFg",
+    )
+    val corner by animateDpAsState(
+        targetValue = if (active) 20.dp else 14.dp,
+        animationSpec = MusicoMotion.spatialFast(),
+        label = "ctxChipCorner",
+    )
+    Surface(
+        shape = RoundedCornerShape(safeCornerDp(corner).coerceAtLeast(8.dp)),
+        color = bg,
+        modifier = Modifier
+            .pointerHoverIcon(PointerIcon.Hand)
+            .pressable(onClick = { hapticTick(); onClick() }, pressedScale = 0.94f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
+                color = fg,
+            )
+        }
+    }
+}
+
+/**
+ * Inline-timestamped Material 3 Expressive wavy seekbar matching Google's M3E
+ * media control layout (`1:12  ~~~~|--------  3:45`).
+ */
+@Composable
+private fun ExpressiveInlineSeekBar(
+    positionMs: Long,
+    durationMs: Long,
+    isPlaying: Boolean,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    val posFraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val shown = dragFraction ?: posFraction
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = formatTime(if (dragFraction == null) positionMs else (shown * durationMs).toLong()),
+            style = Musico.type.tabularCaption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier.widthIn(min = 38.dp),
+        )
+        ExpressiveWavySeekBar(
+            progress = posFraction,
+            isPlaying = isPlaying,
+            enabled = durationMs > 0L,
+            activeColor = MaterialTheme.colorScheme.primary,
+            inactiveColor = MaterialTheme.colorScheme.outlineVariant,
+            thumbColor = MaterialTheme.colorScheme.primary,
+            onDragProgress = { dragFraction = it },
+            onSeek = { frac ->
+                if (durationMs > 0L) {
+                    onSeek((frac * durationMs).toLong())
+                }
+            },
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = formatTime(durationMs),
+            style = Musico.type.tabularCaption,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(min = 38.dp),
+        )
+    }
+}
+
+// ── Living Breathing Artwork ──────────────────────────────────────────────
 
 @Composable
 private fun LivingBreathingArtwork(
@@ -773,51 +975,64 @@ private fun LivingBreathingArtwork(
     modifier: Modifier = Modifier,
 ) {
     val breathScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f else 0.92f,
-        animationSpec = MusicoMotion.expressive(),
+        targetValue = if (isPlaying) 1.0f else 0.93f,
+        animationSpec = MusicoMotion.spatialDefault(),
         label = "livingCoverScale",
     )
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        // Pure Pixel Material 3 Expressive artwork frame — crisp tonal container,
-        // zero radial glow aura or blurred halo.
-        Box(
-            Modifier
+        Surface(
+            shape = MusicoShapes.cardLarge,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shadowElevation = if (Musico.extras.isDark) 10.dp else 8.dp,
+            modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    val safeBreath = breathScale.coerceAtLeast(0.01f)
+                    val safeBreath = safePositiveScale(breathScale)
                     scaleX = safeBreath
                     scaleY = safeBreath
-                }
-                .clip(MusicoShapes.cardLarge)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            AnimatedContent(
-                targetState = track,
-                transitionSpec = {
-                    (fadeIn(tween(MusicoMotion.SLOW, easing = MusicoMotion.decelerate)) +
-                        scaleIn(initialScale = 0.92f, animationSpec = MusicoMotion.spatial())) togetherWith
-                        (fadeOut(tween(MusicoMotion.MED)) +
-                            scaleOut(targetScale = 1.05f, animationSpec = tween(MusicoMotion.MED, easing = MusicoMotion.accelerate)))
                 },
-                label = "artworkMorph",
-            ) { current ->
-                Artwork(
-                    url = current.thumbnail,
-                    contentDescription = current.title,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onTogglePlay,
-                        ),
-                    cornerRadius = Musico.extras.cardLargeRadius,
-                )
-            }
-            if (isBuffering) {
-                Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Musico.extras.mint, modifier = Modifier.size(56.dp))
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                AnimatedContent(
+                    targetState = track,
+                    transitionSpec = {
+                        (fadeIn(tween(MusicoMotion.SLOW, easing = MusicoMotion.decelerate)) +
+                            scaleIn(initialScale = 0.92f, animationSpec = MusicoMotion.spatialDefault())) togetherWith
+                            (fadeOut(tween(MusicoMotion.MED)) +
+                                scaleOut(targetScale = 1.04f, animationSpec = tween(MusicoMotion.MED, easing = MusicoMotion.accelerate)))
+                    },
+                    label = "artworkMorph",
+                ) { current ->
+                    Artwork(
+                        url = current.thumbnail,
+                        contentDescription = current.title,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onTogglePlay,
+                            ),
+                        cornerRadius = Musico.extras.cardLargeRadius,
+                    )
+                }
+                if (isBuffering) {
+                    Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                            modifier = Modifier.size(64.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(34.dp),
+                                    strokeWidth = 3.dp,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -835,7 +1050,7 @@ private fun ArtworkPage(
     Box(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 8.dp),
+            .padding(horizontal = 28.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -846,22 +1061,23 @@ private fun ArtworkPage(
                 atmosphere = atmosphere,
                 onTogglePlay = onTogglePlay,
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 360.dp)
                     .aspectRatio(1f),
             )
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(18.dp))
             AnimatedContent(
                 targetState = track,
                 transitionSpec = {
                     (fadeIn(tween(MusicoMotion.MED, easing = MusicoMotion.decelerate)) +
-                        slideInVertically(MusicoMotion.spatial()) { it / 3 }) togetherWith fadeOut(tween(MusicoMotion.FAST))
+                        slideInVertically(MusicoMotion.spatialDefault()) { it / 3 }) togetherWith fadeOut(tween(MusicoMotion.FAST))
                 },
                 label = "npTitleMorph",
             ) { current ->
                 Text(
                     current.title.ifEmpty { "Untitled" },
-                    color = Color.White,
-                    style = Musico.type.display.copy(fontSize = 24.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = Musico.type.headline.copy(fontSize = 23.sp),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -870,7 +1086,7 @@ private fun ArtworkPage(
             Spacer(Modifier.height(4.dp))
             Text(
                 track.artist.ifEmpty { track.album }.ifEmpty { "Unknown artist" },
-                color = Color.White.copy(alpha = 0.68f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = Musico.type.body,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -883,7 +1099,6 @@ private fun ArtworkPage(
 private fun QueuePage(
     queue: List<OnlineTrack>,
     queueIndex: Int,
-    glowColor: Color,
     onPlayFromQueue: (Int) -> Unit,
     onRemoveFromQueue: (Int) -> Unit,
 ) {
@@ -893,37 +1108,41 @@ private fun QueuePage(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("Up next", style = Musico.type.display, color = Color.White)
+            Text("Up next", style = Musico.type.display, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text("Queue is empty — play something!", color = Color.White.copy(alpha = 0.6f), style = Musico.type.body)
+            Text("Queue is empty — play something!", color = MaterialTheme.colorScheme.onSurfaceVariant, style = Musico.type.body)
         }
         return
     }
     Column(Modifier.fillMaxSize().padding(vertical = 4.dp)) {
         Text(
-            "UP NEXT · ${queue.size} TRACKS",
-            style = Musico.type.tabularCaption,
-            letterSpacing = 2.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = 0.62f),
+            "Up next · ${queue.size} tracks",
+            style = Musico.type.section,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
         )
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(queue.size, key = { "q-${queue[it].videoId}-$it" }) { i ->
                 val item = queue[i]
                 val isCurrent = i == queueIndex
                 val rowBg by animateColorAsState(
-                    targetValue = if (isCurrent) Color.White.copy(alpha = 0.12f) else Color.Transparent,
-                    animationSpec = MusicoMotion.gentle(),
+                    targetValue = if (isCurrent) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else if (Musico.extras.isDark) {
+                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.85f)
+                    },
+                    animationSpec = MusicoMotion.effectsDefault(),
                     label = "queueBg$i",
                 )
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(MusicoShapes.chip)
+                        .clip(RoundedCornerShape(18.dp))
                         .background(rowBg)
                         .pressable(onClick = { hapticTick(); onPlayFromQueue(i) }, pressedScale = 0.98f)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -934,119 +1153,53 @@ private fun QueuePage(
                     Column(Modifier.weight(1f)) {
                         Text(
                             item.title.ifEmpty { "Untitled" },
-                            color = if (isCurrent) glowColor else Color.White,
+                            color = if (isCurrent) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
                             style = Musico.type.title,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             item.artist.ifEmpty { "Unknown artist" },
-                            color = Color.White.copy(alpha = 0.58f),
+                            color = if (isCurrent) {
+                                MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                             style = Musico.type.caption,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                     if (isCurrent) {
-                        Text(
-                            "PLAYING",
-                            fontSize = 9.sp,
-                            letterSpacing = 1.5.sp,
-                            color = glowColor,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(end = 6.dp),
-                        )
+                        Surface(
+                            shape = MusicoShapes.pill,
+                            color = MaterialTheme.colorScheme.primary,
+                        ) {
+                            Text(
+                                "PLAYING",
+                                fontSize = 9.sp,
+                                letterSpacing = 1.2.sp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
                     } else {
                         IconButton(
                             onClick = { hapticTick(); onRemoveFromQueue(i) },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Remove from queue", tint = Color.White.copy(alpha = 0.48f), modifier = Modifier.size(16.dp))
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Remove from queue",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SeekBar(
-    positionMs: Long,
-    durationMs: Long,
-    isPlaying: Boolean,
-    activeColor: Color,
-    onSeek: (Long) -> Unit,
-    horizontalPadding: Dp = 28.dp,
-) {
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val posFraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    val shown = dragFraction ?: posFraction
-
-    Column(Modifier.padding(horizontal = horizontalPadding)) {
-        ExpressiveWavySeekBar(
-            progress = posFraction,
-            isPlaying = isPlaying,
-            enabled = durationMs > 0L,
-            activeColor = activeColor,
-            inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            thumbColor = activeColor,
-            onDragProgress = { dragFraction = it },
-            onSeek = { frac ->
-                if (durationMs > 0L) {
-                    onSeek((frac * durationMs).toLong())
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(2.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                formatTime(if (dragFraction == null) positionMs else (shown * durationMs).toLong()),
-                style = Musico.type.tabularCaption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-            )
-            Text(
-                formatTime(durationMs),
-                style = Musico.type.tabularCaption,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun BigPlayButton(
-    isPlaying: Boolean,
-    isBuffering: Boolean,
-    onClick: () -> Unit,
-    size: Dp = 76.dp,
-) {
-    ExpressivePlayPauseButton(
-        isPlaying = isPlaying,
-        isBuffering = isBuffering,
-        onClick = onClick,
-        size = size,
-        containerColorPaused = MaterialTheme.colorScheme.primaryContainer,
-        containerColorPlaying = MaterialTheme.colorScheme.primary,
-        contentColorPaused = MaterialTheme.colorScheme.onPrimaryContainer,
-        contentColorPlaying = MaterialTheme.colorScheme.onPrimary,
-    )
-}
-
-@Composable
-private fun TransportButton(onClick: () -> Unit, size: Dp, content: @Composable () -> Unit) {
-    Box(
-        Modifier
-            .size(size * 1.6f)
-            .clip(CircleShape)
-            .pressable(onClick = onClick, pressedScale = 0.84f)
-            .padding(4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
     }
 }
 

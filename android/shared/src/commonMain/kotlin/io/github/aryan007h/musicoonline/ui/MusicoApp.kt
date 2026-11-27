@@ -46,12 +46,14 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
@@ -134,6 +136,7 @@ import io.github.aryan007h.musicoonline.ui.radio.RadioScreen
 import io.github.aryan007h.musicoonline.ui.search.SearchScreen
 import io.github.aryan007h.musicoonline.ui.settings.EqScreen
 import io.github.aryan007h.musicoonline.ui.settings.SettingsScreen
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -156,6 +159,7 @@ import kotlinx.serialization.json.JsonPrimitive
 fun MusicoApp(
     vm: MusicViewModel,
     onExitApp: () -> Unit = {},
+    onDarkResolved: ((Boolean) -> Unit)? = null,
 ) {
     val state by vm.state.collectAsState()
     var sheetTrack by remember { mutableStateOf<OnlineTrack?>(null) }
@@ -200,7 +204,11 @@ fun MusicoApp(
     PlatformBackHandler(enabled = sheetTrack != null) { sheetTrack = null }
     PlatformBackHandler(enabled = playlistTargetTracks != null) { playlistTargetTracks = null }
 
-    MusicoTheme(palette = state.palette) {
+    MusicoTheme(
+        palette = state.palette,
+        themeMode = state.themeMode,
+        onDarkResolved = onDarkResolved,
+    ) {
         val activeAtmosphere = rememberArtworkAtmosphere(state.nowPlaying?.thumbnail)
 
         BoxWithConstraints(
@@ -272,9 +280,11 @@ fun MusicoApp(
                     // ── Widescreen Desktop / Tablet Shell ────────────────────────
                     val railWidth = DesktopLayoutMetrics.railWidthDp(windowMaxWidth.value).dp
                     Row(Modifier.fillMaxSize()) {
+                        val isDark = Musico.extras.isDark
                         DesktopNavigationRail(
                             state = state,
                             railWidth = railWidth,
+                            isDark = isDark,
                             onSelectTab = { hapticTick(); vm.selectTab(it) },
                             onOpenMadeForYou = { hapticTick(); vm.openMadeForYou() },
                             onOpenLibrarySection = { hapticTick(); vm.openLibrarySection(it) },
@@ -282,6 +292,7 @@ fun MusicoApp(
                             onOpenQueue = { hapticTick(); vm.openPlayer(2) },
                             onImportPlaylist = { hapticTick(); showImportPlaylistDialog = true },
                             onNewPlaylist = { hapticTick(); showCreatePlaylistDialog = true },
+                            onToggleTheme = { hapticTick(); vm.toggleLightDark(isDark) },
                             onOpenProfile = { hapticTick(); vm.openOverlay(AppOverlay.PROFILE) },
                             onOpenSettings = { hapticTick(); vm.openOverlay(AppOverlay.SETTINGS) },
                         )
@@ -537,6 +548,7 @@ fun MusicoApp(
                         coreVersion = state.coreVersion,
                         lyricBackdrop = state.lyricBackdrop,
                         palette = state.palette,
+                        themeMode = state.themeMode,
                         offlineMode = state.coreSettingsOffline,
                         autoplay = state.coreSettingsAutoplay,
                         streamingQuality = state.coreSettingsStreamingQuality,
@@ -546,6 +558,7 @@ fun MusicoApp(
                         onBack = vm::closeOverlay,
                         onBackdropChange = vm::setLyricBackdrop,
                         onPaletteChange = vm::setPalette,
+                        onThemeModeChange = vm::setThemeMode,
                         skipSilence = state.skipSilence,
                         playbackSpeed = state.playbackSpeed,
                         onOfflineChange = { v -> vm.saveCoreSetting("offline_mode", JsonPrimitive(v)) },
@@ -727,6 +740,8 @@ fun MusicoApp(
                         playlistsCount = state.playlists.size,
                         listeningStats = state.listeningStats,
                         coreVersion = state.coreVersion,
+                        themeMode = state.themeMode,
+                        onThemeModeChange = vm::setThemeMode,
                         onBack = vm::closeOverlay,
                         onRename = vm::setDisplayName,
                         onOpenSettings = { vm.openOverlay(AppOverlay.SETTINGS) },
@@ -755,7 +770,7 @@ fun MusicoApp(
             ) {
                 Surface(
                     shape = MusicoShapes.chip,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = MaterialTheme.colorScheme.inverseSurface,
                     shadowElevation = 10.dp,
                 ) {
                     Row(
@@ -767,7 +782,7 @@ fun MusicoApp(
                             state.error.orEmpty(),
                             style = Musico.type.body,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onBackground,
+                            color = MaterialTheme.colorScheme.inverseOnSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
@@ -777,7 +792,7 @@ fun MusicoApp(
                                 label.uppercase(),
                                 style = Musico.type.caption,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Musico.extras.mint,
+                                color = MaterialTheme.colorScheme.inversePrimary,
                                 modifier = Modifier.pressable(
                                     onClick = { hapticTick(); vm.undoLastAction() },
                                     pressedScale = 0.9f,
@@ -933,6 +948,7 @@ object DesktopLayoutMetrics {
 private fun DesktopNavigationRail(
     state: MusicViewModel.UiState,
     railWidth: Dp = 256.dp,
+    isDark: Boolean,
     onSelectTab: (AppTab) -> Unit,
     onOpenMadeForYou: () -> Unit,
     onOpenLibrarySection: (LibrarySection) -> Unit,
@@ -940,6 +956,7 @@ private fun DesktopNavigationRail(
     onOpenQueue: () -> Unit,
     onImportPlaylist: () -> Unit,
     onNewPlaylist: () -> Unit,
+    onToggleTheme: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -954,7 +971,7 @@ private fun DesktopNavigationRail(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp, vertical = 16.dp),
         ) {
-            // Brand wordmark (solid M3 primaryContainer — zero gradients)
+            // Brand wordmark with M3 Expressive Cookie8 scalloped badge
             Row(
                 Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -962,8 +979,8 @@ private fun DesktopNavigationRail(
             ) {
                 Box(
                     Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(40.dp)
+                        .clip(ExpressiveShapes.Cookie8)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -981,7 +998,7 @@ private fun DesktopNavigationRail(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        state.coreVersion?.let { "v$it" } ?: "Material 3",
+                        state.coreVersion?.let { "v$it" } ?: "Expressive",
                         style = Musico.type.caption,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -1203,7 +1220,7 @@ private fun DesktopNavigationRail(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
             Spacer(Modifier.height(10.dp))
 
-            // Footer: Profile & Settings
+            // Footer: Profile, Quick Theme Toggle, & Settings
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1214,13 +1231,13 @@ private fun DesktopNavigationRail(
                         .weight(1f)
                         .clip(MusicoShapes.chip)
                         .pressable(onClick = onOpenProfile, pressedScale = 0.96f)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Surface(
-                        shape = CircleShape,
+                        shape = ExpressiveShapes.Cookie10,
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(30.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
@@ -1241,8 +1258,21 @@ private fun DesktopNavigationRail(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = onToggleTheme, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        imageVector = if (isDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
+                        contentDescription = if (isDark) "Switch to Light Mode" else "Switch to Dark Mode",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(onClick = onOpenSettings, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
@@ -1345,11 +1375,12 @@ private fun DesktopDockedPlayerBar(
     } else 0f
     val shownSeek = dragFraction ?: seekFraction
 
+    val isDark = Musico.extras.isDark
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
-        shadowElevation = 6.dp,
+        color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.45f else 0.7f)),
+        shadowElevation = if (isDark) 8.dp else 4.dp,
         modifier = modifier
             .fillMaxWidth()
             .height(82.dp),
@@ -1614,11 +1645,12 @@ private fun MiniPlayer(
         durationMs = state.durationMs,
     )
 
+    val isDark = Musico.extras.isDark
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        shadowElevation = 4.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.45f else 0.7f)),
+        shadowElevation = if (isDark) 6.dp else 3.dp,
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .fillMaxWidth()
@@ -1747,44 +1779,52 @@ private fun PillNavBar(
             PillDest(AppTab.SEARCH, Icons.Filled.Search, "Search"),
         )
     }
-    val itemBounds = remember { mutableStateMapOf<Any, Rect>() }
-    val profileKey = "profile"
+    val itemBounds = remember { mutableStateMapOf<AppTab, Rect>() }
     val density = LocalDensity.current
+    val isDark = Musico.extras.isDark
+    val barBg = if (isDark) {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLowest
+    }
 
-    Box(
+    // Authentic M3 Expressive Floating Toolbar + Detached Expressive Profile Button
+    Row(
         Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .padding(horizontal = 16.dp)
             .padding(bottom = 10.dp),
-        contentAlignment = Alignment.Center,
+        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Surface(
-            shape = MusicoShapes.chip,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            shadowElevation = 12.dp,
-            modifier = Modifier.padding(horizontal = 14.dp),
+            shape = MusicoShapes.pill,
+            color = barBg,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.4f else 0.7f)),
+            shadowElevation = if (isDark) 10.dp else 5.dp,
         ) {
-            Box(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                val sel = if (profileActive) itemBounds[profileKey] else itemBounds[current]
+            Box(Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+                val sel = if (!profileActive) itemBounds[current] else null
                 if (sel != null) {
                     val blobLeft by animateDpAsState(
                         targetValue = with(density) { sel.left.toDp() },
-                        animationSpec = MusicoMotion.expressive(),
+                        animationSpec = MusicoMotion.spatialFast(),
                         label = "blobLeft",
                     )
                     val blobRight by animateDpAsState(
                         targetValue = with(density) { sel.right.toDp() },
-                        animationSpec = MusicoMotion.expressive(),
+                        animationSpec = MusicoMotion.spatialFast(),
                         label = "blobRight",
                     )
                     val blobTop by animateDpAsState(
                         targetValue = with(density) { sel.top.toDp() },
-                        animationSpec = MusicoMotion.gentle(),
+                        animationSpec = MusicoMotion.effectsFast(),
                         label = "blobTop",
                     )
                     val blobBottom by animateDpAsState(
                         targetValue = with(density) { sel.bottom.toDp() },
-                        animationSpec = MusicoMotion.gentle(),
+                        animationSpec = MusicoMotion.effectsFast(),
                         label = "blobBottom",
                     )
                     Box(
@@ -1792,7 +1832,7 @@ private fun PillNavBar(
                             .offset(x = blobLeft, y = blobTop)
                             .width((blobRight - blobLeft).coerceAtLeast(0.dp))
                             .height((blobBottom - blobTop).coerceAtLeast(0.dp))
-                            .clip(MusicoShapes.chip)
+                            .clip(MusicoShapes.pill)
                             .background(MaterialTheme.colorScheme.primary),
                     )
                 }
@@ -1808,38 +1848,35 @@ private fun PillNavBar(
                             onBounds = { rect -> itemBounds[dest.tab] = rect },
                         )
                     }
-                    Spacer(Modifier.width(2.dp))
-                    Box(
-                        Modifier
-                            .onGloballyPositioned { coords -> itemBounds[profileKey] = coords.boundsInParent() }
-                            .clip(MusicoShapes.chip)
-                            .pressable(onClick = onProfile, pressedScale = 0.9f)
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = if (profileActive) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.primaryContainer
-                            },
-                            modifier = Modifier.size(30.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    displayName.trim().take(1).uppercase().ifEmpty { "M" },
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.sp,
-                                    color = if (profileActive) {
-                                        MaterialTheme.colorScheme.onPrimary
-                                    } else {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    },
-                                )
-                            }
-                        }
-                    }
                 }
+            }
+        }
+
+        // Detached M3 Expressive Cookie10 Profile Button beside the floating toolbar
+        Surface(
+            shape = ExpressiveShapes.Cookie10,
+            color = if (profileActive) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            },
+            shadowElevation = if (isDark) 8.dp else 4.dp,
+            modifier = Modifier
+                .size(54.dp)
+                .clip(ExpressiveShapes.Cookie10)
+                .pressable(onClick = onProfile, pressedScale = 0.90f),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    displayName.trim().take(1).uppercase().ifEmpty { "M" },
+                    fontWeight = FontWeight.Black,
+                    fontSize = 18.sp,
+                    color = if (profileActive) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    },
+                )
             }
         }
     }

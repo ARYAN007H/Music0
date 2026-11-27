@@ -36,8 +36,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -59,8 +57,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveFilterChip
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.components.musicoWash
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -152,6 +152,21 @@ fun OnboardingScreen(
             ) { s ->
                 when (s) {
                     0 -> Column(Modifier.padding(horizontal = 24.dp)) {
+                        Box(
+                            Modifier
+                                .size(56.dp)
+                                .clip(ExpressiveShapes.Cookie8)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.MusicNote,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
                         Text(
                             "What do you speak in music?",
                             style = Musico.type.display,
@@ -169,16 +184,12 @@ fun OnboardingScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Languages.forEach { lang ->
-                                FilterChip(
+                                ExpressiveFilterChip(
+                                    label = lang,
                                     selected = lang in selectedLangs,
                                     onClick = {
                                         selectedLangs = if (lang in selectedLangs) selectedLangs - lang else selectedLangs + lang
                                     },
-                                    label = { Text(lang) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                    ),
                                 )
                             }
                         }

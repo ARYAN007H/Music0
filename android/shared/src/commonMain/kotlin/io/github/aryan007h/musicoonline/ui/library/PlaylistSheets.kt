@@ -121,7 +121,7 @@ fun PlaylistMosaicArtwork(
                 Icon(
                     Icons.Filled.LibraryMusic,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.85f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(30.dp),
                 )
             }

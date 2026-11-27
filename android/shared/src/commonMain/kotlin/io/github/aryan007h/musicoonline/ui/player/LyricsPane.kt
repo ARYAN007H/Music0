@@ -152,6 +152,8 @@ fun LyricsPane(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val accentColor = MaterialTheme.colorScheme.primary
+    val onAccentColor = MaterialTheme.colorScheme.onPrimary
 
     var showSubLines by remember(lyrics?.trackId) { mutableStateOf(true) }
     var selectingForShare by remember(lyrics?.trackId) { mutableStateOf(false) }
@@ -193,7 +195,7 @@ fun LyricsPane(
                             lyrics = lyrics,
                             adjustedPosMs = adjustedPosMs,
                             durationMs = durationMs,
-                            atmosphere = atmosphere,
+                            accentColor = accentColor,
                             showSubLines = showSubLines && hasSubLines,
                             selectingForShare = selectingForShare,
                             selectedIndices = selectedIndices,
@@ -223,7 +225,7 @@ fun LyricsPane(
                         LyricsDisplayMode.KINETIC -> KineticLyricStage(
                             lyrics = lyrics,
                             adjustedPosMs = adjustedPosMs,
-                            atmosphere = atmosphere,
+                            accentColor = accentColor,
                             onSeekToTime = { targetLyricMs ->
                                 val playerTarget = (targetLyricMs - offsetMs).coerceAtLeast(0L)
                                 onSeek(playerTarget)
@@ -235,10 +237,10 @@ fun LyricsPane(
             }
         }
 
-        // Bottom Share Selection Bar
+        // Bottom Share Selection Bar (Light & Dark M3 Expressive floating bar)
         AnimatedVisibility(
             visible = selectingForShare && lyrics != null,
-            enter = slideInVertically(MusicoMotion.spatial()) { it } + fadeIn(tween(MusicoMotion.FAST)),
+            enter = slideInVertically(MusicoMotion.spatialDefault()) { it } + fadeIn(tween(MusicoMotion.FAST)),
             exit = slideOutVertically(tween(MusicoMotion.MED)) { it } + fadeOut(tween(MusicoMotion.FAST)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -246,7 +248,11 @@ fun LyricsPane(
         ) {
             Surface(
                 shape = MusicoShapes.chip,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = if (Musico.extras.isDark) {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLowest
+                },
                 shadowElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -262,28 +268,34 @@ fun LyricsPane(
                             Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.12f))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .pressable(onClick = {
                                     selectingForShare = false
                                     selectedIndices.clear()
                                 }),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Cancel", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Cancel",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
                         Spacer(Modifier.width(12.dp))
                         Text(
                             "${selectedIndices.size}/4 lines selected",
                             style = Musico.type.tabularCaption,
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
+                    val canShare = selectedIndices.isNotEmpty() && !sharingBusy
                     Surface(
                         shape = MusicoShapes.chip,
-                        color = if (selectedIndices.isNotEmpty() && !sharingBusy) atmosphere.glow else Color.White.copy(alpha = 0.2f),
+                        color = if (canShare) accentColor else MaterialTheme.colorScheme.surfaceContainerHighest,
                         modifier = Modifier.pressable(
-                            enabled = selectedIndices.isNotEmpty() && !sharingBusy && track != null,
+                            enabled = canShare && track != null,
                             onClick = {
                                 val t = track ?: return@pressable
                                 val picked = selectedIndices.mapNotNull { lyrics?.lines?.getOrNull(it)?.text }
@@ -307,10 +319,15 @@ fun LyricsPane(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Icon(Icons.Filled.Share, contentDescription = null, tint = Color(0xFF0A0A14), modifier = Modifier.size(16.dp))
+                            Icon(
+                                Icons.Filled.Share,
+                                contentDescription = null,
+                                tint = if (canShare) onAccentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
                             Text(
                                 if (sharingBusy) "Rendering…" else if (isDesktopPlatform) "Save Poster" else "Share Card",
-                                color = Color(0xFF0A0A14),
+                                color = if (canShare) onAccentColor else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp,
                             )
@@ -320,10 +337,10 @@ fun LyricsPane(
             }
         }
 
-        // Floating Lyrics Studio Toolbar
+        // Floating Material 3 Expressive Lyrics Studio Toolbar
         AnimatedVisibility(
             visible = !pureCinema && !selectingForShare && lyrics != null && lyrics.lines.isNotEmpty(),
-            enter = fadeIn(tween(MusicoMotion.MED)) + slideInVertically(MusicoMotion.spatial()) { it / 2 },
+            enter = fadeIn(tween(MusicoMotion.MED)) + slideInVertically(MusicoMotion.spatialDefault()) { it / 2 },
             exit = fadeOut(tween(MusicoMotion.FAST)) + slideOutVertically(tween(MusicoMotion.FAST)) { it / 2 },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -335,7 +352,7 @@ fun LyricsPane(
                 hasSubLines = hasSubLines,
                 showSubLines = showSubLines,
                 synced = lyrics?.synced == true,
-                accentColor = atmosphere.glow,
+                accentColor = accentColor,
                 onModeToggle = {
                     hapticTick()
                     onModeChange(
@@ -394,9 +411,13 @@ private fun LyricsStudioToolbar(
 ) {
     Surface(
         shape = MusicoShapes.chip,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shadowElevation = 4.dp,
-        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, MusicoShapes.chip),
+        color = if (Musico.extras.isDark) {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLowest
+        },
+        shadowElevation = if (Musico.extras.isDark) 4.dp else 6.dp,
+        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f), MusicoShapes.chip),
     ) {
         Row(
             Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -407,7 +428,6 @@ private fun LyricsStudioToolbar(
                 icon = if (mode == LyricsDisplayMode.CINEMA) Icons.Filled.ViewStream else Icons.Filled.ViewAgenda,
                 label = mode.label,
                 active = true,
-                accentColor = accentColor,
                 onClick = onModeToggle,
             )
 
@@ -416,7 +436,7 @@ private fun LyricsStudioToolbar(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(MusicoShapes.chip)
-                        .background(Color.White.copy(alpha = 0.08f))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
                     Box(
@@ -426,7 +446,12 @@ private fun LyricsStudioToolbar(
                             .pressable(onClick = { onNudgeOffset(-500L) }, pressedScale = 0.85f),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Remove, contentDescription = "Delay lyrics 0.5s", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(14.dp))
+                        Icon(
+                            Icons.Filled.Remove,
+                            contentDescription = "Delay lyrics 0.5s",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(14.dp),
+                        )
                     }
                     val offsetText = when {
                         offsetMs == 0L -> "Sync"
@@ -437,7 +462,7 @@ private fun LyricsStudioToolbar(
                         offsetText,
                         style = Musico.type.tabularCaption,
                         fontSize = 11.sp,
-                        color = if (offsetMs != 0L) accentColor else Color.White.copy(alpha = 0.78f),
+                        color = if (offsetMs != 0L) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = if (offsetMs != 0L) FontWeight.Bold else FontWeight.Medium,
                         modifier = Modifier
                             .clickable(onClick = onResetOffset)
@@ -450,7 +475,12 @@ private fun LyricsStudioToolbar(
                             .pressable(onClick = { onNudgeOffset(500L) }, pressedScale = 0.85f),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Advance lyrics 0.5s", tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(14.dp))
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = "Advance lyrics 0.5s",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(14.dp),
+                        )
                     }
                 }
             }
@@ -460,7 +490,6 @@ private fun LyricsStudioToolbar(
                     icon = Icons.Filled.Translate,
                     contentDescription = "Toggle translation",
                     active = showSubLines,
-                    accentColor = accentColor,
                     onClick = onToggleSubLines,
                 )
             }
@@ -469,7 +498,6 @@ private fun LyricsStudioToolbar(
                 icon = Icons.Filled.AutoAwesome,
                 contentDescription = "Cycle backdrop",
                 active = false,
-                accentColor = accentColor,
                 onClick = onCycleBackdrop,
             )
 
@@ -477,7 +505,6 @@ private fun LyricsStudioToolbar(
                 icon = Icons.Filled.Share,
                 contentDescription = "Share lyric card",
                 active = false,
-                accentColor = accentColor,
                 onClick = onEnterShareMode,
             )
         }
@@ -489,20 +516,29 @@ private fun ToolbarPillButton(
     icon: ImageVector,
     label: String,
     active: Boolean,
-    accentColor: Color,
     onClick: () -> Unit,
 ) {
     Row(
         Modifier
             .clip(MusicoShapes.chip)
-            .background(if (active) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+            .background(if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
             .pressable(onClick = onClick, pressedScale = 0.92f)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = if (active) accentColor else Color.White.copy(alpha = 0.8f), modifier = Modifier.size(15.dp))
-        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            label,
+            color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -511,21 +547,20 @@ private fun ToolbarIconButton(
     icon: ImageVector,
     contentDescription: String,
     active: Boolean,
-    accentColor: Color,
     onClick: () -> Unit,
 ) {
     Box(
         Modifier
             .size(32.dp)
             .clip(CircleShape)
-            .background(if (active) accentColor.copy(alpha = 0.20f) else Color.Transparent)
+            .background(if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
             .pressable(onClick = onClick, pressedScale = 0.88f),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
             contentDescription = contentDescription,
-            tint = if (active) accentColor else Color.White.copy(alpha = 0.82f),
+            tint = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(17.dp),
         )
     }
@@ -536,7 +571,7 @@ private fun FlowingVerseCinema(
     lyrics: EnhancedLyrics,
     adjustedPosMs: Long,
     durationMs: Long,
-    atmosphere: ArtworkAtmosphere,
+    accentColor: Color,
     showSubLines: Boolean,
     selectingForShare: Boolean,
     selectedIndices: List<Int>,
@@ -592,7 +627,7 @@ private fun FlowingVerseCinema(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val viewportPx = with(density) { maxHeight.toPx() }
         val centerOffsetPx = -(viewportPx * 0.28f).toInt()
-        val topPad = maxHeight * 0.24f
+        val topPad = maxHeight * 0.22f
         val bottomPad = maxHeight * 0.42f
 
         LaunchedEffect(activeIdx, userPausedFollow, selectingForShare) {
@@ -617,7 +652,7 @@ private fun FlowingVerseCinema(
                 item(key = "intro-interlude") {
                     InstrumentalInterludeDots(
                         progress = interludeProgress,
-                        glowColor = atmosphere.glow,
+                        accentColor = accentColor,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
@@ -644,7 +679,7 @@ private fun FlowingVerseCinema(
                     distance = distance,
                     adjustedPosMs = adjustedPosMs,
                     nextLineMs = nextLineMs,
-                    glowColor = atmosphere.glow,
+                    accentColor = accentColor,
                     showSubLines = showSubLines,
                     clearFocus = userPausedFollow || selectingForShare || !isSynced,
                     selectingForShare = selectingForShare,
@@ -667,7 +702,7 @@ private fun FlowingVerseCinema(
                     Spacer(Modifier.height(14.dp))
                     InstrumentalInterludeDots(
                         progress = interludeProgress,
-                        glowColor = atmosphere.glow,
+                        accentColor = accentColor,
                     )
                 }
             }
@@ -704,8 +739,18 @@ private fun FlowingVerseCinema(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Icon(Icons.Filled.MyLocation, contentDescription = null, tint = atmosphere.glow, modifier = Modifier.size(14.dp))
-                    Text("Sync to live", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Icon(
+                        Icons.Filled.MyLocation,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(
+                        "Sync to live",
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
@@ -722,7 +767,7 @@ private fun CinemaLyricRow(
     distance: Int,
     adjustedPosMs: Long,
     nextLineMs: Long,
-    glowColor: Color,
+    accentColor: Color,
     showSubLines: Boolean,
     clearFocus: Boolean,
     selectingForShare: Boolean,
@@ -730,14 +775,17 @@ private fun CinemaLyricRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
+    val ink = MaterialTheme.colorScheme.onSurface
+    val inkDim = MaterialTheme.colorScheme.onSurfaceVariant
+
     val targetAlpha = when {
-        selectingForShare -> if (isSelected) 1f else 0.45f
+        selectingForShare -> if (isSelected) 1f else 0.48f
         !isSynced -> 0.92f
         isActive -> 1f
-        clearFocus -> 0.85f
-        distance == 1 -> if (isPast) 0.42f else 0.56f
-        distance == 2 -> 0.34f
-        else -> 0.24f
+        clearFocus -> 0.86f
+        distance == 1 -> if (isPast) 0.44f else 0.60f
+        distance == 2 -> 0.36f
+        else -> 0.26f
     }
     val targetScale = when {
         selectingForShare -> if (isSelected) 1.0f else 0.97f
@@ -752,16 +800,20 @@ private fun CinemaLyricRow(
     val animScale by animateFloatAsState(targetValue = targetScale, animationSpec = MusicoMotion.cinema(), label = "verseScale")
     val activeBgColor by animateColorAsState(
         targetValue = when {
-            selectingForShare && isSelected -> glowColor.copy(alpha = 0.18f)
-            selectingForShare -> Color.White.copy(alpha = 0.04f)
-            isActive -> Color.White.copy(alpha = 0.09f)
+            selectingForShare && isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+            selectingForShare -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+            isActive -> if (Musico.extras.isDark) {
+                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.65f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.88f)
+            }
             else -> Color.Transparent
         },
         animationSpec = tween(MusicoMotion.MED),
         label = "verseCardBg",
     )
     val selectedBorderColor by animateColorAsState(
-        targetValue = if (isSelected) glowColor else Color.Transparent,
+        targetValue = if (isSelected) accentColor else Color.Transparent,
         animationSpec = tween(MusicoMotion.FAST),
         label = "verseSelectBorder",
     )
@@ -801,7 +853,7 @@ private fun CinemaLyricRow(
                     .width(4.dp)
                     .height(28.dp)
                     .clip(CircleShape)
-                    .background(glowColor),
+                    .background(accentColor),
             )
             Spacer(Modifier.width(12.dp))
         }
@@ -814,14 +866,14 @@ private fun CinemaLyricRow(
                         val progress = ((adjustedPosMs - word.startMs).toFloat() / span).coerceIn(0f, 1f)
                         when {
                             adjustedPosMs >= word.endMs -> {
-                                withStyle(SpanStyle(color = Color.White)) { append(word.word) }
+                                withStyle(SpanStyle(color = ink)) { append(word.word) }
                             }
                             adjustedPosMs >= word.startMs -> {
-                                val liftedColor = lerpColor(glowColor, Color.White, progress * 0.5f)
+                                val liftedColor = lerpColor(accentColor, ink, progress * 0.5f)
                                 withStyle(SpanStyle(color = liftedColor)) { append(word.word) }
                             }
                             else -> {
-                                withStyle(SpanStyle(color = Color.White.copy(alpha = 0.44f))) { append(word.word) }
+                                withStyle(SpanStyle(color = ink.copy(alpha = 0.42f))) { append(word.word) }
                             }
                         }
                     }
@@ -834,7 +886,7 @@ private fun CinemaLyricRow(
                 Text(
                     text = line.text,
                     style = Musico.type.lyricCinema,
-                    color = Color.White,
+                    color = ink,
                     textAlign = TextAlign.Start,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -843,18 +895,18 @@ private fun CinemaLyricRow(
                         .fillMaxWidth()
                         .height(3.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f)),
+                        .background(MaterialTheme.colorScheme.outlineVariant),
                 ) {
                     Box(
                         Modifier
                             .fillMaxWidth(fill.coerceIn(0.02f, 1f))
                             .height(3.dp)
                             .clip(CircleShape)
-                            .background(glowColor),
+                            .background(accentColor),
                     )
                 }
             } else {
-                Text(text = line.text, style = Musico.type.lyricCinema, color = Color.White, textAlign = TextAlign.Start)
+                Text(text = line.text, style = Musico.type.lyricCinema, color = ink, textAlign = TextAlign.Start)
             }
 
             if (showSubLines) {
@@ -865,7 +917,7 @@ private fun CinemaLyricRow(
                     Text(
                         text = sub,
                         style = Musico.type.lyricSub,
-                        color = if (isActive) glowColor else Color.White.copy(alpha = 0.64f),
+                        color = if (isActive) accentColor else inkDim,
                     )
                 }
             }
@@ -877,11 +929,16 @@ private fun CinemaLyricRow(
                 Modifier
                     .size(24.dp)
                     .clip(CircleShape)
-                    .background(if (isSelected) glowColor else Color.White.copy(alpha = 0.15f)),
+                    .background(if (isSelected) accentColor else MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center,
             ) {
                 if (isSelected) {
-                    Icon(Icons.Filled.Check, contentDescription = null, tint = Color(0xFF0A0A14), modifier = Modifier.size(15.dp))
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(15.dp),
+                    )
                 }
             }
         }
@@ -891,7 +948,7 @@ private fun CinemaLyricRow(
 @Composable
 private fun InstrumentalInterludeDots(
     progress: Float,
-    glowColor: Color,
+    accentColor: Color,
     modifier: Modifier = Modifier,
 ) {
     val pulse = rememberInfiniteTransition(label = "interludePulse")
@@ -920,7 +977,7 @@ private fun InstrumentalInterludeDots(
                         alpha = 0.25f + 0.75f * segFill
                     }
                     .clip(CircleShape)
-                    .background(if (segFill > 0.15f) glowColor else Color.White),
+                    .background(if (segFill > 0.15f) accentColor else MaterialTheme.colorScheme.onSurfaceVariant),
             )
         }
     }
@@ -932,7 +989,7 @@ private data class WordTiming(val word: String, val startMs: Long, val endMs: Lo
 private fun KineticLyricStage(
     lyrics: EnhancedLyrics,
     adjustedPosMs: Long,
-    atmosphere: ArtworkAtmosphere,
+    accentColor: Color,
     onSeekToTime: (Long) -> Unit,
     onTapCanvas: () -> Unit,
 ) {
@@ -959,9 +1016,9 @@ private fun KineticLyricStage(
         contentAlignment = Alignment.Center,
     ) {
         if (flatWords.isNotEmpty()) {
-            KineticWordStage(flatWords, adjustedPosMs, atmosphere.glow, onSeekToTime)
+            KineticWordStage(flatWords, adjustedPosMs, accentColor, onSeekToTime)
         } else {
-            KineticLineStage(lyrics, adjustedPosMs, atmosphere.glow, onSeekToTime)
+            KineticLineStage(lyrics, adjustedPosMs, onSeekToTime)
         }
     }
 }
@@ -970,9 +1027,10 @@ private fun KineticLyricStage(
 private fun KineticWordStage(
     words: List<WordTiming>,
     positionMs: Long,
-    glowColor: Color,
+    accentColor: Color,
     onSeek: (Long) -> Unit,
 ) {
+    val ink = MaterialTheme.colorScheme.onSurface
     val currentIdx = remember(positionMs, words) { findWordAt(words, positionMs) }
     val prev = if (currentIdx > 0) words[currentIdx - 1] else null
     val current = currentIdx.takeIf { it >= 0 }?.let { words[it] }
@@ -992,7 +1050,7 @@ private fun KineticWordStage(
         Box(contentAlignment = Alignment.Center, modifier = Modifier.height(128.dp)) {
             effectiveCurrent?.let { word ->
                 val fillFraction = wordFill(word, positionMs)
-                val wordColor = lerpColor(glowColor, Color.White, fillFraction)
+                val wordColor = lerpColor(accentColor, ink, fillFraction)
                 AnimatedContent(
                     targetState = word.startMs to word.word,
                     transitionSpec = {
@@ -1026,7 +1084,6 @@ private fun KineticWordStage(
 private fun KineticLineStage(
     lyrics: EnhancedLyrics,
     positionMs: Long,
-    glowColor: Color,
     onSeek: (Long) -> Unit,
 ) {
     val currentLineIdx = findActiveLineIndex(lyrics, positionMs)
@@ -1061,7 +1118,7 @@ private fun KineticLineStage(
                         fontSize = 36.sp,
                         lineHeight = 44.sp,
                     ),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -1087,7 +1144,7 @@ private fun KineticNeighbor(text: String, onClick: () -> Unit) {
         Text(
             text = word,
             style = Musico.type.lyricNeighbor,
-            color = Color.White.copy(alpha = 0.42f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.56f),
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -1152,15 +1209,15 @@ private fun LyricsSkeleton() {
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Center,
     ) {
-        SkeletonVerse(widthFraction = 0.62f, height = 22.dp, alpha = 0.14f)
+        SkeletonVerse(widthFraction = 0.62f, height = 22.dp, alpha = 0.12f)
         Spacer(Modifier.height(22.dp))
-        SkeletonVerse(widthFraction = 0.88f, height = 30.dp, alpha = 0.28f)
+        SkeletonVerse(widthFraction = 0.88f, height = 30.dp, alpha = 0.22f)
         Spacer(Modifier.height(10.dp))
-        SkeletonVerse(widthFraction = 0.68f, height = 30.dp, alpha = 0.22f)
+        SkeletonVerse(widthFraction = 0.68f, height = 30.dp, alpha = 0.18f)
         Spacer(Modifier.height(22.dp))
-        SkeletonVerse(widthFraction = 0.74f, height = 22.dp, alpha = 0.14f)
+        SkeletonVerse(widthFraction = 0.74f, height = 22.dp, alpha = 0.12f)
         Spacer(Modifier.height(18.dp))
-        SkeletonVerse(widthFraction = 0.52f, height = 22.dp, alpha = 0.10f)
+        SkeletonVerse(widthFraction = 0.52f, height = 22.dp, alpha = 0.09f)
     }
 }
 
@@ -1171,8 +1228,8 @@ private fun SkeletonVerse(widthFraction: Float, height: Dp, alpha: Float) {
             .height(height)
             .fillMaxWidth(widthFraction)
             .clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = alpha))
-            .shimmer(Color.White.copy(alpha = 0.18f)),
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = alpha))
+            .shimmer(),
     )
 }
 
@@ -1180,11 +1237,21 @@ private fun SkeletonVerse(widthFraction: Float, height: Dp, alpha: Float) {
 private fun LyricsEmpty() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 36.dp)) {
-            Text("♪", style = Musico.type.display.copy(fontSize = 48.sp), color = Color.White.copy(alpha = 0.25f))
+            Text("♪", style = Musico.type.display.copy(fontSize = 48.sp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
             Spacer(Modifier.height(12.dp))
-            Text("No lyrics available yet", style = Musico.type.title, color = Color.White.copy(alpha = 0.72f), textAlign = TextAlign.Center)
+            Text(
+                "No lyrics available yet",
+                style = Musico.type.title,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
             Spacer(Modifier.height(4.dp))
-            Text("Instrumental or newly released track", style = Musico.type.caption, color = Color.White.copy(alpha = 0.45f), textAlign = TextAlign.Center)
+            Text(
+                "Instrumental or newly released track",
+                style = Musico.type.caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }

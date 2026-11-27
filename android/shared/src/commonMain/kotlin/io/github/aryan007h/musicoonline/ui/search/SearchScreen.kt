@@ -241,10 +241,22 @@ private fun SearchField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSubmit(query) }),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            focusedContainerColor = if (Musico.extras.isDark) {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            },
+            unfocusedContainerColor = if (Musico.extras.isDark) {
+                MaterialTheme.colorScheme.surfaceContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            },
             focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = if (Musico.extras.isDark) {
+                Color.Transparent
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+            },
         ),
         modifier = Modifier
             .fillMaxWidth()

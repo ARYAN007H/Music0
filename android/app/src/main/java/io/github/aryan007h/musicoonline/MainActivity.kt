@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import io.github.aryan007h.musicoonline.core.MusicoCore
@@ -83,7 +84,14 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MusicoApp(vm)
+            MusicoApp(
+                vm = vm,
+                onDarkResolved = { isDark ->
+                    val controller = WindowCompat.getInsetsController(window, window.decorView)
+                    controller.isAppearanceLightStatusBars = !isDark
+                    controller.isAppearanceLightNavigationBars = !isDark
+                },
+            )
         }
     }
 }

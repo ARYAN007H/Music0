@@ -178,6 +178,7 @@ fun main() = application {
 
         var toastMessage by remember { mutableStateOf<String?>(null) }
         var showCoreWarning by remember { mutableStateOf(!MusicoCore.isLoaded) }
+        var isDarkTheme by remember { mutableStateOf(true) }
 
         LaunchedEffect(Unit) {
             DesktopPlatformHost.toasts.collect { msg ->
@@ -188,7 +189,10 @@ fun main() = application {
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            MusicoApp(vm = vm)
+            MusicoApp(
+                vm = vm,
+                onDarkResolved = { isDarkTheme = it },
+            )
 
             // Actionable banner when the native Rust library hasn't been compiled yet
             AnimatedVisibility(
@@ -200,8 +204,8 @@ fun main() = application {
                     .padding(top = 12.dp, start = 24.dp, end = 24.dp),
             ) {
                 Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF2B1C24),
+                    shape = RoundedCornerShape(22.dp),
+                    color = if (isDarkTheme) Color(0xFF2B1C24) else Color(0xFFFFEDE9),
                     tonalElevation = 8.dp,
                     shadowElevation = 10.dp,
                 ) {
@@ -215,12 +219,12 @@ fun main() = application {
                         Icon(
                             imageVector = Icons.Filled.Info,
                             contentDescription = null,
-                            tint = Color(0xFFFFB4AB),
+                            tint = if (isDarkTheme) Color(0xFFFFB4AB) else Color(0xFFB3261E),
                         )
                         Text(
                             text = MusicoCore.loadError
                                 ?: "Build native Rust core once: cargo build --release -p musico_core --lib",
-                            color = Color(0xFFFFDAD6),
+                            color = if (isDarkTheme) Color(0xFFFFDAD6) else Color(0xFF410E0B),
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -230,7 +234,7 @@ fun main() = application {
                             Icon(
                                 imageVector = Icons.Filled.Close,
                                 contentDescription = "Dismiss",
-                                tint = Color(0xFFFFDAD6),
+                                tint = if (isDarkTheme) Color(0xFFFFDAD6) else Color(0xFF410E0B),
                             )
                         }
                     }
@@ -247,15 +251,15 @@ fun main() = application {
                     .padding(top = 18.dp),
             ) {
                 Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF1F1B24).copy(alpha = 0.94f),
+                    shape = RoundedCornerShape(999.dp),
+                    color = if (isDarkTheme) Color(0xFF242135).copy(alpha = 0.96f) else Color(0xFF1C1A24).copy(alpha = 0.94f),
                     shadowElevation = 12.dp,
                 ) {
                     Text(
                         text = toastMessage.orEmpty(),
                         color = Color.White,
                         style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
                             .background(Color.Transparent)
                             .padding(horizontal = 20.dp, vertical = 11.dp),

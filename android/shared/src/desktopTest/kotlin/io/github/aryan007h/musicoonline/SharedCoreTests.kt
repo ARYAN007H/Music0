@@ -32,11 +32,15 @@ import io.github.aryan007h.musicoonline.ui.player.ArtworkPaletteCache
 import io.github.aryan007h.musicoonline.ui.player.PlayerBackdropSpecs
 import io.github.aryan007h.musicoonline.ui.player.formatTime
 import io.github.aryan007h.musicoonline.ui.settings.snapCacheCapMb
+import androidx.compose.ui.graphics.luminance
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveSegmentedMath
 import io.github.aryan007h.musicoonline.ui.theme.Palette
+import io.github.aryan007h.musicoonline.ui.theme.ThemeMode
 import io.github.aryan007h.musicoonline.ui.theme.paletteLightScheme
 import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
 import io.github.aryan007h.musicoonline.ui.theme.safePositiveScale
 import io.github.aryan007h.musicoonline.ui.theme.toDarkScheme
+import io.github.aryan007h.musicoonline.ui.theme.toExtras
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -474,5 +478,84 @@ class SharedCoreTests {
 
         assertEquals(7, LibrarySection.entries.size)
         assertTrue(LibrarySection.ARTISTS in LibrarySection.entries)
+    }
+
+    @Test
+    fun themeModeLookupAndResolutionCoverSystemLightAndDark() {
+        assertEquals(ThemeMode.SYSTEM, ThemeMode.fromId("system"))
+        assertEquals(ThemeMode.LIGHT, ThemeMode.fromId("light"))
+        assertEquals(ThemeMode.DARK, ThemeMode.fromId("dark"))
+        assertEquals(ThemeMode.SYSTEM, ThemeMode.fromId("unknown"))
+        assertEquals(ThemeMode.SYSTEM, ThemeMode.fromId(null))
+
+        assertTrue(ThemeMode.SYSTEM.resolveDark(systemInDarkTheme = true))
+        assertTrue(!ThemeMode.SYSTEM.resolveDark(systemInDarkTheme = false))
+        assertTrue(!ThemeMode.LIGHT.resolveDark(systemInDarkTheme = true))
+        assertTrue(!ThemeMode.LIGHT.resolveDark(systemInDarkTheme = false))
+        assertTrue(ThemeMode.DARK.resolveDark(systemInDarkTheme = true))
+        assertTrue(ThemeMode.DARK.resolveDark(systemInDarkTheme = false))
+    }
+
+    @Test
+    fun allPalettesProvideDistinctBespokeLightAndDarkSchemesAndExtras() {
+        val lightBackgrounds = mutableSetOf<Color>()
+        Palette.ALL.forEach { palette ->
+            val light = paletteLightScheme(palette)
+            val dark = palette.toDarkScheme()
+
+            assertTrue(light.background.luminance() > 0.80f, "${palette.id} light background must be bright")
+            assertTrue(dark.background.luminance() < 0.15f, "${palette.id} dark background must be dark")
+            assertTrue(light.onBackground.luminance() < 0.15f, "${palette.id} light ink must be high contrast")
+            assertTrue(dark.onBackground.luminance() > 0.70f, "${palette.id} dark ink must be high contrast")
+            assertNotEquals(light.surfaceContainerLowest, light.surfaceContainerHigh, "${palette.id} tonal ladder")
+            lightBackgrounds += light.background
+
+            val darkExtras = palette.toExtras(isDark = true)
+            val lightExtras = palette.toExtras(isDark = false)
+            assertTrue(darkExtras.isDark)
+            assertTrue(!lightExtras.isDark)
+            assertNotEquals(darkExtras.bg0, lightExtras.bg0)
+        }
+        assertEquals(Palette.ALL.size, lightBackgrounds.size, "Each palette should have a distinct light canvas tint")
+    }
+
+    @Test
+    fun expressiveSegmentedMathComputesVerticalConnectedAndScallopGeometry() {
+        // Single item gets full outer corners on all 4 sides.
+        val single = ExpressiveSegmentedMath.verticalListCorners(index = 0, count = 1)
+        assertEquals(24f, single.topStartDp, 1e-4f)
+        assertEquals(24f, single.bottomEndDp, 1e-4f)
+
+        // Multi-item vertical segmented list: outer top, inner middle, outer bottom.
+        val top = ExpressiveSegmentedMath.verticalListCorners(index = 0, count = 3)
+        val mid = ExpressiveSegmentedMath.verticalListCorners(index = 1, count = 3)
+        val bot = ExpressiveSegmentedMath.verticalListCorners(index = 2, count = 3)
+        assertEquals(24f, top.topStartDp, 1e-4f)
+        assertEquals(6f, top.bottomStartDp, 1e-4f)
+        assertEquals(6f, mid.topStartDp, 1e-4f)
+        assertEquals(6f, mid.bottomEndDp, 1e-4f)
+        assertEquals(6f, bot.topStartDp, 1e-4f)
+        assertEquals(24f, bot.bottomEndDp, 1e-4f)
+
+        // Connected button group: selected morphs to full pill, unselected stays connected.
+        val selectedMid = ExpressiveSegmentedMath.connectedButtonCorners(index = 1, count = 3, selected = true)
+        assertEquals(24f, selectedMid.topStartDp, 1e-4f)
+        assertEquals(24f, selectedMid.bottomEndDp, 1e-4f)
+
+        val leading = ExpressiveSegmentedMath.connectedButtonCorners(index = 0, count = 3, selected = false)
+        assertEquals(22f, leading.topStartDp, 1e-4f)
+        assertEquals(8f, leading.topEndDp, 1e-4f)
+
+        val trailing = ExpressiveSegmentedMath.connectedButtonCorners(index = 2, count = 3, selected = false)
+        assertEquals(8f, trailing.topStartDp, 1e-4f)
+        assertEquals(22f, trailing.topEndDp, 1e-4f)
+
+        // Scallop radius factor remains strictly bounded in [1 - amp, 1].
+        val amp = 0.10f
+        for (deg in 0..360 step 15) {
+            val rad = deg * kotlin.math.PI / 180.0
+            val factor = ExpressiveSegmentedMath.scallopRadiusFactor(rad, lobes = 8, amplitude = amp)
+            assertTrue(factor in (1f - amp - 1e-4f)..(1f + 1e-4f), "Factor $factor out of bounds at $deg deg")
+        }
     }
 }

@@ -1,6 +1,7 @@
 package io.github.aryan007h.musicoonline.ui.library
 
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveFilterChip
 import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.ShelfScrollButtons
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
@@ -68,6 +70,7 @@ import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import kotlinx.coroutines.launch
 import io.github.aryan007h.musicoonline.ui.LibrarySection
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -176,27 +179,15 @@ fun LibraryScreen(
                     edgeFadeColor = MaterialTheme.colorScheme.background,
                 ) {
                     LibrarySection.entries.forEach { f ->
-                        val selected = filter == f
-                        Surface(
-                            shape = MusicoShapes.chip,
-                            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.pressable(
-                                onClick = {
-                                    hapticTick()
-                                    localFilter = f
-                                    onSelectSection(f)
-                                },
-                                pressedScale = 0.92f,
-                            ),
-                        ) {
-                            Text(
-                                f.label,
-                                fontSize = 13.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
-                            )
-                        }
+                        ExpressiveFilterChip(
+                            label = f.label,
+                            selected = filter == f,
+                            usePrimaryWhenSelected = false,
+                            onClick = {
+                                localFilter = f
+                                onSelectSection(f)
+                            },
+                        )
                     }
                 }
             }
@@ -302,9 +293,11 @@ fun LibraryScreen(
                 }
                 if (playlists.isEmpty()) {
                     item(key = "playlists-empty-cta") {
+                        val isDark = Musico.extras.isDark
                         Surface(
                             shape = MusicoShapes.card,
-                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            color = if (isDark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)) else null,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 20.dp)
@@ -570,10 +563,11 @@ fun LibraryScreen(
                                     .onSizeChanged { artistsViewportPx = it.width.toFloat() }
                                     .desktopHorizontalScroll(artistsState),
                             ) {
-                                items(savedArtists, key = { "art-${it.id}" }) { entry ->
+                                itemsIndexed(savedArtists, key = { _, it -> "art-${it.id}" }) { idx, entry ->
                                     CatalogEntryCard(
                                         entry = entry,
                                         circular = true,
+                                        artistIndex = idx,
                                         onClick = { onOpenCatalogEntry(entry) },
                                     )
                                 }
@@ -737,9 +731,11 @@ private fun SmartMixCard(
     mix: SmartMix,
     onClick: () -> Unit,
 ) {
+    val isDark = Musico.extras.isDark
     Surface(
         shape = MusicoShapes.card,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)) else null,
         modifier = Modifier
             .width(164.dp)
             .pressable(onClick = onClick, pressedScale = 0.96f),
@@ -778,6 +774,7 @@ private fun SmartMixCard(
 private fun CatalogEntryCard(
     entry: CatalogEntry,
     circular: Boolean,
+    artistIndex: Int = 0,
     onClick: () -> Unit,
 ) {
     Column(
@@ -791,6 +788,7 @@ private fun CatalogEntryCard(
             contentDescription = entry.title,
             modifier = Modifier.size(126.dp),
             cornerRadius = if (circular) 63.dp else 20.dp,
+            shape = if (circular) ExpressiveShapes.artistFrame(artistIndex) else null,
             placeholderIcon = if (circular) Icons.Filled.Person else Icons.Filled.Album,
         )
         Spacer(Modifier.height(8.dp))
@@ -827,7 +825,7 @@ private fun SectionLabel(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            title.uppercase(),
+            title,
             style = Musico.type.section,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,

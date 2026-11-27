@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -246,9 +247,11 @@ private fun DetailBody(
                             scaleY = heroScale
                         },
                 ) {
+                    val isDark = Musico.extras.isDark
                     Surface(
                         shape = MusicoShapes.hero,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
+                        border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) else null,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(Modifier.fillMaxWidth()) {
@@ -327,11 +330,10 @@ private fun DetailBody(
         if (tracks.isNotEmpty()) {
             item(key = "tracks-header") {
                 Text(
-                    "${tracks.size} SONG${if (tracks.size == 1) "" else "S"}",
+                    "${tracks.size} song${if (tracks.size == 1) "" else "s"}",
                     style = Musico.type.section,
-                    fontSize = 11.sp,
-                    color = Musico.extras.inkDim,
-                    modifier = Modifier.padding(start = 32.dp, top = 16.dp, bottom = 4.dp),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 4.dp),
                 )
             }
             itemsIndexedTracks(tracks) { i, track ->
@@ -392,9 +394,19 @@ private fun DetailAction(
     busy: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val isDark = Musico.extras.isDark
     Surface(
         shape = MusicoShapes.chip,
-        color = if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = when {
+            filled -> MaterialTheme.colorScheme.primary
+            isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
+            else -> MaterialTheme.colorScheme.surfaceContainerLowest
+        },
+        border = if (!filled && !isDark) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        } else {
+            null
+        },
         modifier = modifier.pressable(
             onClick = onClick,
             enabled = !busy,
@@ -402,7 +414,7 @@ private fun DetailAction(
         ),
     ) {
         Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -415,15 +427,15 @@ private fun DetailAction(
                 icon != null -> Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
+                    tint = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(18.dp),
                 )
             }
             Spacer(Modifier.width(6.dp))
             Text(
                 label,
-                color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
+                color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
                 maxLines = 1,
             )

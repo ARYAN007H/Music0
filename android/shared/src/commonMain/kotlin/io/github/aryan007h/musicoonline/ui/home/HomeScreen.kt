@@ -3,6 +3,7 @@ package io.github.aryan007h.musicoonline.ui.home
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,6 +31,7 @@ import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed as lazyListItemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -84,6 +86,7 @@ import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveFilterChip
 import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.SectionHeader
 import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
@@ -96,6 +99,7 @@ import io.github.aryan007h.musicoonline.ui.library.PlaylistMosaicArtwork
 import io.github.aryan007h.musicoonline.ui.library.formatSongCount
 import io.github.aryan007h.musicoonline.ui.library.formatTrackCount
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
@@ -397,8 +401,7 @@ private fun HomeFeed(
             ) {
                 Text(
                     greeting.uppercase(),
-                    style = Musico.type.section,
-                    fontSize = 11.sp,
+                    style = Musico.type.overline,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.height(2.dp))
@@ -416,7 +419,7 @@ private fun HomeFeed(
             }
         }
 
-        // ── M3E Mood & Vibe Filter Chips ────────────────────────────────
+        // ── M3E Shape-Morphing Mood & Vibe Filter Chips ─────────────────
         item(key = "home-mood-chips") {
             DesktopScrollableChipRow(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
@@ -424,34 +427,12 @@ private fun HomeFeed(
                 edgeFadeColor = MaterialTheme.colorScheme.background,
             ) {
                 HOME_MOOD_CHIPS.forEach { mood ->
-                    val active = selectedMood == mood
-                    Surface(
-                        shape = RoundedCornerShape(if (active) 12.dp else 20.dp),
-                        color = if (active) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHigh
-                        },
-                        modifier = Modifier.pressable(
-                            onClick = {
-                                hapticTick()
-                                selectedMood = mood
-                            },
-                            pressedScale = 0.94f,
-                        ),
-                    ) {
-                        Text(
-                            mood,
-                            fontSize = 13.sp,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                            color = if (active) {
-                                MaterialTheme.colorScheme.onSecondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
-                        )
-                    }
+                    ExpressiveFilterChip(
+                        label = mood,
+                        selected = selectedMood == mood,
+                        usePrimaryWhenSelected = false,
+                        onClick = { selectedMood = mood },
+                    )
                 }
             }
         }
@@ -482,8 +463,8 @@ private fun HomeFeed(
                     ) {
                         Box(
                             Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(16.dp))
+                                .size(50.dp)
+                                .clip(ExpressiveShapes.Cookie8)
                                 .background(MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -608,10 +589,10 @@ private fun HomeFeed(
                             .onSizeChanged { artistViewportPx = it.width.toFloat() }
                             .desktopHorizontalScroll(artistState),
                     ) {
-                        items(savedArtists.take(12), key = { "hart-${it.id}" }) { artist ->
+                        lazyListItemsIndexed(savedArtists.take(12), key = { _, it -> "hart-${it.id}" }) { idx, artist ->
                             Column(
                                 modifier = Modifier
-                                    .width(104.dp)
+                                    .width(106.dp)
                                     .pressable(
                                         onClick = { hapticTick(); onOpenCatalogEntry(artist) },
                                         pressedScale = 0.94f,
@@ -622,7 +603,7 @@ private fun HomeFeed(
                                     url = artist.thumbnail,
                                     contentDescription = artist.title,
                                     modifier = Modifier.size(104.dp),
-                                    cornerRadius = 52.dp,
+                                    shape = ExpressiveShapes.artistFrame(idx),
                                     placeholderIcon = Icons.Filled.Person,
                                 )
                                 Spacer(Modifier.height(8.dp))
@@ -799,12 +780,18 @@ private fun QuickPickCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isDark = Musico.extras.isDark
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (isCurrent) {
-            MaterialTheme.colorScheme.secondaryContainer
+        shape = RoundedCornerShape(18.dp),
+        color = when {
+            isCurrent -> MaterialTheme.colorScheme.secondaryContainer
+            isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
+            else -> MaterialTheme.colorScheme.surfaceContainerLowest
+        },
+        border = if (!isDark && !isCurrent) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
+            null
         },
         modifier = modifier
             .height(58.dp)
@@ -921,9 +908,11 @@ private data class HomeSections(
 
 @Composable
 private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
+    val isDark = Musico.extras.isDark
     Surface(
         shape = MusicoShapes.card,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)) else null,
         modifier = Modifier
             .width(164.dp)
             .pressable(onClick = onClick, pressedScale = 0.95f),
@@ -1006,13 +995,21 @@ private fun HeroCarousel(
             }
 
             if (isDesktopPlatform && items.size > 1) {
+                val arrowBg = if (Musico.extras.isDark) {
+                    MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.96f)
+                }
+                val arrowBorder = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                 Surface(
                     shape = CircleShape,
-                    color = Color(0xAA0C0D16),
+                    color = arrowBg,
+                    border = arrowBorder,
+                    shadowElevation = 4.dp,
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 32.dp)
-                        .size(36.dp)
+                        .padding(start = 30.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable {
@@ -1024,18 +1021,20 @@ private fun HeroCarousel(
                         Icon(
                             Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                             contentDescription = "Previous slide",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp),
                         )
                     }
                 }
                 Surface(
                     shape = CircleShape,
-                    color = Color(0xAA0C0D16),
+                    color = arrowBg,
+                    border = arrowBorder,
+                    shadowElevation = 4.dp,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 32.dp)
-                        .size(36.dp)
+                        .padding(end = 30.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable {
@@ -1047,7 +1046,7 @@ private fun HeroCarousel(
                         Icon(
                             Icons.AutoMirrored.Filled.KeyboardArrowRight,
                             contentDescription = "Next slide",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp),
                         )
                     }
@@ -1106,9 +1105,12 @@ private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = 
         val cardPadding = if (compact) 14.dp else 18.dp
         val contentGap = if (compact) 14.dp else 18.dp
 
+        val isDark = Musico.extras.isDark
         Surface(
             shape = MusicoShapes.hero,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) else null,
+            shadowElevation = if (isDark) 0.dp else 2.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (compact) Modifier.heightIn(min = 148.dp) else Modifier.height(212.dp))

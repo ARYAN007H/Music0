@@ -3,7 +3,6 @@ package io.github.aryan007h.musicoonline.ui.theme
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
@@ -20,6 +19,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,30 +35,64 @@ import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.platform.HapticKind
 import io.github.aryan007h.musicoonline.platform.performHaptic
 
+/**
+ * Material 3 Expressive physics-based motion tokens:
+ * - **Spatial springs** (`spatialFast`, `spatialDefault`, `spatialSlow`) carry playful
+ *   underdamped bounce for layout, shape morphing, scale, and position.
+ * - **Effects springs** (`effectsFast`, `effectsDefault`, `effectsSlow`) are critically
+ *   damped (no overshoot) for color, alpha, and tonal elevation shifts.
+ */
 object MusicoMotion {
 
-    fun <T> expressive(): SpringSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioMediumBouncy,
-        stiffness = Spring.StiffnessMediumLow,
+    // ── Official Material 3 Expressive Spatial Springs (bouncy) ──────────
+
+    fun <T> spatialFast(): SpringSpec<T> = spring(
+        dampingRatio = 0.62f,
+        stiffness = 780f,
     )
 
-    fun <T> snappy(): SpringSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioLowBouncy,
-        stiffness = Spring.StiffnessMedium,
-    )
-
-    fun <T> gentle(): SpringSpec<T> = spring(
-        dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessLow,
-    )
-
-    fun <T> spatial(): SpringSpec<T> = spring(
-        dampingRatio = 0.85f,
+    fun <T> spatialDefault(): SpringSpec<T> = spring(
+        dampingRatio = 0.72f,
         stiffness = 380f,
     )
 
+    fun <T> spatialSlow(): SpringSpec<T> = spring(
+        dampingRatio = 0.80f,
+        stiffness = 200f,
+    )
+
+    // ── Official Material 3 Expressive Effects Springs (no overshoot) ────
+
+    fun <T> effectsFast(): SpringSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 1400f,
+    )
+
+    fun <T> effectsDefault(): SpringSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 650f,
+    )
+
+    fun <T> effectsSlow(): SpringSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 300f,
+    )
+
+    // ── Legacy / Semantic Aliases ────────────────────────────────────────
+
+    fun <T> expressive(): SpringSpec<T> = spring(
+        dampingRatio = 0.65f,
+        stiffness = 440f,
+    )
+
+    fun <T> snappy(): SpringSpec<T> = spatialFast()
+
+    fun <T> gentle(): SpringSpec<T> = effectsDefault()
+
+    fun <T> spatial(): SpringSpec<T> = spatialDefault()
+
     fun <T> cinema(): SpringSpec<T> = spring(
-        dampingRatio = 0.92f,
+        dampingRatio = 0.90f,
         stiffness = 220f,
     )
 
@@ -80,10 +114,7 @@ fun Modifier.pressScale(
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
+        animationSpec = MusicoMotion.spatialFast(),
         label = "pressScale",
     )
     graphicsLayer {
@@ -122,10 +153,19 @@ fun Modifier.pressable(
         .then(clickModifier)
 }
 
-fun Modifier.shimmer(highlight: Color = Color.White.copy(alpha = 0.14f)): Modifier = composed {
+/**
+ * Adaptive Light/Dark skeleton shimmer: defaults to theme-aware `onSurface` alpha
+ * so loading placeholders remain crisp on both light lavender and dark obsidian surfaces.
+ */
+fun Modifier.shimmer(highlight: Color = Color.Unspecified): Modifier = composed {
+    val resolvedHighlight = if (highlight == Color.Unspecified) {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = if (Musico.extras.isDark) 0.13f else 0.085f)
+    } else {
+        highlight
+    }
     val transition = rememberInfiniteTransition(label = "shimmer")
     val pulse by transition.animateFloat(
-        initialValue = 0.18f,
+        initialValue = 0.20f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(900, easing = FastOutSlowInEasing),
@@ -135,7 +175,7 @@ fun Modifier.shimmer(highlight: Color = Color.White.copy(alpha = 0.14f)): Modifi
     )
     drawBehind {
         if (size.width <= 0f || size.height <= 0f) return@drawBehind
-        drawRect(color = highlight.copy(alpha = highlight.alpha * pulse))
+        drawRect(color = resolvedHighlight.copy(alpha = resolvedHighlight.alpha * pulse))
     }
 }
 
@@ -178,7 +218,7 @@ fun Modifier.staggerIn(
     )
     val y by animateDpAsState(
         targetValue = if (shown) 0.dp else drop,
-        animationSpec = tween(300, easing = MusicoMotion.decelerate),
+        animationSpec = MusicoMotion.spatialDefault(),
         label = "staggerY",
     )
     graphicsLayer {

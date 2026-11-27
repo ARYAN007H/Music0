@@ -16,14 +16,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -37,18 +34,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
 import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveFilterChip
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSegmentedColumn
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSegmentedItem
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.Musico
-import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 
 /**
- * Cross-platform Equalizer UI backed by [PlatformEqualizer]:
+ * Cross-platform Material 3 Expressive Equalizer UI backed by [PlatformEqualizer]:
  * - Android: Android AudioFX Equalizer + BassBoost bound to Media3 audio session
  * - Desktop: Live 10-band Rust DSP (`musico_playback::eq`) over JNI
  */
@@ -70,6 +69,13 @@ fun EqScreen(onBack: () -> Unit) {
         onDispose { PlatformEqualizer.removeListener(listener) }
     }
 
+    val isDark = Musico.extras.isDark
+    val cardBg = if (isDark) {
+        MaterialTheme.colorScheme.surfaceContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLowest
+    }
+
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
@@ -80,7 +86,7 @@ fun EqScreen(onBack: () -> Unit) {
                     primary = Musico.extras.primary,
                     secondary = Musico.extras.support,
                     glow = Musico.extras.mint,
-                    intensity = 0.20f,
+                    intensity = if (isDark) 0.20f else 0.14f,
                 ),
         )
         Column(
@@ -89,138 +95,133 @@ fun EqScreen(onBack: () -> Unit) {
                 .musicoTopInset()
                 .navigationBarsPadding(),
         ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
-            }
-            Column {
-                Text("Equalizer", style = Musico.type.display, color = MaterialTheme.colorScheme.onBackground)
-                Text(
-                    "${eq.bandCount} bands · ${eq.bandFreqLabels.firstOrNull() ?: ""} – ${eq.bandFreqLabels.lastOrNull() ?: ""}",
-                    style = Musico.type.caption,
-                    color = Musico.extras.inkDim,
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
+                }
+                Column {
+                    Text("Equalizer", style = Musico.type.display, color = MaterialTheme.colorScheme.onBackground)
+                    Text(
+                        "${eq.bandCount} bands · ${eq.bandFreqLabels.firstOrNull() ?: ""} – ${eq.bandFreqLabels.lastOrNull() ?: ""}",
+                        style = Musico.type.caption,
+                        color = Musico.extras.inkDim,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = eq.enabled,
+                    onCheckedChange = { PlatformEqualizer.setEnabled(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier.padding(end = 12.dp),
                 )
             }
-            Spacer(Modifier.weight(1f))
-            Switch(
-                checked = eq.enabled,
-                onCheckedChange = { PlatformEqualizer.setEnabled(it) },
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = Musico.extras.mint,
-                    checkedThumbColor = Musico.extras.onMint,
-                ),
-                modifier = Modifier.padding(end = 12.dp),
-            )
-        }
 
-        if (!bound) {
-            Text(
-                "Controls go live the moment you play a song",
-                style = Musico.type.caption,
-                color = Musico.extras.inkFaint,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 4.dp),
-                textAlign = TextAlign.Center,
-            )
-        }
-
-        Column(
-            Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 40.dp),
-        ) {
-            Text(
-                "PRESETS",
-                style = Musico.type.overline,
-                color = Musico.extras.inkDim,
-                modifier = Modifier.padding(start = 24.dp, top = 14.dp, bottom = 8.dp),
-            )
-            DesktopScrollableChipRow(
-                contentPadding = PaddingValues(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                edgeFadeColor = MaterialTheme.colorScheme.background,
-            ) {
-                EqPresets.forEach { preset ->
-                    FilterChip(
-                        selected = eq.presetName == preset.name,
-                        onClick = { PlatformEqualizer.applyPresetGain(preset.curve, preset.name) },
-                        label = { Text(preset.name, style = Musico.type.caption) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    )
-                }
-            }
-
-            Surface(
-                shape = MusicoShapes.cardLarge,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-            ) {
-                Row(
-                    Modifier
+            if (!bound) {
+                Text(
+                    "Controls go live the moment you play a song",
+                    style = Musico.type.caption,
+                    color = Musico.extras.inkDim,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 22.dp, horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    eq.bandLevels.forEachIndexed { i, level ->
-                        BandSlider(
-                            value = level,
-                            range = eq.bandRange,
-                            label = eq.bandFreqLabels.getOrElse(i) { "" },
-                            enabled = bound && eq.enabled,
-                            onValueChange = { PlatformEqualizer.setBandLevel(i, it) },
-                        )
-                    }
-                }
+                        .padding(horizontal = 24.dp, vertical = 4.dp),
+                    textAlign = TextAlign.Center,
+                )
             }
 
-            Surface(
-                shape = MusicoShapes.cardLarge,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 40.dp),
             ) {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Bass boost",
-                            style = Musico.type.title,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            "${(eq.bassBoost * 100) / 1000}%",
-                            style = Musico.type.tabularCaption,
-                            color = Musico.extras.mint,
+                Text(
+                    "Presets",
+                    style = Musico.type.section,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 24.dp, top = 14.dp, bottom = 10.dp),
+                )
+                DesktopScrollableChipRow(
+                    contentPadding = PaddingValues(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    edgeFadeColor = MaterialTheme.colorScheme.background,
+                ) {
+                    EqPresets.forEach { preset ->
+                        ExpressiveFilterChip(
+                            label = preset.name,
+                            selected = eq.presetName == preset.name,
+                            onClick = { PlatformEqualizer.applyPresetGain(preset.curve, preset.name) },
                         )
                     }
-                    Slider(
-                        value = eq.bassBoost.toFloat(),
-                        onValueChange = { PlatformEqualizer.setBassBoost(it.toInt()) },
-                        valueRange = 0f..1000f,
-                        enabled = bound && eq.enabled,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = Musico.extras.mint,
-                            inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                    )
+                }
+
+                Spacer(Modifier.height(18.dp))
+
+                ExpressiveSegmentedColumn(
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                ) {
+                    ExpressiveSegmentedItem(index = 0, count = 2, containerColor = cardBg) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 22.dp, horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            eq.bandLevels.forEachIndexed { i, level ->
+                                BandSlider(
+                                    value = level,
+                                    range = eq.bandRange,
+                                    label = eq.bandFreqLabels.getOrElse(i) { "" },
+                                    enabled = bound && eq.enabled,
+                                    onValueChange = { PlatformEqualizer.setBandLevel(i, it) },
+                                )
+                            }
+                        }
+                    }
+
+                    ExpressiveSegmentedItem(index = 1, count = 2, containerColor = cardBg) {
+                        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Bass boost",
+                                    style = Musico.type.title,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    "${(eq.bassBoost * 100) / 1000}%",
+                                    style = Musico.type.tabularCaption,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            Slider(
+                                value = eq.bassBoost.toFloat(),
+                                onValueChange = { PlatformEqualizer.setBassBoost(it.toInt()) },
+                                valueRange = 0f..1000f,
+                                enabled = bound && eq.enabled,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                ),
+                            )
+                        }
+                    }
                 }
             }
-        }
         }
     }
 }
@@ -258,8 +259,8 @@ private fun BandSlider(
                 enabled = enabled,
                 colors = SliderDefaults.colors(
                     thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = Musico.extras.mint,
-                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
                 modifier = Modifier
                     .graphicsLayer {
@@ -278,7 +279,8 @@ private fun BandSlider(
         Text(
             "${value / 100}",
             style = Musico.type.tabularCaption,
-            color = if (enabled) Musico.extras.mint else Musico.extras.inkFaint,
+            fontWeight = FontWeight.Bold,
+            color = if (enabled) MaterialTheme.colorScheme.primary else Musico.extras.inkFaint,
         )
     }
 }

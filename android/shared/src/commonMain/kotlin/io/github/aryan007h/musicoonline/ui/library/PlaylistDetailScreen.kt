@@ -1,6 +1,7 @@
 package io.github.aryan007h.musicoonline.ui.library
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -668,9 +669,11 @@ private fun EditablePlaylistTrackRow(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isDark = Musico.extras.isDark
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = if (isDark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(18.dp),
+        border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)) else null,
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
@@ -858,9 +861,19 @@ private fun CollectionActionPill(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val isDark = Musico.extras.isDark
     Surface(
         shape = MusicoShapes.chip,
-        color = if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = when {
+            filled -> MaterialTheme.colorScheme.primary
+            isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
+            else -> MaterialTheme.colorScheme.surfaceContainerLowest
+        },
+        border = if (!filled && !isDark) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        } else {
+            null
+        },
         modifier = modifier.pressable(onClick = onClick, enabled = enabled && !busy, pressedScale = 0.94f),
     ) {
         Row(
@@ -877,15 +890,15 @@ private fun CollectionActionPill(
                 icon != null -> Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
+                    tint = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(18.dp),
                 )
             }
             Spacer(Modifier.width(6.dp))
             Text(
                 label,
-                color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
+                color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
                 maxLines = 1,
             )

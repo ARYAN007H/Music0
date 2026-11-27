@@ -40,6 +40,7 @@ import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.player.ArtworkPaletteCache
 import io.github.aryan007h.musicoonline.ui.player.LyricsDisplayMode
 import io.github.aryan007h.musicoonline.ui.theme.Palette
+import io.github.aryan007h.musicoonline.ui.theme.ThemeMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -189,6 +190,7 @@ class MusicViewModel(
         // Local prefs
         val lyricBackdrop: LyricBackdrop = LyricBackdrop.Mesh,
         val palette: Palette = Palette.NEBULA,
+        val themeMode: ThemeMode = ThemeMode.SYSTEM,
         val displayName: String = "Listener",
         // Full sled-backed Library & Smart Mixes
         val playlists: List<UserPlaylist> = emptyList(),
@@ -1105,6 +1107,7 @@ class MusicViewModel(
                 lyricBackdrop = LyricBackdrop.fromId(prefs.getString(PREF_BACKDROP, null)),
                 lyricsMode = LyricsDisplayMode.fromId(prefs.getString(PREF_LYRICS_MODE, null)),
                 palette = Palette.fromId(prefs.getString(PREF_PALETTE, null)),
+                themeMode = ThemeMode.fromId(prefs.getString(PREF_THEME_MODE, null)),
                 displayName = prefs.getString(PREF_NAME, null) ?: it.displayName,
                 onboardingDone = prefs.getBoolean(PREF_ONBOARDED, false),
                 savedLanguages = loadStringListPref(PREF_LANGS),
@@ -1154,6 +1157,15 @@ class MusicViewModel(
     fun setPalette(palette: Palette) {
         prefs.putString(PREF_PALETTE, palette.id)
         _state.update { it.copy(palette = palette) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.putString(PREF_THEME_MODE, mode.id)
+        _state.update { it.copy(themeMode = mode) }
+    }
+
+    fun toggleLightDark(isCurrentlyDark: Boolean) {
+        setThemeMode(if (isCurrentlyDark) ThemeMode.LIGHT else ThemeMode.DARK)
     }
 
     fun setDisplayName(name: String) {
@@ -2265,6 +2277,7 @@ class MusicViewModel(
         private const val PREF_LYRICS_MODE = "lyrics_display_mode"
         private const val PREF_LYRIC_OFFSETS = "lyric_offsets_map"
         private const val PREF_PALETTE = "palette_id"
+        private const val PREF_THEME_MODE = "theme_mode"
         private const val PREF_ONBOARDED = "onboarding_done"
         private const val PREF_LANGS = "onboarding_languages"
         private const val PREF_ARTISTS = "onboarding_artists"

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
+import io.github.aryan007h.musicoonline.ui.theme.Musico
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -33,7 +34,8 @@ import kotlin.math.sin
 /**
  * Pure descriptor for the five Material 3 Expressive player backdrops.
  * Every backdrop is strictly zero-blur and zero-gradient — built from crisp
- * Google Pixel M3E geometric vector shapes and stepped solid tonal surfaces.
+ * Google Pixel M3E geometric vector shapes and stepped solid tonal surfaces
+ * that adapt cleanly to both Light Mode and Dark Mode.
  */
 object PlayerBackdropSpecs {
     val ALL_IDS = listOf("mesh", "artwork", "aurora", "rain", "black")
@@ -47,17 +49,14 @@ object PlayerBackdropSpecs {
 }
 
 /**
- * Pixel-native Material 3 Expressive full-screen player backdrops.
+ * Pixel-native Material 3 Expressive full-screen player backdrops (Light & Dark adaptive).
  *
  * Strictly ZERO blurs and ZERO smeared gradients:
  * - `mesh`    ("Fluid"):  Rotating M3E scalloped cookie, clover & pill geometry
  * - `artwork` ("Glow"):   Concentric studio vinyl rings & rotating tonal arcs
  * - `aurora`  ("Aurora"): Layered stepped sinusoidal vector ribbons
  * - `rain`    ("Rain"):   Calm falling M3E rounded-capsule rhythm bars
- * - `black`   ("Dark"):   Deep OLED studio black with hairline framing
- *
- * Motion pauses cleanly when `isPlaying == false` and reads frame time strictly
- * inside the `Canvas` draw phase so there are zero 60Hz composable recompositions.
+ * - `black`   ("Dark"):   Deep OLED studio black (Dark) / crisp editorial paper (Light)
  */
 @Composable
 fun PlayerBackdrop(
@@ -69,33 +68,62 @@ fun PlayerBackdrop(
 ) {
     val mode = PlayerBackdropSpecs.normalize(backdrop)
     val resolved = atmosphere ?: rememberArtworkAtmosphere(track?.thumbnail)
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val surfaceLow = MaterialTheme.colorScheme.surfaceContainerLow
+    val isDark = Musico.extras.isDark
+    val scheme = MaterialTheme.colorScheme
 
-    val targetBase = when (mode) {
-        "black" -> Color(0xFF07070B)
-        "artwork" -> lerp(surfaceLow, resolved.base, 0.52f)
-        "aurora" -> lerp(Color(0xFF0B0D18), resolved.base, 0.42f)
-        "rain" -> lerp(surfaceColor, resolved.base, 0.36f)
-        else -> lerp(surfaceLow, resolved.base, 0.46f)
+    val targetBase = if (isDark) {
+        when (mode) {
+            "black" -> Color(0xFF07070B)
+            "artwork" -> lerp(scheme.surfaceContainerLow, resolved.base, 0.50f)
+            "aurora" -> lerp(Color(0xFF0B0D18), resolved.base, 0.40f)
+            "rain" -> lerp(scheme.surface, resolved.base, 0.34f)
+            else -> lerp(scheme.surfaceContainerLow, resolved.base, 0.44f)
+        }
+    } else {
+        // Light Mode: soft airy palette-harmonized pastel surface (like M3E lavender showcase)
+        when (mode) {
+            "black" -> scheme.surface
+            "artwork" -> lerp(scheme.surface, resolved.orbPrimary, 0.08f)
+            "aurora" -> lerp(scheme.surfaceContainerLow, resolved.orbSecondary, 0.08f)
+            "rain" -> lerp(scheme.surface, resolved.orbPrimary, 0.06f)
+            else -> lerp(scheme.surface, resolved.orbPrimary, 0.07f)
+        }
     }
+
     val baseColor by animateColorAsState(
         targetValue = targetBase,
         animationSpec = tween(durationMillis = 520),
         label = "m3eBackdropBase",
     )
+
+    val targetTone1 = if (isDark) {
+        lerp(baseColor, resolved.orbPrimary, 0.24f)
+    } else {
+        lerp(scheme.primaryContainer, resolved.orbPrimary, 0.14f).copy(alpha = 0.52f)
+    }
+    val targetTone2 = if (isDark) {
+        lerp(baseColor, resolved.orbSecondary, 0.20f)
+    } else {
+        lerp(scheme.secondaryContainer, resolved.orbSecondary, 0.14f).copy(alpha = 0.56f)
+    }
+    val targetToneAccent = if (isDark) {
+        lerp(baseColor, resolved.glow, 0.16f)
+    } else {
+        lerp(scheme.tertiaryContainer, resolved.glow, 0.16f).copy(alpha = 0.55f)
+    }
+
     val tonePrimary by animateColorAsState(
-        targetValue = lerp(baseColor, resolved.orbPrimary, 0.26f),
+        targetValue = targetTone1,
         animationSpec = tween(durationMillis = 520),
         label = "m3eBackdropTone1",
     )
     val toneSecondary by animateColorAsState(
-        targetValue = lerp(baseColor, resolved.orbSecondary, 0.22f),
+        targetValue = targetTone2,
         animationSpec = tween(durationMillis = 520),
         label = "m3eBackdropTone2",
     )
     val toneAccent by animateColorAsState(
-        targetValue = lerp(baseColor, resolved.glow, 0.16f),
+        targetValue = targetToneAccent,
         animationSpec = tween(durationMillis = 520),
         label = "m3eBackdropAccent",
     )
@@ -116,10 +144,10 @@ fun PlayerBackdrop(
         }
     }
 
-    // Reused Paths across frames (zero per-frame allocations in draw phase)
     val pathA = remember { Path() }
     val pathB = remember { Path() }
     val pathC = remember { Path() }
+    val studioAccent = if (isDark) resolved.glow else scheme.primary
 
     Box(
         modifier = modifier
@@ -158,19 +186,14 @@ fun PlayerBackdrop(
                     toneSecondary = toneSecondary,
                     toneAccent = toneAccent,
                 )
-                "black" -> drawStudioOledBackdrop(
-                    accent = resolved.glow,
+                "black" -> drawStudioBackdrop(
+                    accent = studioAccent,
                 )
             }
         }
     }
 }
 
-/**
- * `mesh` ("Fluid"): Google Pixel Material 3 Expressive geometric shapes —
- * scalloped 8-lobe cookie, 4-lobe clover, and architectural rounded capsule
- * in crisp solid tonal fills with slow calm rotation.
- */
 private fun DrawScope.drawExpressiveShapesBackdrop(
     t: Float,
     tonePrimary: Color,
@@ -182,8 +205,8 @@ private fun DrawScope.drawExpressiveShapesBackdrop(
     val minDim = min(size.width, size.height)
 
     // Top-right scalloped 8-lobe M3E cookie
-    val cookieCenter = Offset(size.width * 0.84f, size.height * 0.18f)
-    val cookieRadius = minDim * 0.42f
+    val cookieCenter = Offset(size.width * 0.86f, size.height * 0.16f)
+    val cookieRadius = minDim * 0.40f
     buildScallopedPath(
         path = pathA,
         cx = cookieCenter.x,
@@ -196,8 +219,8 @@ private fun DrawScope.drawExpressiveShapesBackdrop(
     drawPath(path = pathA, color = tonePrimary)
 
     // Bottom-left 4-lobe clover
-    val cloverCenter = Offset(size.width * 0.14f, size.height * 0.82f)
-    val cloverRadius = minDim * 0.46f
+    val cloverCenter = Offset(size.width * 0.12f, size.height * 0.84f)
+    val cloverRadius = minDim * 0.44f
     buildScallopedPath(
         path = pathB,
         cx = cloverCenter.x,
@@ -210,9 +233,9 @@ private fun DrawScope.drawExpressiveShapesBackdrop(
     drawPath(path = pathB, color = toneSecondary)
 
     // Mid-canvas tilted M3E capsule pill accent (solid flat fill)
-    val pillW = minDim * 0.54f
-    val pillH = minDim * 0.16f
-    val pillCenter = Offset(size.width * 0.62f, size.height * 0.66f)
+    val pillW = minDim * 0.50f
+    val pillH = minDim * 0.14f
+    val pillCenter = Offset(size.width * 0.66f, size.height * 0.68f)
     rotate(degrees = -18f + sin(t * 0.35f) * 4f, pivot = pillCenter) {
         drawRoundRect(
             color = toneAccent,
@@ -223,9 +246,6 @@ private fun DrawScope.drawExpressiveShapesBackdrop(
     }
 }
 
-/**
- * `artwork` ("Glow"): Studio vinyl concentric tonal rings and rotating arc sweeps.
- */
 private fun DrawScope.drawVinylRingsBackdrop(
     t: Float,
     tonePrimary: Color,
@@ -236,31 +256,28 @@ private fun DrawScope.drawVinylRingsBackdrop(
     val cy = size.height * 0.46f
     val maxR = min(size.width, size.height) * 0.72f
 
-    // Solid tonal disc anchor
     drawCircle(
-        color = tonePrimary.copy(alpha = 0.65f),
+        color = tonePrimary.copy(alpha = tonePrimary.alpha * 0.65f),
         radius = maxR * 0.52f,
         center = Offset(cx, cy),
     )
     drawCircle(
-        color = toneSecondary.copy(alpha = 0.55f),
+        color = toneSecondary.copy(alpha = toneSecondary.alpha * 0.55f),
         radius = maxR * 0.30f,
         center = Offset(cx, cy),
     )
 
-    // Crisp concentric architectural rings (zero blur)
     val ringFactors = floatArrayOf(0.42f, 0.58f, 0.74f, 0.90f, 1.06f)
     ringFactors.forEachIndexed { idx, factor ->
         val r = maxR * factor
         drawCircle(
-            color = if (idx % 2 == 0) toneAccent.copy(alpha = 0.42f) else tonePrimary.copy(alpha = 0.48f),
+            color = if (idx % 2 == 0) toneAccent.copy(alpha = 0.48f) else tonePrimary.copy(alpha = 0.52f),
             radius = r,
             center = Offset(cx, cy),
             style = Stroke(width = if (idx == 1) 2.5f else 1.5f),
         )
     }
 
-    // Two rotating vinyl-groove highlight arcs
     val arcR1 = maxR * 0.58f
     drawArc(
         color = toneAccent,
@@ -283,10 +300,6 @@ private fun DrawScope.drawVinylRingsBackdrop(
     )
 }
 
-/**
- * `aurora` ("Aurora"): Three crisp stepped harmonic vector ribbons gliding
- * smoothly across the lower canvas in flat solid tonal layers.
- */
 private fun DrawScope.drawHarmonicRibbonsBackdrop(
     t: Float,
     tonePrimary: Color,
@@ -302,7 +315,7 @@ private fun DrawScope.drawHarmonicRibbonsBackdrop(
         amplitude = size.height * 0.055f,
         cycles = 1.4f,
         phase = t * 0.55f,
-        color = toneSecondary.copy(alpha = 0.72f),
+        color = toneSecondary.copy(alpha = toneSecondary.alpha * 0.75f),
     )
     drawWaveBand(
         path = pathB,
@@ -310,7 +323,7 @@ private fun DrawScope.drawHarmonicRibbonsBackdrop(
         amplitude = size.height * 0.048f,
         cycles = 1.9f,
         phase = -t * 0.72f + 1.4f,
-        color = tonePrimary.copy(alpha = 0.85f),
+        color = tonePrimary.copy(alpha = tonePrimary.alpha * 0.85f),
     )
     drawWaveBand(
         path = pathC,
@@ -318,7 +331,7 @@ private fun DrawScope.drawHarmonicRibbonsBackdrop(
         amplitude = size.height * 0.036f,
         cycles = 2.4f,
         phase = t * 0.90f + 2.8f,
-        color = toneAccent.copy(alpha = 0.78f),
+        color = toneAccent.copy(alpha = toneAccent.alpha * 0.78f),
     )
 }
 
@@ -346,9 +359,6 @@ private fun DrawScope.drawWaveBand(
     drawPath(path = path, color = color)
 }
 
-/**
- * `rain` ("Rain"): Calm staggered falling M3E rounded-capsule rhythm bars.
- */
 private fun DrawScope.drawRhythmCapsulesBackdrop(
     t: Float,
     tonePrimary: Color,
@@ -376,7 +386,7 @@ private fun DrawScope.drawRhythmCapsulesBackdrop(
             else -> toneAccent
         }
         drawRoundRect(
-            color = color.copy(alpha = 0.76f),
+            color = color.copy(alpha = color.alpha * 0.80f),
             topLeft = Offset(x, y),
             size = Size(barWidth, barHeight),
             cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
@@ -384,27 +394,20 @@ private fun DrawScope.drawRhythmCapsulesBackdrop(
     }
 }
 
-/**
- * `black` ("Dark"): Deep OLED studio black with crisp architectural corner hairlines.
- */
-private fun DrawScope.drawStudioOledBackdrop(accent: Color) {
+private fun DrawScope.drawStudioBackdrop(accent: Color) {
     val inset = 28f
     val arm = 22f
     val stroke = 1.5f
-    val lineColor = accent.copy(alpha = 0.14f)
+    val lineColor = accent.copy(alpha = 0.16f)
     val w = size.width
     val h = size.height
 
-    // Top-left
     drawLine(lineColor, Offset(inset, inset), Offset(inset + arm, inset), stroke, StrokeCap.Round)
     drawLine(lineColor, Offset(inset, inset), Offset(inset, inset + arm), stroke, StrokeCap.Round)
-    // Top-right
     drawLine(lineColor, Offset(w - inset, inset), Offset(w - inset - arm, inset), stroke, StrokeCap.Round)
     drawLine(lineColor, Offset(w - inset, inset), Offset(w - inset, inset + arm), stroke, StrokeCap.Round)
-    // Bottom-left
     drawLine(lineColor, Offset(inset, h - inset), Offset(inset + arm, h - inset), stroke, StrokeCap.Round)
     drawLine(lineColor, Offset(inset, h - inset), Offset(inset, h - inset - arm), stroke, StrokeCap.Round)
-    // Bottom-right
     drawLine(lineColor, Offset(w - inset, h - inset), Offset(w - inset - arm, h - inset), stroke, StrokeCap.Round)
     drawLine(lineColor, Offset(w - inset, h - inset), Offset(w - inset, h - inset - arm), stroke, StrokeCap.Round)
 }
