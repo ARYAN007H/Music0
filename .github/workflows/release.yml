@@ -307,27 +307,44 @@ jobs:
         working-directory: musico_core
         env:
           MUSICO_VERSION_OVERRIDE: ${{ inputs.version_name || '' }}
+          RUSTFLAGS: "-C link-arg=-lc++_shared"
 
-      - name: Ensure libc++_shared.so is packed
+      - name: Ensure libc++_shared.so is packed and verify symbols
         run: |
-          if [ -f android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so ] && \
-             [ "$(stat -c%s android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so)" -gt 100000 ]; then
+          TARGET_LIB="android/app/src/main/jniLibs/arm64-v8a/libc++_shared.so"
+          if [ ! -f "$TARGET_LIB" ] || [ "$(stat -c%s "$TARGET_LIB")" -le 100000 ]; then
+            LIBCXX=""
+            # Always prefer the exact NDK used by cargo-ndk first so ABI symbols
+            # (__gxx_personality_v0, etc.) match libmusico_online_lib.so.
+            for NDK_DIR in "$ANDROID_NDK_HOME" $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
+              [ -d "$NDK_DIR" ] || continue
+              LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
+                -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
+              [ -n "$LIBCXX" ] && break
+            done
+            if [ -z "$LIBCXX" ]; then
+              echo "No real arm64 libc++_shared.so in any installed NDK" >&2
+              exit 1
+            fi
+            echo "Packing $LIBCXX"
+            mkdir -p android/app/src/main/jniLibs/arm64-v8a
+            cp "$LIBCXX" "$TARGET_LIB"
+          else
             echo "cargo-ndk already packed a real libc++_shared.so"
-            exit 0
           fi
-          LIBCXX=""
-          for NDK_DIR in $(ls -d "$ANDROID_HOME"/ndk/* | sort -Vr); do
-            LIBCXX=$(find "$NDK_DIR" \( -path '*arm64-v8a*' -o -path '*aarch64*' \) \
-              -name 'libc++_shared.so' -size +100k 2>/dev/null | sort | head -1)
-            [ -n "$LIBCXX" ] && break
-          done
-          if [ -z "$LIBCXX" ]; then
-            echo "No real arm64 libc++_shared.so in any installed NDK" >&2
-            exit 1
+          ls -lh android/app/src/main/jniLibs/arm64-v8a/
+          READELF=""
+          if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+            READELF=$(find "$ANDROID_NDK_HOME" -name 'llvm-readelf' \( -type f -o -type l \) 2>/dev/null | head -1)
           fi
-          echo "Packing $LIBCXX"
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          cp "$LIBCXX" android/app/src/main/jniLibs/arm64-v8a/
+          [ -n "$READELF" ] && [ -x "$READELF" ] \
+            || { echo "llvm-readelf not found under ANDROID_NDK_HOME (${ANDROID_NDK_HOME:-<unset>})" >&2; exit 1; }
+          NEEDED=$("$READELF" -d android/app/src/main/jniLibs/arm64-v8a/libmusico_online_lib.so | grep NEEDED || true)
+          echo "$NEEDED"
+          echo "$NEEDED" | grep -q "libc++_shared\.so" \
+            || { echo "libmusico_online_lib.so missing NEEDED libc++_shared.so" >&2; exit 1; }
+          "$READELF" --dyn-syms "$TARGET_LIB" | grep -q "__gxx_personality_v0" \
+            || { echo "libc++_shared.so missing __gxx_personality_v0" >&2; exit 1; }
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -375,6 +392,10 @@ jobs:
           APK=$(find android/app/build/outputs/apk -type f -name '*-release*.apk' | head -1)
           [ -n "$APK" ] || { echo "no APK produced" >&2; exit 1; }
           cp "$APK" dist/musico-online-native-aarch64.apk
+          unzip -l dist/musico-online-native-aarch64.apk | grep -q "lib/arm64-v8a/libmusico_online_lib.so" \
+            || { echo "APK missing libmusico_online_lib.so" >&2; exit 1; }
+          unzip -l dist/musico-online-native-aarch64.apk | grep -q "lib/arm64-v8a/libc++_shared.so" \
+            || { echo "APK missing libc++_shared.so" >&2; exit 1; }
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BT/apksigner" verify dist/musico-online-native-aarch64.apk
 

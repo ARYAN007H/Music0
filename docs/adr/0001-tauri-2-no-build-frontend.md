@@ -4,7 +4,7 @@
 - Recorded: 2026-11-05
 - Deciders: maintainers
 
-> **Historical record:** Tauri 2 (`src-tauri/`) was retired in `v1.0.0` (PR #132). Production Android and Desktop apps now use Compose Multiplatform + pure-Rust JNI `musico_core` ([ADR-0005](0005-compose-multiplatform-and-jni-core.md)). The static `frontend/` directory remains in the repository only for the `server.ts` web/PWA preview.
+> **Historical record:** Tauri 2 (`src-tauri/`) was retired in `v1.0.0` (PR #132), and the standalone `frontend/` + `server.ts` web/PWA preview was retired post-`v1.0.1` (PR #138). Production Android and Desktop apps use Compose Multiplatform + pure-Rust JNI `musico_core` ([ADR-0005](0005-compose-multiplatform-and-jni-core.md)). The remainder of this document is preserved unchanged as a historical record.
 
 ## Context
 

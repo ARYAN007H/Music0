@@ -28,10 +28,11 @@ compose.desktop {
     application {
         mainClass = "io.github.aryan007h.musicoonline.desktop.MainKt"
 
-        // Tuned low-RAM JVM profile (~110-165 MB typical RSS with G1GC heap shrinking).
+        // Tuned low-RAM + 120Hz frame-pacing JVM profile (sub-5ms G1GC pause target).
         jvmArgs += listOf(
-            "-Xmx256m",
+            "-Xmx384m",
             "-XX:+UseG1GC",
+            "-XX:MaxGCPauseMillis=5",
             "-XX:MaxHeapFreeRatio=30",
             "-XX:MinHeapFreeRatio=10",
         )

@@ -28,7 +28,7 @@ use rand::RngCore;
 pub(crate) const INITIAL_READY_BYTES: u64 = 16 * 1024;
 /// How long `start_session` waits for the initial ready threshold before
 /// declaring the upstream stalled and failing over.
-pub(crate) const INITIAL_READY_TIMEOUT: Duration = Duration::from_secs(6);
+pub(crate) const INITIAL_READY_TIMEOUT: Duration = Duration::from_secs(4);
 /// Upper bound on active/completed sessions retained in the lookup map.
 const MAX_RETAINED_SESSIONS: usize = 24;
 /// Read chunk size for both producer and HTTP range reader (16 KiB matches

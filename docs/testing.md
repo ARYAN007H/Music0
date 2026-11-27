@@ -1,6 +1,6 @@
 # Testing
 
-Music0 uses five test layers: hermetic Rust tests, Compose Multiplatform Kotlin checks, opt-in live network tests, TypeScript engine tests, and web-preview browser assertion suites. The CI workflow runs Rust, Compose Multiplatform, and TypeScript checks on Linux; the release workflow runs native builds across Linux, macOS, Windows, and Android.
+Music0 uses three test layers: hermetic Rust tests, Compose Multiplatform Kotlin checks, and opt-in live network tests. The CI workflow runs Rust and Compose Multiplatform checks on Linux; the release workflow runs native builds across Linux, macOS, Windows, and Android.
 
 ## 1. Test layers
 
@@ -11,9 +11,6 @@ Music0 uses five test layers: hermetic Rust tests, Compose Multiplatform Kotlin 
 | — `musico_recommender` | Yes | Rust |
 | — `musico_playback` | **No** (excluded in CI; 27 unit tests + 4 device E2E tests) | Audio device + test WAV for E2E |
 | Compose Multiplatform (`:app:compileDebugKotlin`, `:desktopApp:compileKotlin`, `:shared:desktopTest`) | Yes (`compose-multiplatform`) | Java 17 + Gradle 8.10.2 + Android SDK |
-| TypeScript engine (`npm test`, `npm run build`) | Yes (`web-engine`) | Node 20 + `npm install` |
-| Browser suites (`scripts/browser_*_test.mjs`) | No | Web preview + Playwright + Chrome |
-| Contrast gate (`scripts/contrast_gate.mjs`) | No | Web preview + Playwright + Chrome |
 
 CI's Rust test command is:
 
@@ -43,7 +40,7 @@ cargo test -p musico_core -- --list             # list collected tests
 cargo test -p musico_core -- --nocapture        # show prints
 ```
 
-Tests run in parallel by default. If a test touches process-global state (environment variables, the stream cache, a sled DB), it must isolate itself — see §6.
+Tests run in parallel by default. If a test touches process-global state (environment variables, the stream cache, a sled DB), it must isolate itself — see §4.
 
 ### Playback end-to-end
 
@@ -106,72 +103,17 @@ MUSICO_CACHE_DIR=/tmp/musico-live-cache \
 gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
 ```
 
-`android/shared/src/desktopTest/kotlin/io/github/aryan007h/musicoonline/SharedCoreTests.kt` runs **14** unit tests covering:
+`android/shared/src/desktopTest/kotlin/io/github/aryan007h/musicoonline/SharedCoreTests.kt` runs **27** unit tests covering:
 
 - `MusicoCoreCodec` envelope parsing & error propagation
 - `DesktopPlatformPrefs` persistence
 - `PlatformEqualizer` 5-band ↔ 10-band mapping (`mapFiveBandsToTenDb`)
 - `ResolveFailurePolicy` auto-skip bounds (`maxAutoSkips = 3`) & `StreamResolvePolicy`
 - `PlaylistImportResult` / `snapCacheCapMb` / count & downloads pluralization formatters
-- `safeCornerDp` / `safePositiveScale` / `HorizontalScrollMath` / home personalization fallback
+- `safeCornerDp` / `safePositiveScale` / `HorizontalScrollMath` / `HomeFeaturedCurator` / `LibraryRecommendationCurator` / `DownloadsPartition`
+- `ThemeMode` lookup/resolution, `Palette` light & dark schemes/extras, `ExpressiveSegmentedMath`, `ExpressiveSeekMath`, `ExpressiveSliderMath`, `EqCurveMath`, `PlayerBackdropSpecs`, and `ArtworkPaletteCache`
 
-## 4. TypeScript tests (web preview engine)
-
-The web/PWA demo engine lives in `src/engine/` and has its own tests (`package.json` runs the explicit three test files):
-
-```sh
-npm install
-npm test        # tsx --test src/engine/recommender.test.ts src/engine/streamer.test.ts src/engine/features.test.ts
-npm run build   # tsc --noEmit typecheck
-```
-
-`npm run build` and `npm run lint` are the same typecheck. It covers `server.ts`, `src/engine/*.ts`, and the Node types. It does **not** typecheck `frontend/` — that code is plain JS run in browsers.
-
-## 5. Browser suites (web preview only)
-
-These are end-to-end DOM assertions against the **unreleased web preview** (`server.ts` + `frontend/`), using its mock Bridge. They verify web-preview UI contracts, not Compose Multiplatform or Rust behavior.
-
-### Setup
-
-```sh
-npm install
-npm install --save-dev playwright
-npx playwright install chrome
-```
-
-Start the preview on the port the suites expect:
-
-```sh
-PORT=8143 npm run dev
-```
-
-Run a suite in another terminal:
-
-```sh
-node scripts/browser_shell_test.mjs
-node scripts/browser_home_test.mjs
-node scripts/browser_library_test.mjs
-node scripts/browser_detail_test.mjs
-node scripts/browser_ctx_test.mjs
-node scripts/browser_panel_test.mjs
-node scripts/browser_storage_test.mjs
-node scripts/browser_offline_test.mjs
-node scripts/browser_typeahead_test.mjs
-node scripts/genres_test.mjs
-```
-
-Always stop the server after a run; a stale server on 8143 makes the next run lie.
-
-### WCAG contrast gate (web preview)
-
-```sh
-PORT=8145 npm run dev
-node scripts/contrast_gate.mjs 8145
-```
-
-`scripts/contrast_gate.mjs` checks the 6 selectable web-preview palettes (`nebula`, `sakura`, `aurora`, `ocean`, `ember`, `mono`) × 2 themes (`light`, `dark`) and exits `1` on any pair below `4.5:1`. (It does not check the hidden `music` CSS palette or CMP's 5 dark palettes in `Palettes.kt`.)
-
-## 6. Hermetic-test rules
+## 4. Hermetic-test rules
 
 These rules exist because earlier tests once deleted a user's real download cache (`#48`). Treat them as hard requirements.
 
@@ -183,7 +125,7 @@ These rules exist because earlier tests once deleted a user's real download cach
 6. **Do not mutate process environment in parallel tests.** Serialize with a mutex or test the pure helper instead.
 7. **Cover failure paths.** Prove bad URLs, missing fields, wrong content types, oversized bodies, or empty IDs are rejected.
 
-## 7. What to test where
+## 5. What to test where
 
 | Change | Minimum evidence |
 |---|---|
@@ -194,25 +136,21 @@ These rules exist because earlier tests once deleted a user's real download cach
 | Settings field | `AppSettings` round-trip/partial-JSON test (`config.rs`) + Kotlin `CoreSettings` / UI check |
 | Compose Multiplatform UI / logic | `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest` |
 | Desktop audio / loopback source | `cargo test -p musico_playback --lib` (and full `cargo test -p musico_playback` with audio) |
-| Web preview / TypeScript engine | `npm test`, `npm run build`, relevant `scripts/browser_*_test.mjs`, and `contrast_gate.mjs` |
 | Release workflow | `workflow_dispatch` run before tagging |
 
-## 8. CI behavior
+## 6. CI behavior
 
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request:
 
 1. **`rust-core`**: installs `libasound2-dev pkg-config`, runs `cargo test --workspace --exclude musico_playback`, and builds `cargo build --release -p musico_core --lib`.
 2. **`compose-multiplatform`**: runs `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain`.
-3. **`web-engine`**: installs npm dependencies and runs `npm test && npm run build`.
 
 `.github/workflows/release.yml` runs native release builds and packaging across `linux-desktop`, `macos-desktop`, `windows-desktop`, and `android-native`.
 
-Not in CI: `musico_playback` device E2E tests, browser suites, the contrast gate, and live network tests.
+Not in CI: `musico_playback` device E2E tests and live network tests.
 
-## 9. Adding a test
+## 7. Adding a test
 
 - **Rust unit/integration:** put `#[cfg(test)] mod tests` at the bottom of the module, or add a file under `musico_playback/tests/` for engine E2E.
 - **Live test:** add `#[test] #[ignore = "network test — run with MUSICO_LIVE_TESTS=1"]` and prefix the name with `live_`.
 - **Kotlin CMP:** add test methods to `android/shared/src/desktopTest/kotlin/io/github/aryan007h/musicoonline/SharedCoreTests.kt`.
-- **TypeScript:** add `src/engine/<area>.test.ts` and include it in `package.json`'s `"test"` script.
-- **Browser (web preview):** copy the smallest existing suite, start the preview on `8143`, assert user-visible behavior, and clean up the server.

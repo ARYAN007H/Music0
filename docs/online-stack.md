@@ -8,7 +8,7 @@ The online stack is the bridge between a UI request (`online.*`, `track.resolve`
 
 | File | Concern |
 |---|---|
-| `mod.rs` | Re-exports, `fetch_track_metadata`, and 12 cross-module `live_*` tests |
+| `mod.rs` | Re-exports, `fetch_track_metadata`, and 12 cross-module `live_*` tests (19 total across `online/`) |
 | `client.rs` | Shared HTTP client, InnerTube `WEB_REMIX` identity, auto-refreshing `clientVersion`, RAII concurrency cap (`2`), 1 retry |
 | `models.rs` | Wire structs (`OnlineTrack`, `BrowsePage`, `SearchResultPage`, `ShelfItem`, `song_id()`) |
 | `parse.rs` | All InnerTube JSON shape parsing (the only drift-sensitive file) |
@@ -48,15 +48,23 @@ See [ADR-0003](adr/0003-tiered-stream-resolution.md) and [ADR-0006](adr/0006-loo
 1. **Local cache check:** Checks `cached_file(song_id)` and `cached_file(video_id)`. A hit returns the disk path immediately (works in Airplane Mode) and writes `{stem}.meta.json` if missing.
 2. **Spawn async cover fetch:** `CoverJob::spawn` runs without blocking playback start.
 3. **Parallel race (YouTube tracks with a title):**
-   - **Branch A — JioSaavn cross-source (`saavn.rs`):** Searches `6` results (`CROSS_SOURCE_SEARCH_TIMEOUT = 2,500 ms`) across primary and romanized `" - "` tail queries, normalizes titles alphanumerically, checks artist word overlap, disqualifies `> 6 s` AND `> 20%` relative duration drift, ranks by minimum duration drift, and decrypts `encrypted_media_url` (DES-ECB key `"38346591"`).
-   - **Branch B — Direct-URL hedged fast path (`sources.rs`):** Tries `InnerTubeDirectSource` **first**, followed by EWMA-sorted `Piped` (`6` defaults) and `Invidious` (`4` defaults) pools under a `10 s` `FAST_PATH_BUDGET`. Uses `try_sources_open_stream_hedged` (`STREAM_HEDGE_DELAY = 900 ms`, `STREAM_HEDGE_BATCH = 2`, `METADATA_TIMEOUT = 3,500 ms`, `STREAM_READ_TIMEOUT = 15 s`).
-4. **Loopback HTTP/1.1 range stream (`stream_server.rs`):** Whichever branch opens first hands its reader to `LoopbackStreamServer`, which pumps bytes into `{stem}.{seq}.part`, waits up to `6 s` for `INITIAL_READY_BYTES = 16 KiB`, and returns `http://127.0.0.1:<port>/stream/<32-hex-OsRng-token>`. Both Android Media3 and Desktop `LoopbackHttpMediaSource` play directly from this URL while the download completes and atomically renames `.part` → final cache file.
-5. **Desktop `yt-dlp` fallback (non-Android only):** If both race branches miss, Desktop checks `yt-dlp_available()`, tries `yt-dlp -g` progressive streaming (`open_yt_dlp_stream`) through the same loopback server, and falls back to whole-file `run_yt_dlp` (`90 s` interactive / `2 × 120 s` background, global semaphore cap `3`). Android has no `yt-dlp` child process.
+   - **Branch A — JioSaavn cross-source (`saavn.rs`):** Strips video noise (`strip_video_noise`, e.g. `(Official Video)`, `[Lyrics]`, trailing `| HD` tags while preserving `Artist | Title`) first, searches `6` results (`CROSS_SOURCE_SEARCH_TIMEOUT = 2,500 ms`) across cleaned primary, raw, and romanized `" - "` tail queries, normalizes titles alphanumerically, checks artist word overlap, disqualifies `> 6 s` AND `> 20%` relative duration drift, ranks by minimum duration drift, and decrypts `encrypted_media_url` (DES-ECB key `"38346591"`).
+   - **Branch B — Direct-URL hedged fast path (`sources.rs`):** Tries `InnerTubeDirectSource` **first**, followed by EWMA-sorted `Piped` (`6` defaults) and `Invidious` (`4` defaults) pools under a `6 s` `STREAM_FAST_PATH_BUDGET` (`10 s` `FAST_PATH_BUDGET` for whole-file downloads). Uses `try_sources_open_stream_hedged` (`STREAM_HEDGE_DELAY = 400 ms`, `STREAM_HEDGE_BATCH = 3`, `METADATA_TIMEOUT = 1,800 ms`, `CONNECT_TIMEOUT = 1,500 ms`, `STREAM_READ_TIMEOUT = 15 s`).
+   - **Desktop `yt-dlp -g` hedge (non-Android only):** If neither fast-path branch has won within `1.5 s` and `yt-dlp` is available, Desktop hedges `open_yt_dlp_stream` (`yt-dlp -g`) into the same race so tracks never stall for `10+` seconds.
+4. **Loopback HTTP/1.1 range stream (`stream_server.rs`):** Whichever branch opens first hands its reader to `LoopbackStreamServer`, which pumps bytes into `{stem}.{seq}.part`, waits up to `4 s` (`INITIAL_READY_TIMEOUT`) for `INITIAL_READY_BYTES = 16 KiB`, and returns `http://127.0.0.1:<port>/stream/<32-hex-OsRng-token>`. Both Android Media3 and Desktop `LoopbackHttpMediaSource` play directly from this URL while the download completes and atomically renames `.part` → final cache file.
+5. **Desktop `yt-dlp` fallback (non-Android only):** If the stream race misses (or `yt-dlp -g` was not yet hedged), Desktop checks `yt_dlp_available()`, tries `yt-dlp -g` progressive streaming (`open_yt_dlp_stream`) through the same loopback server, and falls back to whole-file `run_yt_dlp` (`90 s` interactive / `2 × 120 s` background, global semaphore cap `3`). Android has no `yt-dlp` child process.
 
-### `InnerTubeDirectSource` details (`sources.rs`)
+### `InnerTubeDirectSource` & audio selection details (`sources.rs`)
 - **No `ANDROID_VR`:** `ANDROID_VR` was removed (YouTube returns `403` after `512 KiB`).
-- **Multi-client rotation:** Posts to `https://music.youtube.com/youtubei/v1/player?prettyPrint=false` rotating `VISIONOS_0_1`, `VISIONOS_1_02`, and `WEB_REMIX`, bootstrapping `visitorData`, filtering `n`-param URLs, remembering the last working client, and demoting failing profiles for `10` minutes.
-- **Bitrate & loudness:** Default fast-path cap is `192_000` bps; `high` / `lossless` quality settings unlock `256_000` bps (`HIGH_TIER_AUDIO_BITRATE`). Captures `playerConfig.audioConfig` loudness into `STREAM_LOUDNESS` (up to `4096` entries).
+- **6 client profiles (`IT_CLIENTS`):** `VISIONOS_0_1` (`music.youtube.com`, visitor-gated), `VISIONOS_1_02` (`music.youtube.com`), `IOS_20` (`www.youtube.com`), `ANDROID_MUSIC` (`music.youtube.com`), `TV_EMBEDDED` (`www.youtube.com`), and `WEB_REMIX` (`www.youtube.com`).
+- **Cold-start ordering & top-2 race:** Remembers `LAST_GOOD_IT_CLIENT`; on cold start when `visitorData` is not yet warm, tries visitor-free profiles before visitor-gated ones so playback never stalls `4–9 s` bootstrapping `sw.js_data`. Races the **top 2** eligible profiles in parallel, then walks remaining profiles sequentially if needed.
+- **Circuit breaker & `n`-param fallback:** Demotes a profile for `90 s` (`IT_DEMOTE`) only after `3` consecutive transport/HTTP failures (`IT_DEMOTE_THRESHOLD = 3`; per-video playability errors never demote a profile, and any clean success immediately rehabilitates it). Filters out `n`-param URLs first (`playback_ready`), falling back to `n`-param URLs only if no non-`n` stream exists (without pinning the profile as `LAST_GOOD_IT_CLIENT`).
+- **Bitrate, Opus/WebM fallback & loudness:** Default fast-path cap is `192_000` bps; `high` / `lossless` quality settings unlock `256_000` bps (`HIGH_TIER_AUDIO_BITRATE`). Selects `audio/mp4` within cap, then uncapped `audio/mp4` up to `512 kbps`; on Android only (`#[cfg(target_os = "android")]`), falls back to `audio/webm` (Opus/WebM, which ExoPlayer decodes natively while Desktop Symphonia 0.5.5 does not). Captures `playerConfig.audioConfig` loudness into `STREAM_LOUDNESS` (up to `4096` entries).
+- **Stream-URL & redirect hardening (`sources.rs`, `saavn.rs`):**
+  - `parse_safe_https_url` / `is_safe_https_url` requires `https://`, rejects whitespace/control chars, userinfo (`username`/`password`/`@`), explicit non-default ports (`port().is_none()`), IPv4/IPv6 literals, single-label/numeric-TLD/trailing-dot hosts, and private/internal suffixes (`.localhost`, `.local`, `.internal`, `.arpa`, `.lan`, `.localdomain`, `.home`, `.corp`, `.intranet`, `.private`), using dot-boundary matching (`host_matches_domain`).
+  - `StreamHostPolicy` constrains `InnerTubeDirectSource` to `*.googlevideo.com`; `PipedSource` to `self.host`/subdomains, safe sibling proxies under the same non-public-suffix parent domain (e.g. `pipedapi.kavin.rocks` → `pipedproxy.kavin.rocks`), or `*.googlevideo.com`; and `InvidiousSource` validates configured `self.host`.
+  - `SOURCE_CLIENT` and `STREAM_CLIENT` enforce `Policy::custom` (max `5` hops), blocking HTTP downgrades, IP literals, userinfo, non-default ports, and off-trust redirects across both initial and previous hops (`youtube.com` → `youtube.com`; `googlevideo.com` → `googlevideo.com`; Piped/Invidious → same/safe-sibling or narrowing into `*.googlevideo.com`), also protecting Desktop `yt-dlp -g` (`stream_http_client()`).
+  - In `saavn.rs`, `decrypt_media_url` validates `https://aac.saavncdn.com/...` (`_96.` path), `MEDIA_CLIENT` (`Policy::custom`, max `3` hops) restricts redirects to HTTPS `*.saavncdn.com`, and `API_CLIENT` (`Policy::custom`, max `3` hops) restricts redirects to HTTPS `*.jiosaavn.com`/initial host (or exact same origin for `http://` `MUSICO_SAAVN_API` dev overrides).
 
 ### Background download path (`resolve_track`, `allowStream = false`)
 Pre-warming and offline downloads run the same cache check and parallel JioSaavn-vs-Direct / `yt-dlp` ladder without `stream_server.rs`, writing `{stem}.{seq}.part` → atomic rename + `.meta.json` sidecar + LRU pruning (`1 GiB` default cap, `80%` prune target, `MIN_FILE_BYTES = 10 KiB`, `MAX_SOURCE_BYTES = 64 MiB` direct / `32 MiB` Saavn, `24 h` `.part`/`.ytdl`/`.tmp` sweep).
@@ -91,9 +99,10 @@ Pre-warming and offline downloads run the same cache check and parallel JioSaavn
 
 | Operation | Budget / Timeout |
 |---|---|
-| Piped / Invidious / InnerTube Direct metadata | `3,500 ms` (`2 s` connect) |
-| Fast-path hedged stream opening | `10 s` total (`900 ms` hedge delay, batch `2`, `15 s` read idle) |
-| Loopback startup gate (`INITIAL_READY_BYTES`) | `16 KiB` within `6 s` |
+| Piped / Invidious / InnerTube Direct metadata | `1,800 ms` (`1,500 ms` connect) |
+| Fast-path hedged stream opening | `6 s` streaming (`STREAM_FAST_PATH_BUDGET`) / `10 s` download (`FAST_PATH_BUDGET`), `400 ms` hedge delay, batch `3`, `15 s` read idle |
+| Desktop `yt-dlp -g` stream-race hedge | `1.5 s` after stream race starts |
+| Loopback startup gate (`INITIAL_READY_BYTES`) | `16 KiB` within `4 s` (`INITIAL_READY_TIMEOUT`) |
 | JioSaavn cross-source search / full API | `2,500 ms` / `6 s` |
 | `yt-dlp` interactive / background | `90 s` (1 attempt) / `2 × 120 s` |
 | Playlist URL import | `10 s` (`5 s` connect) |

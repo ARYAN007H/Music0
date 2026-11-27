@@ -9,7 +9,7 @@ The app uses Semantic Versioning (`v1.0.0`, `v1.0.1`, …). Tags without a hyphe
 - Android and `musico_core::mobile::app_display_version()` append `-cmp` to the display version (`1.0.1-cmp`), while `release.yml` strips any `v` prefix and `-...` suffix for desktop package installers (`1.0.1`).
 - macOS (`dmg`) and Windows (`msi`) `jpackage` installers require a strictly numeric `MAJOR.MINOR.PATCH` version with `MAJOR >= 1`.
 
-Keep versions synchronized across these files (and check the fallback defaults in `.github/workflows/release.yml`):
+Keep versions synchronized across these 5 files (and check the fallback defaults in `.github/workflows/release.yml`):
 
 | File | Field |
 |---|---|
@@ -17,16 +17,15 @@ Keep versions synchronized across these files (and check the fallback defaults i
 | `android/app/build.gradle.kts` | `musicoVersionCode`, `musicoVersionName` |
 | `android/desktopApp/build.gradle.kts` | `musicoVersionName` default |
 | `android/shared/src/desktopMain/.../DesktopPlatform.kt` | `DesktopPlatformUpdater.currentVersion()` |
-| `package.json` | `version` |
 | `flatpak/io.github.aryan007h.Music0.metainfo.xml` | `<releases>` top entry (`version`, `date`) |
 
 ## 2. Pre-release checklist
 
 - [ ] `git status` is clean; no untracked build outputs or native binaries in `android/desktopApp/resources/` or `android/app/src/main/jniLibs/arm64-v8a/`.
-- [ ] CI is green (`.github/workflows/ci.yml`: `rust-core`, `compose-multiplatform`, `web-engine`).
+- [ ] CI is green (`.github/workflows/ci.yml`: `rust-core`, `compose-multiplatform`).
 - [ ] `cargo test --workspace --exclude musico_playback` passes.
 - [ ] `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest` passes.
-- [ ] `npm test` and `npm run build` pass.
+- [ ] `appstreamcli validate --no-net flatpak/io.github.aryan007h.Music0.metainfo.xml` passes.
 - [ ] `CHANGELOG.md` and `flatpak/io.github.aryan007h.Music0.metainfo.xml` have a dated section/entry for this version.
 - [ ] Versions bumped in all synced files (§1), including `.github/workflows/release.yml` fallback defaults if applicable.
 - [ ] `workflow_dispatch` release run is green on the release branch before tagging.

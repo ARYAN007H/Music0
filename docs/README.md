@@ -10,7 +10,7 @@ for contributors, reviewers, and anyone debugging the runtime.
 |---|---|
 | New to the repository | [CONTRIBUTING.md](../CONTRIBUTING.md) → [development.md](development.md) → [testing.md](testing.md) |
 | Reviewing a change | [ARCHITECTURE.md](../ARCHITECTURE.md) → [ipc.md](ipc.md) → [online-stack.md](online-stack.md) → [data-storage.md](data-storage.md) |
-| Working on the web preview UI | [frontend.md](frontend.md) → [testing.md](testing.md#5-browser-suites-web-preview-only) |
+| Working on UI & themes | [frontend.md](frontend.md) → [brand/BRAND_GUIDELINES.md](brand/BRAND_GUIDELINES.md) |
 | Working on catalog/streaming | [online-stack.md](online-stack.md) → [data-storage.md](data-storage.md) |
 | Verifying downloads or packaging | [verify-downloads.md](verify-downloads.md) → [flatpak.md](flatpak.md) |
 | Cutting a release | [release.md](release.md) → [CHANGELOG.md](../CHANGELOG.md) |
@@ -22,10 +22,10 @@ for contributors, reviewers, and anyone debugging the runtime.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](../ARCHITECTURE.md) | System overview, CMP + JNI design, threads, crate boundaries, core flows, CI/packaging |
-| [development.md](development.md) | Prerequisites, Compose Multiplatform, web preview, and Android development, env vars, logs, common tasks |
-| [testing.md](testing.md) | Test layers, hermetic Rust tests, Compose Multiplatform checks, 19 live tests, TS tests, browser suites, contrast gate |
-| [ipc.md](ipc.md) | Production JNI bridge (`musico_core/src/mobile.rs`, 48 commands) + web-preview `bridge.js` appendix |
-| [frontend.md](frontend.md) | Compose Multiplatform UI summary + unreleased web/PWA preview (`frontend/` + `server.ts`) |
+| [development.md](development.md) | Prerequisites, Compose Multiplatform and Android development, env vars, logs, common tasks |
+| [testing.md](testing.md) | Test layers, hermetic Rust tests, Compose Multiplatform checks, 19 live tests |
+| [ipc.md](ipc.md) | Production JNI bridge (`musico_core/src/mobile.rs`, 48 commands) |
+| [frontend.md](frontend.md) | Compose Multiplatform UI architecture, Material 3 Expressive design system, Light/Dark `ThemeMode`, controls, and shapes |
 | [online-stack.md](online-stack.md) | InnerTube, JioSaavn, `InnerTubeDirectSource`, Piped/Invidious, loopback `stream_server.rs`, `playlist_import.rs`, `yt-dlp`, LRCLIB |
 | [data-storage.md](data-storage.md) | Desktop/Android paths, `settings.json`, `ui_prefs.json`, sled trees (`mobile:*`), stream/cover caches, reset |
 | [release.md](release.md) | Versioning, tag scheme, `release.yml`, `desktop-core-so.yml`, artifacts, signing/secrets, local builds, rollback |
@@ -50,7 +50,6 @@ for contributors, reviewers, and anyone debugging the runtime.
 
 - **Verify against code.** Commands, paths, event names, and counts in these documents are checked against the source tree at the release they describe.
 - **Use exact paths.** Prefer `musico_core/src/online/stream.rs` over "the online module".
-- **Separate the runtimes.** The Compose Multiplatform app (`android/` + `musico_core/`) and the web/PWA preview (`frontend/` + `server.ts` + `src/engine/`) are separate runtimes. Say which one a statement applies to.
 - **Keep commands copy-pasteable.** Every shell block assumes the repository root unless it says otherwise.
 - **Record irreversible choices as ADRs.** Durable architectural choices get an ADR in `docs/adr/`.
 - **No secrets and no private data.** Never paste real tokens, cookies, or personal machine paths.
@@ -84,9 +83,7 @@ for contributors, reviewers, and anyone debugging the runtime.
 ├── musico_playback/       Audio engine crate (Rust, including http_source.rs, resampler.rs, eq.rs)
 ├── musico_recommender/    Recommender crate (Rust, 19 modules)
 ├── flatpak/               Linux desktop entry, AppStream metainfo, Flatpak manifest
-├── frontend/              Standalone web/PWA preview UI
-├── src/engine/            TypeScript engine for the web preview
-├── scripts/               package_appimage.sh, package_flatpak.sh, gen_test_tone.sh, browser suites, contrast gate
+├── scripts/               package_appimage.sh, package_flatpak.sh, gen_test_tone.sh
 └── .github/               CI/release workflows + issue/PR templates
 ```
 

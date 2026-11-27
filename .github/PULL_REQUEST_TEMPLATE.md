@@ -22,8 +22,7 @@ A short, reviewable list. Call out:
 - Compose Multiplatform UI/ViewModel changes (`android/shared/`);
 - persisted data or schema changes;
 - resolver, cache, or settings behavior;
-- version bumps across the 6 synced manifests (if releasing);
-- web-preview `frontend/` asset version bumps (if touched).
+- version bumps across the 5 synced manifests (if releasing).
 -->
 
 -
@@ -36,14 +35,12 @@ A short, reviewable list. Call out:
 cargo test --workspace --exclude musico_playback
 cargo build --release -p musico_core --lib
 gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
-npm test && npm run build
 ```
 
 - [ ] Rust suite & `musico_core` release `cdylib` build pass (or excluded/failed tests are explained).
 - [ ] Compose Multiplatform Android/Desktop compile and `:shared:desktopTest` pass.
 - [ ] New behavior has a hermetic test.
-- [ ] `npm test` / `npm run build` pass if `src/engine/` or `server.ts` changed.
-- [ ] Compose Multiplatform change exercised on Desktop/Android (or web-preview change exercised in a browser).
+- [ ] Compose Multiplatform change exercised on Desktop and/or Android.
 
 ## Screenshots / recordings
 
@@ -57,7 +54,6 @@ npm test && npm run build
 - [ ] macOS
 - [ ] Windows
 - [ ] Android
-- [ ] Web preview (`server.ts` / `frontend/`) only
 - [ ] No platform-specific code
 
 ## Risk and follow-ups
@@ -70,7 +66,6 @@ disk work, and anything intentionally left out of scope.
 ## Checklist
 
 - [ ] The change does what the linked issue/PR says, and nothing unrelated.
-- [ ] `?v=` asset versions were bumped if `frontend/` changed.
 - [ ] Network/disk work is off the UI thread and bounded.
 - [ ] Error paths return a user-visible message; no new `unwrap()` on runtime data.
 - [ ] Security-sensitive input (URLs, ids, filenames, downloaded bytes) is validated at the boundary.

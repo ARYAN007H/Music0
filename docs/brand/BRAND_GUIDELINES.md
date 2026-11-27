@@ -2,13 +2,13 @@
 
 **Music0** (`ARYAN007H/Music0`) splits its visual system cleanly into two scopes:
 1. **Brand Identity (Icon, Logo Mark & Banner):** **TE Dial-Zero** — flat tactile hardware minimalism.
-2. **In-App UI Elements (from `v1.0.1` onward):** **Material 3 Expressive only** — adaptive dark tonal surfaces, expressive rounded geometry, and spring-driven motion.
+2. **In-App UI Elements (from `v1.0.1` onward):** **Material 3 Expressive only** — adaptive Light and Dark tonal surfaces, expressive rounded geometry, and spring-driven motion.
 
 ---
 
 ## 1. Brand Assets Scope: Icon, Mark & Banner (TE Dial-Zero)
 
-The TE Dial-Zero specification governs the **app icon**, **logo mark**, and **hero banner** (`docs/brand/`, `android/desktopApp/icons/`, `android/app/src/main/res/`, and `frontend/icons/`).
+The TE Dial-Zero specification governs the **app icon**, **logo mark**, and **hero banner** (`docs/brand/`, `android/desktopApp/icons/`, and `android/app/src/main/res/`).
 
 ### Strict Craft Mandate (Icon, Mark & Banner Only)
 - **Zero gradients** (`<linearGradient>`, `<radialGradient>` forbidden in brand SVG/icon assets).
@@ -42,24 +42,26 @@ The TE Dial-Zero specification governs the **app icon**, **logo mark**, and **he
   - [`banner.png`](banner.png) — hero banner (`1280×640`)
 - **Desktop app icons (`android/desktopApp/icons/`):** `32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.png` (`512×512`), `icon.icns`, `icon.ico`.
 - **Android adaptive launcher (`android/app/src/main/res/`):** `mipmap-anydpi-v26/ic_launcher.xml` + vector drawables `drawable/ic_launcher_background.xml`, `drawable/ic_launcher_foreground.xml`, `drawable/ic_launcher_monochrome.xml`.
-- **Web/PWA icons (`frontend/icons/` & `frontend/manifest.json`):** `icon.svg`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (`theme_color: #26444D`, `background_color: #161618`).
 
 ---
 
 ## 2. In-App UI Design Language: Material 3 Expressive Only
 
-From `v1.0.1` onward, **all in-app UI elements** across Android and Desktop Compose Multiplatform (`android/shared/`) use **Material 3 Expressive only**—Dial-Zero's zero-gradient / fixed-teal hardware constraints do not restrict in-app screens, player backdrops, or interactive components.
+From `v1.0.1` onward, **all in-app UI elements** across Android and Desktop Compose Multiplatform (`android/shared/`) use **Material 3 Expressive only**—Dial-Zero's fixed-teal hardware palette does not restrict in-app screens, player backdrops, or interactive components.
 
 ### Rules for New & Updated UI Elements
-- **No legacy Cupertino / neumorphic / web-clone chrome:** Do not introduce iOS-style flat chrome or ad-hoc card styles in Compose. All new screens, dialogs, bottom sheets, navigation rails, and docks must compose from `Theme.kt` and `components/Common.kt`.
-- **5-Rung Palette-Tinted Tonal Surface Ladder (`Theme.kt`):**
-  - Use `MaterialTheme.colorScheme` (`surfaceContainerLowest` through `surfaceContainerHighest`, `primary`, `primaryContainer`, `secondary`/`accent`, `tertiary`) derived from the user's selected dark palette (`Palettes.kt`: `NEBULA`, `OCEAN`, `EMBER`, `FOREST`, `MONO`).
-  - Avoid hard-coded hex colors or nested cards-inside-cards; use tonal container shifts and `4.dp`-aligned `MusicoSpacing` (`4 / 8 / 12 / 16 / 20 / 24 / 28 dp`).
-- **Expressive Shape Hierarchy (`MusicoShapes`):**
-  - `tile` (`20.dp`), `card` (`24.dp`), `hero` (`28.dp`), `pillDock` (`28.dp`), `cardLarge` (`32.dp`), `chip` (`999.dp` pill), `sheet` (`topStart/topEnd = 36.dp`).
-  - Always clamp dynamic animated corners (`coerceAtLeast(0.dp)`) and scales (`safePositiveScale`) so underdamped springs never produce negative corner sizes.
+- **No legacy Cupertino / neumorphic / web-clone chrome:** Do not introduce iOS-style flat chrome or ad-hoc card styles in Compose. All new screens, dialogs, bottom sheets, navigation rails, and docks must compose from `Theme.kt`, `components/Common.kt`, `components/ExpressiveControls.kt`, and `theme/ExpressiveShapes.kt`.
+- **Light & Dark `ThemeMode` + 5-Rung Tonal Surface Ladder (`Theme.kt`, `Palettes.kt`):**
+  - Supports `ThemeMode.SYSTEM`, `ThemeMode.LIGHT`, and `ThemeMode.DARK` across all 5 palettes (`Palettes.kt`: `NEBULA`, `OCEAN`, `EMBER`, `FOREST`, `MONO`), with bespoke `LightPaletteTokens` (`surfaceContainerLowest` through `surfaceContainerHighest`, `primary`, `primaryContainer`, `secondaryContainer`, `tertiaryContainer`) and dark schemes.
+  - Use `MaterialTheme.colorScheme` and `4.dp`-aligned `MusicoSpacing` (`4 / 8 / 12 / 16 / 20 / 24 / 28 dp`) instead of hard-coded hex colors or nested cards-inside-cards.
+- **Zero-Blur / Zero-Gradient Player Backdrops & Solid Tonal Surfaces (`Backdrops.kt`):**
+  - All 5 player backdrops (`mesh` / Fluid, `artwork` / Glow, `aurora` / Aurora, `rain` / Rain, `black` / Dark) are strictly zero-blur and zero-gradient, built from solid stepped M3E tonal surfaces and geometric vector shapes that adapt to Light and Dark modes and pause frame motion when `isPlaying == false`.
+- **Expressive Shape Hierarchy & Controls (`MusicoShapes`, `ExpressiveShapes.kt`, `ExpressiveControls.kt`):**
+  - `MusicoShapes`: `tile` (`20.dp`), `squircle` (`22.dp`), `card` (`24.dp`), `hero` (`28.dp`), `pillDock` (`28.dp`), `cardLarge` (`32.dp`), `chip`/`pill` (`999.dp`), `sheet` (`topStart/topEnd = 36.dp`), plus segmented list shapes (`24.dp` outer / `6.dp` inner).
+  - `ExpressiveShapes`: organic scalloped/arch geometry (`Cookie8`, `Cookie10`, `SoftBurst12`, `Clover4`, `Flower6`, `Arch`) and `ExpressiveSegmentedMath` (`verticalListCorners`, `connectedButtonCorners`).
+  - `ExpressiveControls.kt`: `ExpressiveSwitch`, `ExpressiveSlider`, `ExpressivePlayPauseButton`, `ExpressiveTransportButton`, `ExpressiveActionPill`, `ExpressiveConnectedButtonGroup`, `ExpressiveFilterChip`, `ExpressiveSegmentedItem`, `ExpressiveSegmentedColumn`, `ExpressiveWavySeekBar`, and `ExpressiveLiveWavySeekBar`.
+  - Always clamp dynamic animated corners (`safeCornerDp` / `coerceAtLeast(0.dp)`) and scales (`safePositiveScale`) so underdamped springs never produce negative corner sizes.
 - **Typography (`MusicoTypography`):**
   - Use `display`, `headline`, `titleLarge`, `section`, `overline`, `title`, `body`, `caption`, `tabularCaption` (with `tnum` for durations/counters), and `lyric*` styles—never ad-hoc `fontSize` literals.
-- **Atmospheric Washes & Motion:**
-  - Use `Modifier.musicoWash(...)` (offscreen cubic alpha feathering to `0.0` before bounds) and `musicoScrimBrush(...)` so gradients never show hard horizontal cutoffs.
-  - Pair interactions with `Motion.kt` springs (`pressScale`, `staggerIn`, breathing halos) and matching-geometry shimmer skeletons for loading states.
+- **Scrims & Motion:**
+  - Use `Modifier.musicoWash(...)` and `musicoScrimBrush(...)` in `components/Common.kt` where tonal fade scrims are needed, paired with `Motion.kt` springs and matching-geometry shimmer skeletons for loading states.

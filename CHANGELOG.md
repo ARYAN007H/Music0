@@ -6,15 +6,46 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and since
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) without an
 `-online` prerelease suffix (`v1.0.0`, `v1.0.1`, …).
 
-The app version lives in six places and must stay in sync:
+The app version lives in five places and must stay in sync:
 `musico_core/Cargo.toml`, `android/app/build.gradle.kts`,
 `android/desktopApp/build.gradle.kts`,
-`android/shared/src/desktopMain/.../DesktopPlatform.kt`, `package.json`, and
+`android/shared/src/desktopMain/.../DesktopPlatform.kt`, and
 `flatpak/io.github.aryan007h.Music0.metainfo.xml`. Release tags are
 `v<version>` (for example `v1.0.1`). Any tag containing a hyphen is published
 as a GitHub prerelease.
 
 ## [Unreleased]
+
+### Removed / Retired
+
+- **Retired legacy web/PWA preview & TypeScript engine (PR #138):** removed
+  `frontend/`, `server.ts`, `src/`, `package.json`, `package-lock.json`,
+  `tsconfig.json`, the 11 Playwright browser/contrast scripts in `scripts/`, and
+  the `web-engine` CI job in `.github/workflows/ci.yml`. Compose Multiplatform
+  (`android/`) is now the sole UI in the repository.
+
+### Fixed / Changed
+
+- **Android `libc++_shared.so` crash & release check (PR #138):** bundled
+  `libc++_shared.so` in `jniLibs/arm64-v8a` via `.cargo/config.toml` /
+  `.github/workflows/release.yml` and added a fail-closed `llvm-readelf`
+  verification guard asserting `NEEDED libc++_shared.so`.
+- **Playback engine overhaul & URL hardening (PR #138):** tuned progressive
+  streaming budgets (`STREAM_FAST_PATH_BUDGET = 6 s`,
+  `STREAM_HEDGE_DELAY = 400 ms`, `STREAM_HEDGE_BATCH = 3`,
+  `METADATA_TIMEOUT = 1,800 ms`, `CONNECT_TIMEOUT = 1,500 ms`,
+  `INITIAL_READY_TIMEOUT = 4 s`), expanded `InnerTubeDirectSource` to 6 client
+  profiles with top-2 racing, 3-strike / 90 s cooldown circuit breaker, `n`-param
+  secondary fallback, Android Opus/WebM fallback, Desktop `1.5 s` `yt-dlp -g`
+  hedge, `strip_video_noise` JioSaavn matching, and strict HTTPS / DNS /
+  `StreamHostPolicy` / custom redirect validation in `sources.rs` (max 5 hops)
+  and `saavn.rs` (`MEDIA_CLIENT` `*.saavncdn.com` / `API_CLIENT` max 3 hops).
+- **Native Pixel Material 3 Expressive Light/Dark UI & battery gating (PR #138):**
+  added Light/Dark/System `ThemeMode` persistence (`PREF_THEME_MODE`), bespoke
+  5-palette light & dark tonal ladders, zero-blur / zero-gradient solid M3E tonal
+  surfaces and geometric backdrops (`Backdrops.kt`), `ExpressiveControls.kt`,
+  `ExpressiveShapes.kt`, and battery gating for Android high-refresh mode
+  (`MainActivity.kt`) and hidden mini-player loops (`MusicoApp.kt`).
 
 ## [1.0.1] - 2026-11-26
 

@@ -93,7 +93,7 @@ fun PlaylistMosaicArtwork(
         modifier = modifier
             .aspectRatio(1f)
             .clip(shape)
-            .background(Brush.linearGradient(listOf(accentStart.copy(alpha = 0.85f), accentEnd.copy(alpha = 0.85f)))),
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -121,7 +121,7 @@ fun PlaylistMosaicArtwork(
                 Icon(
                     Icons.Filled.LibraryMusic,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.85f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(30.dp),
                 )
             }

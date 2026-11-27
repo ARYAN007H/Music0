@@ -72,17 +72,21 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -127,13 +131,8 @@ fun Modifier.musicoTopInset(): Modifier = this.windowInsetsPadding(
 // ── Ambient Top Wash: seamless cover-extracted atmospheric halo ─────────────
 
 /**
- * Reusable seamless atmospheric top wash.
- *
- * Renders multi-stop radial blooms + a soft top ambient tint inside an
- * offscreen compositing buffer, then multiplies the entire wash with a
- * cubic-eased vertical `BlendMode.DstIn` alpha mask so the wash reaches
- * alpha `0.0f` smoothly BEFORE its geometric bottom edge on every aspect
- * ratio (portrait phones through ultrawide desktop windows) and all palettes.
+ * Flat native Material 3 Expressive surface contract: no atmospheric radial
+ * or vertical gradient washes are painted behind screens.
  */
 fun Modifier.musicoWash(
     primary: Color,
@@ -141,84 +140,16 @@ fun Modifier.musicoWash(
     glow: Color = primary,
     intensity: Float = 0.24f,
 ): Modifier = this
-    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-    .drawBehind {
-        val w = size.width
-        val h = size.height
-        if (w <= 0f || h <= 0f) return@drawBehind
-        val safeIntensity = intensity.coerceIn(0f, 0.85f)
-        // Soft top-down base tint so wide windows don't leave dark side corners.
-        drawRect(
-            brush = Brush.verticalGradient(
-                0.00f to primary.copy(alpha = safeIntensity * 0.52f),
-                0.28f to secondary.copy(alpha = safeIntensity * 0.30f),
-                0.62f to secondary.copy(alpha = safeIntensity * 0.08f),
-                0.88f to Color.Transparent,
-                1.00f to Color.Transparent,
-            ),
-        )
-        // Primary left-biased bloom, height-coupled so it fades cleanly vertically.
-        val rPrimary = (minOf(w * 0.88f, h * 1.45f)).coerceAtLeast(h * 0.78f).coerceAtLeast(1f)
-        drawRect(
-            brush = Brush.radialGradient(
-                0.00f to primary.copy(alpha = safeIntensity * 0.92f),
-                0.28f to primary.copy(alpha = safeIntensity * 0.60f),
-                0.56f to secondary.copy(alpha = safeIntensity * 0.22f),
-                0.80f to secondary.copy(alpha = safeIntensity * 0.04f),
-                1.00f to Color.Transparent,
-                center = Offset(w * 0.22f, h * 0.02f),
-                radius = rPrimary,
-            ),
-        )
-        // Secondary warm/accent glow on the opposite side for organic depth.
-        val rGlow = (minOf(w * 0.72f, h * 1.18f)).coerceAtLeast(h * 0.68f).coerceAtLeast(1f)
-        drawRect(
-            brush = Brush.radialGradient(
-                0.00f to glow.copy(alpha = safeIntensity * 0.50f),
-                0.32f to glow.copy(alpha = safeIntensity * 0.26f),
-                0.64f to glow.copy(alpha = safeIntensity * 0.06f),
-                1.00f to Color.Transparent,
-                center = Offset(w * 0.82f, h * 0.14f),
-                radius = rGlow,
-            ),
-        )
-        // Multiplicative DstIn feather: guarantees mathematically smooth 0.0 alpha
-        // before the bottom boundary — zero visible horizontal seam at any size.
-        drawRect(
-            brush = Brush.verticalGradient(
-                0.00f to Color.Black,
-                0.32f to Color.Black.copy(alpha = 0.88f),
-                0.58f to Color.Black.copy(alpha = 0.46f),
-                0.78f to Color.Black.copy(alpha = 0.14f),
-                0.91f to Color.Black.copy(alpha = 0.02f),
-                0.98f to Color.Transparent,
-                1.00f to Color.Transparent,
-            ),
-            blendMode = BlendMode.DstIn,
-        )
-    }
 
 /**
- * Cubic-eased vertical legibility scrim for artwork cards, heroes, and headers.
- * Eliminates the harsh mid-card horizontal band produced by naive 2-stop fades.
+ * Legacy signature kept for source compatibility; returns a solid flat fill
+ * so callers migrating to tonal surfaces never paint gradients.
  */
 fun musicoScrimBrush(
     color: Color,
     maxAlpha: Float = 0.86f,
     startFraction: Float = 0.24f,
-): Brush {
-    val s0 = startFraction.coerceIn(0f, 0.70f)
-    val span = (1f - s0).coerceAtLeast(0.01f)
-    val peak = maxAlpha.coerceIn(0f, 1f)
-    return Brush.verticalGradient(
-        0.00f to Color.Transparent,
-        s0 to Color.Transparent,
-        (s0 + span * 0.25f) to color.copy(alpha = peak * 0.08f),
-        (s0 + span * 0.52f) to color.copy(alpha = peak * 0.34f),
-        (s0 + span * 0.78f) to color.copy(alpha = peak * 0.72f),
-        1.00f to color.copy(alpha = peak),
-    )
-}
+): Brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = maxAlpha.coerceIn(0f, 1f)))
 
 @Composable
 fun AmbientTopWash(
@@ -227,17 +158,8 @@ fun AmbientTopWash(
     height: Dp = 380.dp,
     intensity: Float = 0.24f,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .musicoWash(
-                primary = atmosphere.orbPrimary,
-                secondary = atmosphere.orbSecondary,
-                glow = atmosphere.glow,
-                intensity = intensity,
-            ),
-    )
+    // Intentionally empty: Pixel Material 3 Expressive screens sit on crisp
+    // solid tonal surfaces with zero ambient glow washes or gradients.
 }
 
 // ── Artwork ────────────────────────────────────────────────────────────────
@@ -248,6 +170,7 @@ fun Artwork(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = Musico.extras.cardRadius,
+    shape: Shape? = null,
     placeholderIcon: ImageVector = Icons.Filled.MusicNote,
 ) {
     val platformContext = LocalPlatformContext.current
@@ -258,31 +181,24 @@ fun Artwork(
             .build()
     }
     val safeCorner = cornerRadius.coerceAtLeast(0.dp)
+    val resolvedShape = shape ?: RoundedCornerShape(safeCorner)
     SubcomposeAsyncImage(
         model = request,
         contentDescription = contentDescription,
         contentScale = ContentScale.Crop,
-        modifier = modifier.clip(RoundedCornerShape(safeCorner)),
-        loading = { ArtworkPlaceholder(safeCorner, placeholderIcon) },
-        error = { ArtworkPlaceholder(safeCorner, placeholderIcon) },
+        modifier = modifier.clip(resolvedShape),
+        loading = { ArtworkPlaceholder(resolvedShape, placeholderIcon) },
+        error = { ArtworkPlaceholder(resolvedShape, placeholderIcon) },
     )
 }
 
 @Composable
-private fun ArtworkPlaceholder(cornerRadius: Dp, icon: ImageVector) {
+private fun ArtworkPlaceholder(shape: Shape, icon: ImageVector) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(cornerRadius.coerceAtLeast(0.dp)))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.surfaceVariant,
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ),
-                ),
-            )
-            .shimmer(),
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -310,7 +226,7 @@ fun SectionHeader(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            title.uppercase(),
+            title,
             style = Musico.type.section,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
@@ -321,7 +237,7 @@ fun SectionHeader(
     }
 }
 
-// ── Equalizer bars ─────────────────────────────────────────────────────────
+// ── Equalizer bars (zero-recomposition draw-phase Canvas at 120 Hz) ───────
 
 @Composable
 fun EqualizerBars(
@@ -330,45 +246,50 @@ fun EqualizerBars(
     color: Color = Musico.extras.mint,
     barCount: Int = 4,
 ) {
-    Box(modifier = modifier, contentAlignment = Alignment.BottomCenter) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            repeat(barCount) { i ->
-                val bounce = if (playing) {
-                    val transition = rememberInfiniteTransition(label = "eq$i")
-                    transition.animateFloat(
-                        initialValue = 0.25f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(
-                                durationMillis = 520 + i * 130,
-                                delayMillis = i * 110,
-                                easing = FastOutSlowInEasing,
-                            ),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                        label = "bar$i",
-                    ).value
-                } else {
-                    0.45f
+    val phaseState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (lastNanos != 0L) {
+                    val dt = ((now - lastNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000f
+                    phaseState.floatValue = (phaseState.floatValue + dt * 5.8f) % 628.3185f
                 }
-                val targetHeight = if (playing) 4.dp + 10.dp * bounce else 3.dp
-                val height by animateDpAsState(
-                    targetValue = targetHeight,
-                    animationSpec = MusicoMotion.snappy(),
-                    label = "barH$i",
-                )
-                Box(
-                    Modifier
-                        .width(3.dp)
-                        .height(height.coerceAtLeast(1.dp))
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (playing) color else Musico.extras.inkFaint)
-                        .alpha(if (playing) 1f else 0.4f),
-                )
+                lastNanos = now
             }
+        }
+    }
+
+    val inactiveColor = Musico.extras.inkFaint.copy(alpha = 0.42f)
+    val count = barCount.coerceAtLeast(1)
+    val totalWidth = (count * 3 + (count - 1) * 2).dp
+
+    Canvas(modifier = modifier.width(totalWidth)) {
+        val barW = 3.dp.toPx()
+        val gap = 2.dp.toPx()
+        val maxH = size.height.coerceAtLeast(4.dp.toPx())
+        val minH = (maxH * 0.24f).coerceAtLeast(2.dp.toPx())
+        val corner = CornerRadius(barW / 2f, barW / 2f)
+        val t = phaseState.floatValue
+
+        for (i in 0 until count) {
+            val fraction = if (playing) {
+                val freq = 1.0f + i * 0.27f
+                val offset = i * 1.35f
+                val wave = (kotlin.math.sin((t * freq + offset).toDouble()).toFloat() * 0.5f + 0.5f)
+                0.24f + 0.76f * wave
+            } else {
+                0.30f + (i % 2) * 0.10f
+            }
+            val h = (minH + (maxH - minH) * fraction).coerceIn(minH, maxH)
+            val x = i * (barW + gap)
+            drawRoundRect(
+                color = if (playing) color else inactiveColor,
+                topLeft = Offset(x, size.height - h),
+                size = Size(barW, h),
+                cornerRadius = corner,
+            )
         }
     }
 }
@@ -391,11 +312,11 @@ fun TrackRow(
 ) {
     val bg by animateColorAsState(
         targetValue = if (isCurrent) {
-            Musico.extras.primary.copy(alpha = 0.14f)
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = if (Musico.extras.isDark) 0.50f else 0.72f)
         } else {
             Color.Transparent
         },
-        animationSpec = MusicoMotion.gentle(),
+        animationSpec = MusicoMotion.effectsFast(),
         label = "rowBg",
     )
     Surface(
@@ -456,7 +377,7 @@ fun TrackRow(
                 Text(
                     track.title.ifEmpty { "Untitled" },
                     style = Musico.type.title,
-                    color = if (isCurrent) Musico.extras.mint else MaterialTheme.colorScheme.onBackground,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.basicMarquee(),
@@ -806,7 +727,7 @@ fun MiniPlayFab(
                 Icon(
                     if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color(0xFF05291D),
+                    tint = Musico.extras.onMint,
                     modifier = Modifier.size(26.dp),
                 )
             }

@@ -1,0 +1,12 @@
+# Ensure local Android `cargo ndk` builds link the NDK shared C++ runtime
+# identically to CI so `libmusico_online_lib.so` resolves `__gxx_personality_v0`
+# at `dlopen` time on Android devices.
+
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-lc++_shared"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-lc++_shared"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-lc++_shared"]

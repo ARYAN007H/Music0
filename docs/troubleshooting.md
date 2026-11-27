@@ -8,7 +8,7 @@ Collect this before changing anything:
 
 ```sh
 # Versions across manifests
-grep -n 'version' musico_core/Cargo.toml android/app/build.gradle.kts android/desktopApp/build.gradle.kts package.json
+grep -n 'version' musico_core/Cargo.toml android/app/build.gradle.kts android/desktopApp/build.gradle.kts
 
 # Checkout commit
 git rev-parse --short HEAD
@@ -26,7 +26,7 @@ adb logcat -s musico-native Music0EQ
 ```
 
 Then check:
-- Does it fail on **Android**, **Desktop**, or the **web preview** (`server.ts`)?
+- Does it fail on **Android** or **Desktop**?
 - Is **Airplane Mode** (`offline_mode`) enabled in Settings?
 - On Desktop, is `yt-dlp` (and `deno` for YouTube EJS extraction outside Flatpak) installed and current?
 - Is `MUSICO_NATIVE_LIB` set or pointing to a stale build?
@@ -105,7 +105,7 @@ In CMP (`ResolveFailurePolicy` in `MusicViewModel.kt`), background/autoplay trac
 
 ### Desktop progressive playback stalls or falls back
 
-Interactive playback (`allowStream = true`) opens `http://127.0.0.1:<port>/stream/<token>` via `LoopbackHttpMediaSource` (`musico_playback/src/http_source.rs`) once `16 KiB` lands (`6 s` initial timeout). If a slow upstream stalls mid-chunk beyond `30 s` (`MAX_STALL_WAIT`), playback reports a timeout error and falls back cleanly.
+Interactive playback (`allowStream = true`) opens `http://127.0.0.1:<port>/stream/<token>` via `LoopbackHttpMediaSource` (`musico_playback/src/http_source.rs`) once `16 KiB` lands (`4 s` `INITIAL_READY_TIMEOUT`). If a slow upstream stalls mid-chunk beyond `30 s` (`MAX_STALL_WAIT`), playback reports a timeout error and falls back cleanly.
 
 ### EQ changes on Android or Desktop seem subtle or inactive
 
@@ -137,9 +137,9 @@ Airplane Mode (`offline_mode`) is persisted in `settings.json`. Toggle it off in
   ```
   `yt-dlp` availability is cached for 10 minutes; restart the app after installing.
 
-### Every online play hangs for ~10 seconds, then fails
+### Every online play hangs for ~6–10 seconds, then fails
 
-The direct-URL fast path (`InnerTubeDirectSource`, Piped, Invidious) exhausted its 10-second `FAST_PATH_BUDGET` and `yt-dlp` also failed (or isn't present on Android). Run with `RUST_LOG=debug` to see per-source failures, or override instance pools:
+The direct-URL fast path (`InnerTubeDirectSource`, Piped, Invidious) exhausted its budget (`STREAM_FAST_PATH_BUDGET = 6 s` for progressive streaming, `FAST_PATH_BUDGET = 10 s` for whole-file download) and `yt-dlp` also failed (or isn't present on Android). Run with `RUST_LOG=debug` to see per-source failures, or override instance pools:
 
 ```sh
 MUSICO_PIPED_INSTANCES=pipedapi.example.com \
@@ -178,7 +178,7 @@ JioSaavn cross-source matching (`musico_core/src/online/saavn.rs`) searches 6 ca
 
 ---
 
-## 5. Test, CI, and web-preview problems
+## 5. Test and CI problems
 
 ### Live tests fail with network/timeout errors
 
@@ -192,17 +192,6 @@ MUSICO_CACHE_DIR=/tmp/musico-live-cache \
 ### Playback tests fail in CI or headless shells
 
 `cargo test --workspace` runs `musico_playback/tests/engine_e2e.rs`, which needs an audio device and `/tmp/musico-test-tone.wav` (`bash scripts/gen_test_tone.sh`). CI runs `cargo test --workspace --exclude musico_playback`; run `cargo test -p musico_playback --lib` for hermetic loopback/DSP unit tests without audio hardware.
-
-### Web preview browser suite fails on connection refused
-
-Start the web preview on port `8143` (or `8145` for `scripts/contrast_gate.mjs`) and install Playwright locally:
-
-```sh
-npm install --save-dev playwright
-npx playwright install chrome
-PORT=8143 npm run dev
-node scripts/browser_shell_test.mjs
-```
 
 ### CI passes on Linux but release fails on macOS/Windows
 

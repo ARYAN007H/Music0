@@ -2,8 +2,6 @@
 
 The production **Android** and **Desktop** Compose Multiplatform apps communicate with the pure-Rust core (`musico_core` → `libmusico_online_lib`) exclusively through the JNI dispatcher in [`musico_core/src/mobile.rs`](../musico_core/src/mobile.rs), mirrored by [`MusicoCore.kt`](../android/shared/src/commonMain/kotlin/io/github/aryan007h/musicoonline/core/MusicoCore.kt).
 
-> **Web Preview Note:** The legacy `frontend/` + `server.ts` browser demo still uses [`frontend/js/bridge.js`](../frontend/js/bridge.js) (`Bridge.invoke()` over HTTP `/api/invoke/:cmd`). That mock layer is not part of any Desktop or Android build; see [Appendix A](#appendix-a-web-preview-bridge) below.
-
 ---
 
 ## 1. JNI Transport & Envelope
@@ -137,14 +135,3 @@ Compiled on `cfg(not(target_os = "android"))`. On Android these return `"player.
 | `player.set_volume` | `{ volume: f32 }` | `{ ok: true }` | Clamped to `0.0..=1.0`. |
 | `player.set_eq` | `{ enabled: bool, gainsDb: f32[10] }` | `{ ok: true }` | 10-band ISO EQ gains clamped to `-12.0..=12.0` dB. |
 | `player.state` | `{}` | `{ status, playing, buffering, positionMs, durationMs, volume, muted, ended, endedSongId, currentSongId, error }` | Polled every `150 ms` by `DesktopPlayback.kt`; drains `SongEnded` / `Error` events. |
-
----
-
-## Appendix A: Web Preview Bridge
-
-The unreleased browser/PWA preview (`npm start` → `server.ts` + `frontend/`) does **not** use `musico_core`. Instead, [`frontend/js/bridge.js`](../frontend/js/bridge.js) implements an 83-case mock/HTTP dispatcher (`Bridge.invoke`) talking to Express routes in [`server.ts`](../server.ts):
-
-- `POST /api/invoke/:cmd` (plus `POST /api/invoke/cross_source_check`)
-- `GET /api/audio/:trackId` (streams demo audio for browser preview playback)
-
-See [docs/frontend.md](frontend.md) for the web preview stack.

@@ -2,8 +2,8 @@
 
 Thanks for wanting to help. Music0 (Musico Online) is a Compose Multiplatform
 music player for Android and Desktop backed by a pure-Rust JNI core
-(`musico_core`), a Rust audio engine (`musico_playback`), a local recommender
-(`musico_recommender`), plus an optional web/PWA preview. Contributions of every
+(`musico_core`), a Rust audio engine (`musico_playback`), and a local recommender
+(`musico_recommender`). Contributions of every
 size are welcome — from a typo in the docs to a new catalog surface or playback
 fix.
 
@@ -35,12 +35,12 @@ Be direct about code, generous about people.
 
 | Area | Good first issues | Notes |
 |---|---|---|
-| **Frontend / UI** | Shared CMP UI or web preview polish | `android/shared/` (CMP) and `frontend/` (web preview) |
-| **Catalog surfaces** | Shelf renderers, detail-page layout, search scopes | `musico_core/src/online/catalog.rs`, `parse.rs`, `frontend/js/online.js` |
+| **Frontend / UI** | Shared Compose Multiplatform UI & M3E polish | `android/shared/` (CMP) |
+| **Catalog surfaces** | Shelf renderers, detail-page layout, search scopes | `musico_core/src/online/catalog.rs`, `parse.rs` |
 | **Playback** | Gapless edge cases, crossfade, device handling | `musico_playback/` — opinionated; discuss first |
 | **Recommender** | Signals, mixes, stats, playlist logic | `musico_recommender/` — pure Rust, highly testable |
 | **Online stack** | Source health, failover, metadata, lyrics | `musico_core/src/online/` |
-| **Tests** | Live-test hardening, unit assertions, fixtures | `musico_core/`, `android/shared/src/desktopTest/`, `scripts/`, `src/engine/*.test.ts` |
+| **Tests** | Live-test hardening, unit assertions, fixtures | `musico_core/`, `android/shared/src/desktopTest/` |
 | **Docs** | Tutorials, troubleshooting, screenshots | `docs/`, `README.md`, `ROADMAP.md` |
 | **Platforms** | macOS/Windows/Linux/Android builds & packaging | `.github/workflows/`, `android/app/`, `android/desktopApp/` |
 
@@ -54,9 +54,7 @@ lyrics licensing. See [ROADMAP.md §4](ROADMAP.md#4-deliberate-non-goals).
 | **Rust** | 1.78+ (edition 2021) | Workspace `rust-version` |
 | **Cargo** | Stable | Build/test Rust crates |
 | **Java & Gradle** | JDK 17+, Gradle 8.10.2 (system `gradle`) | Compose Multiplatform Android & Desktop (`android/` has no wrapper) |
-| **Node.js** | 20+ | Web preview, TypeScript tests, browser suites |
 | **yt-dlp** | Current | Fallback stream resolver on Desktop (optional for browsing) |
-| **Playwright + Google Chrome** | Current | Web-preview browser assertion suites (optional) |
 | **Python 3** | 3.8+ | `scripts/gen_test_tone.sh`, static file checks |
 
 ### Linux
@@ -113,24 +111,6 @@ cargo build --release -p musico_core --lib
 gradle -p android :desktopApp:run
 ```
 
-For web-preview work:
-
-```sh
-npm install
-npm run dev              # http://localhost:3000
-PORT=8143 npm run dev    # what the browser suites expect
-```
-
-### Install browser-test dependencies
-
-```sh
-npm install --save-dev playwright
-npx playwright install chrome
-```
-
-`playwright` is intentionally not a runtime dependency; install it only if you
-are running the browser suites.
-
 ## Project layout
 
 ```text
@@ -138,11 +118,8 @@ android/             Compose Multiplatform app (:shared UI/ViewModel, :app Andro
 musico_core/         Pure-Rust JNI core (`mobile.rs`), online stack, lyrics, config, identity
 musico_playback/     Audio engine (decoder, CPAL, EQ, DSP)
 musico_recommender/  Offline taste engine + sled persistence
-frontend/            Web/PWA preview UI (classic scripts + Preact/htm core)
-src/engine/          TypeScript engine for the web/PWA runtime
-server.ts            Express web preview + demo RPC
 flatpak/            Linux desktop entry, AppStream metainfo, and Flatpak manifest
-scripts/             AppImage/Flatpak packaging scripts, browser suites, contrast gate, test-tone generator
+scripts/             AppImage/Flatpak packaging scripts and test-tone generator
 docs/                Deep dives (start at docs/README.md)
 .github/             CI/release workflows, issue and PR templates
 ```
@@ -192,8 +169,6 @@ Example: `feat/queue-drag-reorder`.
   dispatch consistent across `android/` callers.
 - `musico_core/src/online/parse.rs` is the only response-shape-sensitive file;
   keep parsing changes there.
-- Frontend asset changes must bump the `?v=` query strings in
-  `frontend/index.html` (see [docs/frontend.md](docs/frontend.md#6-cache-busting-web-preview)).
 
 ### 4. Open a pull request
 
@@ -208,13 +183,12 @@ Use the PR template. A good PR:
 
 ### 5. CI
 
-`.github/workflows/ci.yml` runs three jobs on pushes to `main` and pull requests:
+`.github/workflows/ci.yml` runs two jobs on pushes to `main` and pull requests:
 
 ```sh
 cargo test --workspace --exclude musico_playback
 cargo build --release -p musico_core --lib
 gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
-npm test && npm run build
 ```
 
 Playback e2e tests are excluded because CI runners have no audio device. The
@@ -261,11 +235,9 @@ A PR is ready to merge when all of these are true:
 - [ ] The change does what the linked issue/PR says, and nothing unrelated.
 - [ ] `cargo test --workspace --exclude musico_playback` and `cargo build --release -p musico_core --lib` pass.
 - [ ] `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain` passes when `android/` or JNI contracts change.
-- [ ] New behavior has a hermetic test (Rust unit/integration, Kotlin `SharedCoreTests`, TS, or browser).
-- [ ] `npm test` and `npm run build` pass if `src/engine/` or `server.ts` changed.
-- [ ] Compose Multiplatform changes were exercised on Desktop and/or Android (or web preview changes in a browser); visible work has screenshots in the PR.
-- [ ] `?v=` asset versions were bumped if `frontend/` changed.
-- [ ] Version sync checked across all 6 manifests if releasing ([docs/release.md](docs/release.md#1-versioning)).
+- [ ] New behavior has a hermetic test (Rust unit/integration or Kotlin `SharedCoreTests`).
+- [ ] Compose Multiplatform changes were exercised on Desktop and/or Android; visible work has screenshots in the PR.
+- [ ] Version sync checked across all 5 manifests if releasing ([docs/release.md](docs/release.md#1-versioning)).
 - [ ] Network/disk work is off the UI thread and bounded.
 - [ ] Error paths return a user-visible message; no new `unwrap()` on runtime
       data.
@@ -292,26 +264,9 @@ cargo test --workspace
 # Compose Multiplatform Kotlin compile + shared JVM tests
 gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
 
-# TypeScript engine tests + typecheck
-npm test
-npm run build
-
 # Opt-in live network tests (needs network; some need yt-dlp)
 cargo test -p musico_core live_ -- --ignored --nocapture
-
-# Browser suites (server on 8143; Playwright + Chrome required)
-PORT=8143 npm run dev
-node scripts/browser_shell_test.mjs
-node scripts/browser_home_test.mjs
-# …see docs/testing.md for the full list
-
-# WCAG contrast gate (serve on 8145 first)
-PORT=8145 npm run dev
-node scripts/contrast_gate.mjs 8145
 ```
-
-**Browser suites serialize on port 8143.** Do not run two at once, and kill the
-server after the run.
 
 ### When to add which test
 
@@ -321,8 +276,6 @@ server after the run.
 | Cache/prune/download behavior | Hermetic test using `MUSICO_CACHE_DIR` tempdir |
 | JNI `dispatch()` command (`mobile.rs`) | Rust test in `musico_core/src/mobile.rs` + Kotlin test in `SharedCoreTests.kt` |
 | Compose Multiplatform UI / ViewModel | `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest` |
-| Web preview view/navigation | `scripts/browser_*_test.mjs` |
-| Web/PWA engine behavior | `src/engine/*.test.ts` (`node:test`) |
 | Real catalog/shape verification | `#[ignore]` `live_*` test, run manually |
 
 ## Coding standards
@@ -353,37 +306,10 @@ server after the run.
 
 ### Compose Multiplatform (Kotlin)
 
-- **Material 3 Expressive only:** Build new screens, sheets, and controls from `Theme.kt` (`MusicoSpacing`, `MusicoShapes`, `MusicoTypography`, 5-rung tonal surfaces), `Palettes.kt`, and `components/Common.kt` (see [docs/brand/BRAND_GUIDELINES.md](docs/brand/BRAND_GUIDELINES.md)).
-- **Safe dynamic geometry:** Clamp animated corners (`coerceAtLeast(0.dp)`) and scales (`safePositiveScale`) so springs never overshoot negative.
-- **Keep JNI off the UI thread:** All `MusicoCore.call()` / `callElement()` calls run on `Dispatchers.IO`; use `Modifier.musicoWash(...)` for top/scrim washes and preserve state across the `840.dp` breakpoint.
-
-### Web preview (`frontend/`)
-
-- **No bundler, no transpiler.** Ship browser-native ES modules. Preact + htm
-  are vendored in `frontend/vendor/htm-preact.js`.
-- **No new global state stores.** The app has one controller (`window.App`) and
-  one observable store (`window.MusicoStore`). Publish snapshots; do not mutate
-  another component's DOM directly.
-- **IPC errors are `null`.** `Bridge.invoke` returns `null` on rejection; check
-  for it and show an honest empty/error state.
-- **Escaping:** never inject catalog strings with `innerHTML`. Use
-  `textContent` (or the existing escape helpers) for untrusted text.
-- **Accessibility:** real `<button>` elements, `aria-label`/`aria-current`
-  where needed, visible focus, keyboard paths, and `prefers-reduced-motion`
-  guards. Run the contrast gate for token/theme changes.
-- **CSS:** use semantic variables from `tokens.css`; verify both light and dark
-  themes and all palettes. Put feature styles in their own sheet; the load
-  order in `index.html` is part of the design system.
-- **Cache busting:** bump `?v=` on every changed asset in `index.html` **and**
-  `CACHE_NAME` in `sw.js`.
-
-### TypeScript (web runtime)
-
-- Strict mode is on (`tsconfig.json`).
-- `npm run build` must pass (it is `tsc --noEmit`).
-- Keep `server.ts` thin: route + demo wiring, logic in `src/engine/`.
-- This runtime is separate from the desktop backend. If a behavior must match,
-  change both and test both.
+- **Material 3 Expressive only:** Build new screens, sheets, and controls from `Theme.kt` (`ThemeMode`, `MusicoSpacing`, `MusicoShapes`, `MusicoTypography`, 5-rung tonal surfaces), `Palettes.kt`, `ExpressiveShapes.kt`, `components/ExpressiveControls.kt`, and `components/Common.kt` (see [docs/brand/BRAND_GUIDELINES.md](docs/brand/BRAND_GUIDELINES.md) and [docs/frontend.md](docs/frontend.md)).
+- **Zero-blur / zero-gradient backdrops:** `Backdrops.kt` uses solid stepped M3E tonal surfaces and geometric vector shapes (no blurs or smeared gradients) across Light and Dark modes.
+- **Safe dynamic geometry:** Clamp animated corners (`safeCornerDp` / `coerceAtLeast(0.dp)`) and scales (`safePositiveScale`) so springs never overshoot negative.
+- **Keep JNI off the UI thread:** All `MusicoCore.call()` / `callElement()` calls run on `Dispatchers.IO`; preserve state across the `840.dp` breakpoint.
 
 ## Working with the docs
 

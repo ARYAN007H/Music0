@@ -609,13 +609,8 @@ fun DesktopScrollableChipRow(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(42.dp)
-                        .height(40.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(edgeFadeColor, edgeFadeColor.copy(alpha = 0.85f), Color.Transparent),
-                            ),
-                        ),
+                        .width(36.dp)
+                        .height(40.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Surface(
@@ -656,13 +651,8 @@ fun DesktopScrollableChipRow(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(42.dp)
-                        .height(40.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color.Transparent, edgeFadeColor.copy(alpha = 0.85f), edgeFadeColor),
-                            ),
-                        ),
+                        .width(36.dp)
+                        .height(40.dp),
                     contentAlignment = Alignment.CenterEnd,
                 ) {
                     Surface(

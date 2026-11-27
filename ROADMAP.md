@@ -41,7 +41,7 @@ This document tracks what comes **after `v1.0.1`**.
 - **Desktop crossfade & DSP exposure:**
   - Wire `musico_playback`'s existing crossfade curves (`crossfade.rs`) and stem/tube-warmth toggles (`AppSettings`) cleanly into the Compose Desktop & Settings UI.
 - **Expanded automated CMP UI testing:**
-  - Add Compose UI tests alongside `SharedCoreTests.kt` (`14` unit tests) to exercise navigation, responsive `840.dp` transitions, and player overlay state in CI.
+  - Add Compose UI tests alongside `SharedCoreTests.kt` (`27` unit tests) to exercise navigation, responsive `840.dp` transitions, and player overlay state in CI.
 
 ---
 
@@ -49,4 +49,4 @@ This document tracks what comes **after `v1.0.1`**.
 
 - **No cloud accounts, telemetry, or remote taste sync:** Listening history, likes, playlists, and acoustic feature vectors stay strictly on-device.
 - **No Play Store release with InnerTube extraction:** Distribution remains direct GitHub Releases (APK + desktop packages) to avoid developer-account enforcement risks.
-- **No revival of Tauri or `frontend/` as the production shell:** `frontend/` + `server.ts` remains only a standalone web preview demo.
+- **No revival of Tauri or a web/WebView shell:** Compose Multiplatform (`android/shared/`, `:app`, `:desktopApp`) is the sole UI.
