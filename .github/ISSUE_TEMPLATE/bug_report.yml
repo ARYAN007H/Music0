@@ -45,7 +45,6 @@ body:
         - macOS DMG / app (Compose Desktop)
         - Windows MSI / portable zip (Compose Desktop)
         - Android APK (Compose Multiplatform)
-        - Web preview (`npm run dev`)
     validations:
       required: true
 
@@ -58,7 +57,7 @@ body:
         - macOS
         - Windows
         - Android
-        - Other / browser
+        - Other
     validations:
       required: true
 
@@ -67,7 +66,7 @@ body:
     attributes:
       label: Area
       options:
-        - Local library / scanning
+        - Local library / saved collection
         - Playback / audio device
         - Queue / autoplay / radio
         - Online search or browse
@@ -75,7 +74,7 @@ body:
         - Lyrics
         - Recommender / stats / playlists
         - Settings / persistence
-        - UI / frontend
+        - UI / Compose Multiplatform
         - Build / release / packaging
         - Other
     validations:

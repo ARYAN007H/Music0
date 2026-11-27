@@ -4,6 +4,8 @@
 - Recorded: 2026-11-27
 - Deciders: maintainers
 
+> **Amendment (PR #138):** The legacy `frontend/` + `server.ts` web/PWA preview noted in the original decision below was subsequently retired. Compose Multiplatform (`android/shared/`, `:app`, `:desktopApp`) is now the sole UI in the repository.
+
 ## Context
 
 Under [ADR-0001](0001-tauri-2-no-build-frontend.md), Musico Online shipped a Tauri 2 shell wrapping a static HTML/CSS/JS frontend (`frontend/`) in platform WebViews (`WebKitGTK`, `WKWebView`, `WebView2`). As the app grew across Desktop and Android:

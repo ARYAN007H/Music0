@@ -19,7 +19,7 @@ RiMusic (InnerTube + direct-URL resolvers + optional `yt-dlp`). It is built
 for online streaming and personal use.
 
 **Status:** **v1.0.1** · All-in Compose Multiplatform (Android + Linux · macOS ·
-Windows) · pure-Rust `musico_core` JNI engine · optional web/PWA dev preview.
+Windows) · pure-Rust `musico_core` JNI engine.
 
 <p align="center">
   <img src="docs/screenshots/home-dark.png" width="48%" alt="Music0 — Desktop Home: Jump back in quick picks, hero card, and floating player dock"/>
@@ -82,11 +82,13 @@ Windows) · pure-Rust `musico_core` JNI engine · optional web/PWA dev preview.
   (`music.apple.com/.../playlist/...`) links, or exported CSV (Exportify /
   TuneMyMusic / Soundiiz), JSON, and M3U/M3U8 files with live `"Matching X of M…"`
   progress and an unmatched-tracks summary.
-- **Material 3 Expressive across Android & Desktop** — 5 curated themes
-  (**Nebula**, **Ocean**, **Ember**, **Forest**, **Mono**), adaptive layout
-  (`< 840 dp` compact capsule nav + swipeable mini-player; `≥ 840 dp` sidebar
-  rail + floating squircle player dock + split-stage Now Playing + keyboard
-  shortcuts), and a local Rust taste recommender (`musico_recommender` + `sled`).
+- **Material 3 Expressive across Android & Desktop** — 5 curated palettes
+  (**Nebula**, **Ocean**, **Ember**, **Forest**, **Mono**) with **System**,
+  **Light**, and **Dark** `ThemeMode`s, zero-blur / zero-gradient solid M3E tonal
+  surfaces and geometric backdrops, expressive controls & scalloped shapes,
+  adaptive layout (`< 840 dp` compact capsule nav + mini-player; `≥ 840 dp`
+  sidebar rail + floating squircle player dock + split-stage Now Playing +
+  keyboard shortcuts), and a local Rust taste recommender (`musico_recommender` + `sled`).
 
 ## Install
 
@@ -134,8 +136,8 @@ Keep `yt-dlp` updated — YouTube extraction changes frequently.
 
 ## Build from source
 
-Prerequisites: Rust stable (MSRV 1.78), Java 17+, Gradle 8.10.2, Android SDK/NDK
-(for Android builds), and Node.js 20+ (only for the optional web preview/tests).
+Prerequisites: Rust stable (MSRV 1.78), Java 17+, Gradle 8.10.2, and Android SDK/NDK
+(for Android builds).
 On Linux, install `libasound2-dev pkg-config` (no WebKitGTK/GTK required).
 
 ```sh
@@ -180,19 +182,6 @@ gradle -p android :desktopApp:packageMsi
 # 2. Assemble APK
 gradle -p android :app:assembleDebug
 ```
-
-### Web / PWA preview
-
-The Express + TypeScript runtime is a demo and UI development environment, not
-the production backend:
-
-```sh
-npm run dev              # http://localhost:3000
-PORT=8143 npm run dev    # port used by the browser suites
-```
-
-It serves the `frontend/` assets with a seeded catalog and synthesized audio,
-and binds `0.0.0.0`. Do not expose it to an untrusted network.
 
 ## How playback works
 
@@ -245,17 +234,9 @@ cargo test --workspace
 # Compose Multiplatform Android + Desktop compile & shared JVM unit tests
 gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
 
-# TypeScript engine tests + typecheck (web preview)
-npm test
-npm run build
-
 # Opt-in live network tests
 cargo test -p musico_core live_ -- --ignored --nocapture
 ```
-
-Browser suites and the WCAG contrast gate are documented in
-[docs/testing.md](docs/testing.md). They expect the web preview on port 8143
-(contrast gate: 8145) and Playwright + Chrome installed locally.
 
 ## Documentation
 
@@ -277,11 +258,8 @@ android/              Compose Multiplatform app (:shared UI/ViewModel, :app Andr
 musico_core/          Pure-Rust JNI core (`mobile.rs`), online stack, lyrics, config, identity
 musico_playback/      Audio engine: decoder, CPAL output, queue, 10-band DSP EQ
 musico_recommender/   Local recommender + sled persistence
-frontend/             Optional web/PWA preview UI
-src/engine/           TypeScript engine for the web/PWA preview
-server.ts             Express demo runtime (not the production backend)
 flatpak/              Linux desktop entry, AppStream metainfo, and Flatpak manifest
-scripts/              AppImage/Flatpak packaging scripts, browser suites, contrast gate, test-tone generator
+scripts/              AppImage/Flatpak packaging scripts and test-tone generator
 docs/                 Deep dives, brand assets, screenshots, and ADRs
 .github/              CI/release workflows, issue and PR templates
 ```
@@ -319,8 +297,6 @@ you do not need to participate in it to contribute.
   and history stay on the machine.
 - **Android APK is published directly in GitHub Releases** alongside Linux,
   macOS, and Windows Compose Multiplatform Desktop packages.
-- **The web preview is not the app.** It has a demo backend, a seeded catalog,
-  and synthesized audio. Use the Compose Multiplatform builds for real playback.
 
 ## License
 

@@ -9,9 +9,7 @@ This guide gets a working development environment and explains the tasks you wil
 | Rust | stable, MSRV 1.78 | Workspace crates (`musico_core`, `musico_playback`, `musico_recommender`) |
 | Cargo | bundled with Rust | Builds and tests |
 | Java & Gradle | JDK 17+, Gradle 8.10.2 (system `gradle`) | Compose Multiplatform Android & Desktop (`android/` has no wrapper) |
-| Node.js | 20+ recommended | Web preview (`server.ts`), TypeScript engine (`src/engine/`), browser suites |
 | `yt-dlp` + `deno` | current | Last-resort stream resolver on Desktop (bundled inside Flatpak) |
-| `playwright` + Chrome | current | Browser suites only (not a runtime dependency) |
 
 ### Linux system packages
 
@@ -49,7 +47,6 @@ Android uses the pure-Rust resolvers (InnerTube Direct, Piped, Invidious, JioSaa
 cargo build --release -p musico_core --lib   # JNI core cdylib
 cargo test --workspace --exclude musico_playback
 gradle -p android :desktopApp:run            # Compose Desktop
-npm install                                  # web preview + TypeScript tests
 ```
 
 If `cargo` cannot find a linker or `pkg-config`, install the system packages above before retrying. Do not add vendored binaries to the repository.
@@ -72,15 +69,6 @@ gradle -p android :desktopApp:run
 ### Staging for packaged Desktop installers
 
 `android/desktopApp/build.gradle.kts` bundles native libraries placed in `android/desktopApp/resources/{linux,macos,windows}/` into the packaged `.deb` / `.rpm` / `.dmg` / `.msi` / `.AppImage` / `.flatpak` output. On Linux, `scripts/package_appimage.sh` and `scripts/package_flatpak.sh` build portable AppImage and Flatpak bundles (see [flatpak.md](flatpak.md) and [release.md](release.md)).
-
-### Web / PWA preview (unreleased demo)
-
-```sh
-npm run dev              # http://localhost:3000
-PORT=8143 npm run dev    # browser-suite port
-```
-
-`server.ts` serves `frontend/` and implements a demo RPC backend with a seeded catalog and synthesized audio. It is useful for legacy web-preview UI/PWA work, not for verifying Compose Multiplatform or real Rust stream resolution. It binds `0.0.0.0`, so never expose it to an untrusted network.
 
 ## 4. Configuration
 
@@ -139,7 +127,6 @@ adb logcat -s musico-native Music0EQ
 
 - Startup logs recommender bootstrap, stream-server prewarm, and platform/audio initialization.
 - Online failures are intentionally quiet in the UI but logged at `debug!` (fast-path instance failures) or `warn!` (parse-to-zero, dispatch errors).
-- For web-preview DOM/CSS work, use `npm run dev` and browser devtools.
 
 There is no telemetry endpoint and no remote logging.
 
@@ -176,8 +163,6 @@ Do not add a source that requires a private credential to the repository. The pr
 2. Wire navigation/state in `MusicViewModel.kt` (`AppTab` / `AppOverlay`) and `MusicoApp.kt` (respecting the `840.dp` compact/expanded breakpoint and `safeCornerDp` clamping).
 3. Add platform hooks via `expect`/`actual` in `Platform.kt` (`AndroidPlatform.kt` / `DesktopPlatform.kt`) only when OS-specific APIs are needed.
 4. Add unit tests in `android/shared/src/desktopTest/.../SharedCoreTests.kt` and verify compilation with `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest`.
-
-*(For the legacy `frontend/` web preview only: add `<section id="view-<name>" class="view">` in `frontend/index.html`, render in `core/shell.js`, bump `?v=` stamps, and update a script in `scripts/browser_*_test.mjs`.)*
 
 ### Change a resolver or cache rule
 
@@ -220,8 +205,7 @@ musico_core/          Pure-Rust JNI core + online stack
   src/online/         Catalog, resolvers, stream_server, playlist_import, lyrics
 
 flatpak/              Flatpak manifest, desktop file, AppStream metainfo
-frontend/, src/engine/ Standalone web/PWA demo (Node server.ts)
-scripts/              package_appimage.sh, package_flatpak.sh, gen_test_tone.sh, browser suites
+scripts/              package_appimage.sh, package_flatpak.sh, gen_test_tone.sh
 ```
 
 ## 8. Platform notes
@@ -230,12 +214,11 @@ scripts/              package_appimage.sh, package_flatpak.sh, gen_test_tone.sh,
 - **macOS:** Apple Silicon (`macos-arm64`) `.dmg` and `.app.tar.gz`, unsigned (`Music0.app`).
 - **Windows:** standard Compose `Window`, `.msi` and portable `.zip`, unsigned.
 - **Android:** `arm64-v8a` APK (`io.github.aryan007h.musicoonline`); Media3 `ExoPlayer` + `PlaybackService` + AudioFX `MobileEqualizer`; pure-Rust resolvers only (no `yt-dlp`); SAF `OpenDocument` file picker for playlist import.
-- **Web/PWA preview:** mock/Express backend (`server.ts`), service worker shell cache, `MediaSession` controls.
 
 ## 9. Where to go next
 
 - [testing.md](testing.md) — how to prove a change works.
-- [ipc.md](ipc.md) — production JNI command catalog (and web-preview mock appendix).
+- [ipc.md](ipc.md) — production JNI command catalog.
 - [online-stack.md](online-stack.md) — catalog, progressive streaming, and playlist import internals.
-- [frontend.md](frontend.md) — web preview UI architecture (separate from CMP).
+- [frontend.md](frontend.md) — Compose Multiplatform UI, Light/Dark `ThemeMode`, controls, and shapes.
 - [troubleshooting.md](troubleshooting.md) — when the environment fights back.

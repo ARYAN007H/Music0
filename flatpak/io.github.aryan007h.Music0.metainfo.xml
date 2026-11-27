@@ -15,15 +15,16 @@
   <description>
     <p>
       Music0 is a Material 3 Expressive music player built with Compose Multiplatform
-      and a pure-Rust JNI audio core. It combines a local library scanner, synced
-      lyrics, and a native Rust playback engine with fast online streaming, while
-      keeping playlists, likes, and recommendations on your own device.
+      and a pure-Rust JNI audio core, supporting Light, Dark, and System themes.
+      It combines an on-device library, synced lyrics, and a native Rust playback
+      engine with fast online streaming, while keeping playlists, likes, and
+      recommendations on your own device.
     </p>
     <p>Features:</p>
     <ul>
       <li>Search and stream online tracks through InnerTube and JioSaavn fast paths with optional yt-dlp fallback.</li>
       <li>Loopback range streaming with local caching, batch downloads, and offline Airplane Mode.</li>
-      <li>Local library management for saved albums, followed artists, Smart Mixes, and custom playlists.</li>
+      <li>On-device library management for saved albums, followed artists, Smart Mixes, custom playlists, and zero-OAuth Spotify/Apple Music/CSV/JSON/M3U playlist import.</li>
       <li>Synced LRCLIB and YouTube Music lyrics in Cinema and Stage modes with shareable lyric cards.</li>
       <li>Gapless playback, Autoplay, 10-band biquad DSP equalizer, loudness normalization, and AutoEQ support.</li>
       <li>On-device taste recommender powered by audio features, likes, skips, and listening history.</li>

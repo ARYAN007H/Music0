@@ -1,7 +1,7 @@
 # Architecture
 
-> **Status:** describes Music0 **v1.0.1** (`1.0.1-cmp`, Compose Multiplatform + pure-Rust `musico_core`).
-> **Scope:** the production Android and Desktop (Linux, macOS, Windows) Compose Multiplatform application. The standalone browser/PWA demo (`frontend/` + `server.ts`) is documented in [docs/frontend.md](docs/frontend.md).
+> **Status:** describes Music0 **v1.0.1+** (`1.0.1-cmp`, Compose Multiplatform + pure-Rust `musico_core`).
+> **Scope:** the unified Android and Desktop (Linux, macOS, Windows) Compose Multiplatform application.
 
 Music0 is a streaming-capable, local-first music player built on **Kotlin Compose Multiplatform (CMP)** and a **three-crate Rust core** (`musico_core`, `musico_playback`, `musico_recommender`). Tauri (`src-tauri/`) was retired in `v1.0.0` ([ADR-0005](docs/adr/0005-compose-multiplatform-and-jni-core.md)); there is no WebView in any shipped artifact.
 
@@ -44,7 +44,6 @@ Music0 is a streaming-capable, local-first music player built on **Kotlin Compos
 |---|---|---|---|
 | **Android** (`:app`, `arm64-v8a`) | `MainActivity.kt` → `MusicoApp(vm)` | Media3 `ExoPlayer` + `PlaybackService` (`MediaSessionService`) + `MobileEqualizer` | `libmusico_online_lib.so` + `libc++_shared.so` in `jniLibs/arm64-v8a/` |
 | **Desktop** (`:desktopApp`, Linux/macOS/Windows) | `desktop/Main.kt` → `MusicoApp(vm)` | `musico_playback::PlaybackEngine` via JNI `player.*` commands (`150 ms` `player.state` poll) | `libmusico_online_lib.so` / `.dylib` / `musico_online_lib.dll` |
-| **Web Preview** (unreleased demo) | `server.ts` + `frontend/` | HTML5 `<audio>` + Express mock (`/api/invoke/:cmd`, `/api/audio/:trackId`) | None (TypeScript engine in `src/engine/`) |
 
 ---
 
@@ -78,12 +77,11 @@ android/                    Compose Multiplatform project (Gradle 8.10.2, Kotlin
   shared/src/commonMain/    Material 3 Expressive screens, MusicViewModel, MusicoCore expect, Models
   shared/src/androidMain/   AndroidPlatform, UpdateManager, PlaybackController, PlaybackService, MobileEqualizer
   shared/src/desktopMain/   DesktopPlatformHost, DesktopPrefs, DesktopPlayback, MusicoCore.desktop.kt
-  shared/src/desktopTest/   SharedCoreTests.kt (14 unit tests)
+  shared/src/desktopTest/   SharedCoreTests.kt (27 unit tests)
   app/                      Android application module (applicationId: io.github.aryan007h.musicoonline)
   desktopApp/               Desktop JVM Compose module (packageName: Music0)
 flatpak/                    Flatpak manifest, desktop entry, AppStream metainfo (io.github.aryan007h.Music0)
-scripts/                    package_appimage.sh, package_flatpak.sh, browser_*_test.mjs, contrast_gate.mjs
-frontend/, server.ts, src/  Standalone web/PWA demo (not shipped in releases)
+scripts/                    package_appimage.sh, package_flatpak.sh, gen_test_tone.sh
 docs/                       Technical guides, ADRs, verification guide, brand guidelines, screenshots
 .github/workflows/          ci.yml, release.yml, desktop-core-so.yml
 ```
@@ -127,8 +125,8 @@ docs/                       Technical guides, ADRs, verification guide, brand gu
 
 ### 7.1 Interactive playback (`track.resolve` with `allowStream = true`)
 1. `mobile.rs` persists track metadata in `mobile:track_meta` and checks `cached_file_for(song_id)` / `cached_file_for(video_id)`. A hit returns the local path immediately (`mode: "cached"`), even in Airplane Mode.
-2. Otherwise `resolve_track_streaming` (`musico_core/src/online/stream.rs`) races **JioSaavn cross-source** (`2,500 ms` search cap, `saavn.rs`) in parallel with **Direct-URL hedged streaming** (`InnerTubeDirectSource` first → EWMA-sorted `Piped` → `Invidious`, `900 ms` hedge delay, `sources.rs`). On Desktop, if both miss, it attempts `yt-dlp -g` progressive streaming before whole-file `run_yt_dlp`.
-3. Upstream bytes pump to `{stem}.{seq}.part`; once `16 KiB` (`INITIAL_READY_BYTES`) land, `stream_server.rs` returns `http://127.0.0.1:<port>/stream/<32-hex-token>` (`mode: "stream"`).
+2. Otherwise `resolve_track_streaming` (`musico_core/src/online/stream.rs`) races **JioSaavn cross-source** (`2,500 ms` search cap, `saavn.rs`) in parallel with **Direct-URL hedged streaming** (`InnerTubeDirectSource` first → EWMA-sorted `Piped` → `Invidious`, `400 ms` hedge delay, batch `3`, `6 s` `STREAM_FAST_PATH_BUDGET`, `sources.rs`). On Desktop, if neither fast path has won after `1.5 s`, it hedges `yt-dlp -g` progressive streaming (`open_yt_dlp_stream`) into the same race before whole-file `run_yt_dlp`.
+3. Upstream bytes pump to `{stem}.{seq}.part`; once `16 KiB` (`INITIAL_READY_BYTES`) land (`4 s` `INITIAL_READY_TIMEOUT`), `stream_server.rs` returns `http://127.0.0.1:<port>/stream/<32-hex-token>` (`mode: "stream"`).
 4. On EOF (`>= 10 KiB`), `.part` renames atomically to the cache path, writes `{stem}.meta.json`, prunes LRU cache to cap, and enqueues `musico-mobile-indexer` acoustic feature extraction.
 
 ### 7.2 Smart Mixes & hybrid re-ranking
@@ -151,6 +149,6 @@ See [docs/data-storage.md](docs/data-storage.md) for the complete layout. Key de
 
 ## 9. CI, packaging, and known limitations
 
-- **CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):** `rust-core` (`cargo test --workspace --exclude musico_playback` + `cargo build --release -p musico_core --lib`), `compose-multiplatform` (`gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest`), `web-engine` (`npm test` + `npm run build`).
+- **CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):** `rust-core` (`cargo test --workspace --exclude musico_playback` + `cargo build --release -p musico_core --lib`), `compose-multiplatform` (`gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest`).
 - **Release ([`.github/workflows/release.yml`](.github/workflows/release.yml)):** Linux (`.deb`, `.rpm`, `.AppImage`, `.flatpak` bundling `yt-dlp` + `yt-dlp-ejs` + `deno`, `.tar.gz`), macOS arm64 (`.dmg`, `.app.tar.gz`, unsigned), Windows x86_64 (`.msi`, `.zip`, unsigned), signed Android `arm64-v8a` APK (`musico-online-native-aarch64.apk`), and `SHA256SUMS.txt`.
 - **Known Desktop gaps:** No single-instance window lock yet on Compose Desktop (a second launch hits sled's file lock and runs without DB), and Desktop MPRIS / SMTC / macOS Now Playing hardware media controls are not yet wired (tracked in [ROADMAP.md](ROADMAP.md)).

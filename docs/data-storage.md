@@ -48,8 +48,8 @@ Written pretty-printed on `settings.save`. Every field has a `#[serde(default)]`
 | `library_view_mode` | `string` | `"list"` | Library layout preference |
 | `shuffle_mode` | `u8` | `0` | `0` off · `1` shuffle · `2` smart radio |
 | `repeat_mode` | `u8` | `0` | `0` off · `1` repeat one · `2` repeat all |
-| `theme` | `string` | `"light"` | Core setting field (`"light"` \| `"dark"`) |
-| `skin` | `string` | `"ios"` | Core/web-preview skin (`"ios"` \| `"m3e"`) |
+| `theme` | `string` | `"light"` | Core setting field (`"light"` \| `"dark"`; Compose UI persists `ThemeMode` in `PlatformPrefs`) |
+| `skin` | `string` | `"ios"` | Legacy core setting field (`"ios"` \| `"m3e"`; Compose UI is Material 3 Expressive only) |
 | `autoplay` | `bool` | `true` | Queue continuation via radio picks |
 | `online_cache_mb` | `u32 \| null` | `null` | Stream cache cap in MiB (`null` = `1024`; `MUSICO_ONLINE_CACHE_MB` overrides) |
 | `offline_mode` | `bool` | `false` | Airplane mode: `ensure_online()` commands fast-fail; cached tracks play |
@@ -73,7 +73,7 @@ Written pretty-printed on `settings.save`. Every field has a `#[serde(default)]`
 
 ## 3. UI preferences (`PlatformPrefs`)
 
-Compose Multiplatform UI state (onboarding completion, active dark palette `NEBULA`/`OCEAN`/`EMBER`/`FOREST`/`MONO`, backdrop style, EQ preset & band gains, playback speed, skip silence, update-check snooze) is stored in:
+Compose Multiplatform UI state (onboarding completion, `ThemeMode` persisted under key `"theme_mode"` as `"system"` | `"light"` | `"dark"`, active palette `NEBULA`/`OCEAN`/`EMBER`/`FOREST`/`MONO`, backdrop style, EQ preset & band gains, playback speed, skip silence, update-check snooze, display name, liked IDs, and user-downloaded track IDs) is stored in:
 - **Desktop:** `<dataDir>/ui_prefs.json` ([`DesktopPrefs.kt`](../android/shared/src/desktopMain/kotlin/io/github/aryan007h/musicoonline/platform/DesktopPrefs.kt))
 - **Android:** `SharedPreferences("musico_ui", MODE_PRIVATE)` ([`AndroidPlatform.kt`](../android/shared/src/androidMain/kotlin/io/github/aryan007h/musicoonline/platform/AndroidPlatform.kt))
 

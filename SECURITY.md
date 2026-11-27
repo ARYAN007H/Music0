@@ -31,8 +31,7 @@ Please include:
 - operating system and install method (Android APK, Flatpak, AppImage, deb, rpm, tar.gz, dmg, msi, zip, or source build);
 - a description of the impact and the attacker's starting position;
 - reproduction steps or a minimal proof of concept;
-- relevant logs with personal paths, IP addresses, and tokens redacted;
-- whether the issue also affects the unreleased `server.ts` web preview.
+- relevant logs with personal paths, IP addresses, and tokens redacted.
 
 ### What to expect
 
@@ -65,7 +64,6 @@ Please give the maintainer a reasonable opportunity to fix the issue before publ
 - **Unsigned macOS/Windows builds.** Gatekeeper/SmartScreen warnings are a known distribution limitation documented in [README.md](README.md) and [docs/verify-downloads.md](docs/verify-downloads.md).
 - **A local attacker who can already read or write your home directory / app-private storage.** They can modify the binary, the database, or cached files directly.
 - **Physical access / unlocked session.**
-- **The unreleased web preview (`server.ts`) being reachable on a LAN.** It is a development/demo server that binds `0.0.0.0` by design; it is not shipped in any release and is not intended for untrusted networks.
 - **Upstream codec bugs** in Symphonia, Media3/ExoPlayer, CPAL, or the OS audio stack. Report those upstream; if Music0 crashes, we still want the reproduction.
 
 ## Threat model
@@ -85,14 +83,13 @@ Please give the maintainer a reasonable opportunity to fix the issue before publ
 | JNI bridge (`musico_core/src/mobile.rs`) | Boundary | Validates IDs (`1..=64` `[A-Za-z0-9_-]`), catches Rust panics, handles OOM |
 | Loopback stream server (`stream_server.rs`) & `LoopbackHttpMediaSource` | Local boundary | Binds `127.0.0.1:0`, requires 128-bit `OsRng` token, rejects non-loopback hosts & CRLF |
 | InnerTube responses | **Untrusted** | Parsed in `musico_core/src/online/parse.rs` |
-| Piped / Invidious / InnerTube Direct responses | **Untrusted** | URLs, content types, sizes validated in `musico_core/src/online/sources.rs` |
-| JioSaavn API/CDN | **Untrusted** | IDs charset-gated; media URL decrypted then allowlisted in `online/saavn.rs` |
+| Piped / Invidious / InnerTube Direct responses | **Untrusted** | Stream URLs, host allowlists (`StreamHostPolicy`), redirects (max 5 hops), content types, and sizes validated in `musico_core/src/online/sources.rs` |
+| JioSaavn API/CDN | **Untrusted** | IDs charset-gated; decrypted `aac.saavncdn.com` media URLs & `MEDIA_CLIENT`/`API_CLIENT` redirects (max 3 hops) validated in `online/saavn.rs` |
 | Playlist URL / file import | **Untrusted** | Strict HTTPS allowlist (`open.spotify.com`, `music.apple.com`), 4 MiB / 500-track cap |
 | LRCLIB responses | **Untrusted** | Parsed into lyric lines; no code execution |
 | Thumbnails | **Untrusted** | HTTPS + host allowlist + 5 MB cap |
 | `yt-dlp` output (Desktop) | **Untrusted** | File existence and minimum size verified; duration probed |
 | GitHub release update check | **Untrusted** | Android `UpdateManager.kt` verifies SHA-256 digest & size ceiling before install |
-| `server.ts` web preview | **Not hardened** | Unreleased dev/demo only; no auth, binds `0.0.0.0` |
 
 ### Protections in place
 
@@ -105,7 +102,7 @@ Please give the maintainer a reasonable opportunity to fix the issue before publ
 | Thumbnail URLs | HTTPS-only; hosts must be `ytimg.com`/`*.ytimg.com` or `saavncdn.com`/`*.saavncdn.com`; 5 MB body cap | `musico_core/src/online/stream.rs` (`is_safe_art_url`, `cache_cover_art`) |
 | Cover filenames | Sanitizes song IDs to `[A-Za-z0-9:_-]`, preventing traversal | `musico_core/src/cover.rs` (`sanitize_cover_stem`) |
 | Stream cache lookup | Exact `{videoId}.` / `{songId}.` match, never fuzzy prefix match | `musico_core/src/online/stream.rs` (`cached_file`) |
-| Direct-URL downloads | HTTPS only, `audio/*` content type, 64 MB audio cap, 2 MB metadata cap, ≥ 10 KB verify, `.part` → atomic rename | `musico_core/src/online/sources.rs`, `stream_server.rs` |
+| Direct-URL downloads & redirects | `parse_safe_https_url` (no userinfo/non-443 ports/IP literals/private TLDs), `StreamHostPolicy` (`*.googlevideo.com`, `self.host`/safe sibling), `Policy::custom` redirect checks (max 5 hops in `sources.rs`, max 3 hops in `saavn.rs`), `audio/*` MIME, 64 MB / 32 MB caps, 2 MB metadata cap, ≥ 10 KB verify, `.part` → atomic rename | `musico_core/src/online/sources.rs`, `saavn.rs`, `stream_server.rs` |
 | `yt-dlp` (Desktop) | Spawned with `Command` arguments (no shell), constant base URL, `--no-playlist`, nulled stdout/stderr, timeout kill + reap, cap of 3 | `musico_core/src/online/stream.rs` |
 | Cache pruning | mtime LRU, 80% hysteresis target, stale `.part`/`.ytdl`/`.tmp` sweep after 24 h | `musico_core/src/online/stream.rs` |
 | Android updater | Verifies release asset SHA-256 digest (`sha256:`) and enforces download size ceiling before launching package installer | `android/shared/src/androidMain/.../updater/UpdateManager.kt` |
