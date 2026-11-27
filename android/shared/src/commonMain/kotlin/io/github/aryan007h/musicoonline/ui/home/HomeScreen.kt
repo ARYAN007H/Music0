@@ -351,7 +351,7 @@ object HomeFeaturedCurator {
         val languages = savedLanguages.mapNotNull { normalizeToken(it) }.toSet()
 
         val seenKeys = LinkedHashSet<String>()
-        data class Scored(val item: ShelfItem, val score: Int, val orderIndex: Int)
+        data class Scored(val item: ShelfItem, val score: Int, val preferenceScore: Int, val orderIndex: Int)
         val candidates = ArrayList<Scored>()
 
         shelves.forEachIndexed { shelfIdx, shelf ->
@@ -364,42 +364,70 @@ object HomeFeaturedCurator {
                 if (dedupeKey.isBlank() || !seenKeys.add(dedupeKey)) return@forEachIndexed
 
                 val haystack = "${item.title} ${item.subtitle} ${shelf.title}".lowercase()
-                var score = 0
-                if (shelfIdx == 0) score += 16
-                if (isPersonalShelf) score += 24
-                if (item.videoId != null) score += 10
-                if (!item.thumbnail.isNullOrBlank()) score += 8
-                if (topArtists.any { haystack.contains(it) }) score += 42
-                if (favArtists.any { haystack.contains(it) }) score += 36
-                if (likedArtists.any { haystack.contains(it) }) score += 26
-                if (recentArtists.any { haystack.contains(it) }) score += 18
-                if (languages.any { haystack.contains(it) }) score += 14
+                var baseScore = 0
+                if (shelfIdx == 0) baseScore += 16
+                if (isPersonalShelf) baseScore += 24
+                if (item.videoId != null) baseScore += 10
+                if (!item.thumbnail.isNullOrBlank()) baseScore += 8
+
+                var preferenceScore = 0
+                if (topArtists.any { haystack.contains(it) }) preferenceScore += 42
+                if (favArtists.any { haystack.contains(it) }) preferenceScore += 36
+                if (likedArtists.any { haystack.contains(it) }) preferenceScore += 26
+                if (recentArtists.any { haystack.contains(it) }) preferenceScore += 18
+                if (languages.any { haystack.contains(it) }) preferenceScore += 14
 
                 // Deterministic per-session jitter so each app open refreshes banner order
-                val jitter = (abs(mixHash(sessionSeed, dedupeKey)) % 23L).toInt()
-                score += jitter - (itemIdx.coerceAtMost(8))
+                val jitter = ((mixHash(sessionSeed, dedupeKey) ushr 1) % 23L).toInt()
+                val totalScore = baseScore + preferenceScore + jitter - (itemIdx.coerceAtMost(8))
 
-                candidates += Scored(item = item, score = score, orderIndex = candidates.size)
+                candidates += Scored(
+                    item = item,
+                    score = totalScore,
+                    preferenceScore = preferenceScore,
+                    orderIndex = candidates.size,
+                )
             }
         }
 
         if (candidates.isEmpty()) return emptyList()
 
-        val ranked = candidates
-            .sortedWith(compareByDescending<Scored> { it.score }.thenBy { it.orderIndex })
-            .map { it.item }
+        val ranked = candidates.sortedWith(
+            compareByDescending<Scored> { it.score }.thenBy { it.orderIndex },
+        )
 
-        val poolSize = minOf(ranked.size, maxItems * 2)
-        val topPool = ranked.take(poolSize)
-        if (topPool.size <= 1) return topPool
+        // Keep top preference-matched favorites in the spotlight, while rotating discovery
+        // slots from a wider candidate pool so every launch refreshes the banners.
+        val personalized = ranked.filter { it.preferenceScore > 0 }.take(maxItems).map { it.item }
+        val remainingSlots = (maxItems - personalized.size).coerceAtLeast(0)
+        val discovery = if (remainingSlots > 0) {
+            val discoveryPool = ranked
+                .filter { it.preferenceScore == 0 }
+                .take(maxItems * 2)
+                .map { it.item }
+            if (discoveryPool.size <= remainingSlots) {
+                discoveryPool
+            } else {
+                val offset = ((mixHash(sessionSeed, "rotate-discovery") ushr 1) % discoveryPool.size.toLong()).toInt()
+                buildList(remainingSlots) {
+                    for (i in 0 until remainingSlots) {
+                        add(discoveryPool[(offset + i) % discoveryPool.size])
+                    }
+                }
+            }
+        } else {
+            emptyList()
+        }
 
-        val rotation = (abs(mixHash(sessionSeed, "rotate-spotlight")) % topPool.size.toLong()).toInt()
-        val rotated = buildList(topPool.size) {
-            for (i in topPool.indices) {
-                add(topPool[(rotation + i) % topPool.size])
+        val combined = (personalized + discovery).take(maxItems)
+        if (combined.size <= 1) return combined
+
+        val rotation = ((mixHash(sessionSeed, "rotate-spotlight") ushr 1) % combined.size.toLong()).toInt()
+        return buildList(combined.size) {
+            for (i in combined.indices) {
+                add(combined[(rotation + i) % combined.size])
             }
         }
-        return rotated.take(maxItems)
     }
 
     fun badgeLabel(item: ShelfItem, preferredTokens: Set<String>): String {
