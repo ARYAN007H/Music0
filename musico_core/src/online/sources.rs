@@ -44,9 +44,13 @@ use serde::Deserialize;
 /// Whole fast-path budget — metadata + download across the whole pool.
 /// Spent BEFORE the yt-dlp budgets begin (see module header).
 pub(crate) const FAST_PATH_BUDGET: Duration = Duration::from_secs(10);
+/// Tighter budget for progressive streaming opens: healthy sources answer in
+/// 150–1,200 ms; capping streaming failover at 6 s prevents 10-second stalls
+/// when public Piped/Invidious mirrors are degraded.
+pub(crate) const STREAM_FAST_PATH_BUDGET: Duration = Duration::from_secs(6);
 /// Total budget for one metadata request (InnerTube `/player` or Piped `/streams` JSON).
-/// Healthy endpoints answer in 150–600 ms; 2.2 s catches hung instances fast.
-const METADATA_TIMEOUT: Duration = Duration::from_millis(2_200);
+/// Healthy endpoints answer in 150–600 ms; 1.8 s catches hung instances fast.
+const METADATA_TIMEOUT: Duration = Duration::from_millis(1_800);
 /// Connect budget for the dedicated source client — a black-holed instance
 /// must fail fast so the pool moves on.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(1_500);
@@ -54,9 +58,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(1_500);
 /// and stalled chunks without cutting off long tracks on slow internet).
 const STREAM_READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// Delay before hedging backup sources when the primary source hasn't opened yet.
-const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(750);
+const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(400);
 /// Maximum backup sources launched per hedge wave.
-const STREAM_HEDGE_BATCH: usize = 2;
+const STREAM_HEDGE_BATCH: usize = 3;
 /// Upper bound on one downloaded track — a 5-minute 128 kbps m4a is ~5 MB;
 /// anything beyond this cap is not audio we asked for.
 pub(crate) const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
@@ -1705,7 +1709,7 @@ pub(crate) fn try_fast_path_open_stream(video_id: &str) -> Result<OpenedAudioStr
     try_sources_open_stream_hedged(
         default_pool_arc(),
         video_id,
-        FAST_PATH_BUDGET,
+        STREAM_FAST_PATH_BUDGET,
         STREAM_HEDGE_DELAY,
     )
 }

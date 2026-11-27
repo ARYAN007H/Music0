@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.Display
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestHighRefreshRate()
 
         AndroidPlatformHost.init(applicationContext)
         MusicoCore.init(filesDir.absolutePath, cacheDir.absolutePath)
@@ -92,6 +94,36 @@ class MainActivity : ComponentActivity() {
                     controller.isAppearanceLightNavigationBars = !isDark
                 },
             )
+        }
+    }
+
+    /**
+     * Selects the highest refresh-rate display mode matching the active physical
+     * resolution so LTPO / 90Hz / 120Hz / 144Hz Android panels render at full
+     * native frame rate instead of defaulting to 60Hz.
+     */
+    @Suppress("DEPRECATION")
+    private fun requestHighRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        runCatching {
+            val activeDisplay: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                windowManager.defaultDisplay
+            }
+            val currentMode = activeDisplay?.mode ?: return
+            val bestMode = activeDisplay.supportedModes
+                .filter {
+                    it.physicalWidth == currentMode.physicalWidth &&
+                        it.physicalHeight == currentMode.physicalHeight
+                }
+                .maxByOrNull { it.refreshRate }
+                ?: return
+            if (bestMode.refreshRate > currentMode.refreshRate + 1f) {
+                val attrs = window.attributes
+                attrs.preferredDisplayModeId = bestMode.modeId
+                window.attributes = attrs
+            }
         }
     }
 }

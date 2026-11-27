@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,11 +17,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,12 +47,14 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -60,13 +63,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,16 +117,17 @@ import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
 import io.github.aryan007h.musicoonline.ui.theme.shimmer
 import io.github.aryan007h.musicoonline.ui.theme.staggerIn
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
- * Editorial Home Feed with viscerally alive Apple Music + Spotify craft:
- * - AmbientTopWash radiating the active track's cover atmosphere behind the header
- * - Dynamic time-of-day greeting
- * - Spotify-style 2-column Quick-Pick Instant-Resume Grid (Liked Songs, Playlists,
- *   Smart Mixes, Recently Played — jump back in with 1 tap)
- * - Auto-advancing Hero Carousel, Smart Mixes, Signature 2-row Grids, Cover Carousels
+ * Editorial Material 3 Expressive Home Feed across Android & Desktop:
+ * - Dynamic time-of-day greeting with tactile "Refresh spotlight" M3E pill
+ * - Responsive Quick-Pick Grid (2 columns on phone, 3 columns on widescreen desktop)
+ * - Auto-sliding 5-second Featured Spotlight Carousel with 120Hz draw-phase progress pill,
+ *   hover/drag pause, widescreen "Up Next in Spotlight" preview card, and per-launch
+ *   preference-scored curation so every app open surfaces fresh tailored banners
+ * - Favorite Artists scalloped frames, Smart Mixes, Signature 2-row Grids, Cover Carousels
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -129,6 +139,10 @@ fun HomeScreen(
     playlists: List<UserPlaylist> = emptyList(),
     recentlyPlayed: List<OnlineTrack> = emptyList(),
     savedArtists: List<CatalogEntry> = emptyList(),
+    likedTracks: List<OnlineTrack> = emptyList(),
+    topArtistNames: List<String> = emptyList(),
+    savedLanguages: List<String> = emptyList(),
+    homeSessionSeed: Long = 0L,
     likedCount: Int = 0,
     downloadsCount: Int = 0,
     loading: Boolean,
@@ -142,6 +156,7 @@ fun HomeScreen(
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit = { _, _ -> },
     onOpenCatalogEntry: (CatalogEntry) -> Unit = {},
     onStartMood: (String) -> Unit = {},
+    onRefreshSpotlight: () -> Unit = {},
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onRetryPersonalization: (() -> Unit)? = null,
@@ -167,6 +182,10 @@ fun HomeScreen(
                     playlists = playlists,
                     recentlyPlayed = recentlyPlayed,
                     savedArtists = savedArtists,
+                    likedTracks = likedTracks,
+                    topArtistNames = topArtistNames,
+                    savedLanguages = savedLanguages,
+                    homeSessionSeed = homeSessionSeed,
                     likedCount = likedCount,
                     downloadsCount = downloadsCount,
                     styleItems = styleItems,
@@ -176,6 +195,7 @@ fun HomeScreen(
                     onOpenTrack = onOpenTrack,
                     onOpenCatalogEntry = onOpenCatalogEntry,
                     onStartMood = onStartMood,
+                    onRefreshSpotlight = onRefreshSpotlight,
                     onLoadMore = onLoadMore,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
@@ -291,9 +311,121 @@ private sealed interface QuickPickEntry {
 
 private val HOME_MOOD_CHIPS = listOf("All", "Made for You", "Chill", "Energize", "Focus", "Workout")
 
-/** Pure responsive breakpoints & mood-filter logic for HomeScreen unit tests. */
+/** Pure responsive breakpoints & layout metrics for HomeScreen unit tests. */
 object HomeLayoutMetrics {
     fun isCompactHero(cardWidthDp: Float): Boolean = cardWidthDp < 440f
+    fun showHeroUpNextPreview(cardWidthDp: Float): Boolean = cardWidthDp >= 760f
+    fun quickPickColumns(widthDp: Float): Int = if (widthDp >= 760f) 3 else 2
+}
+
+/**
+ * Pure preference-aware featured banner curator:
+ * - Scores items across shelves using user's top artists, saved artists, liked songs,
+ *   recently played tracks, and preferred languages.
+ * - Deterministically refreshes & rotates the banner sequence using `sessionSeed` so
+ *   every app launch surfaces a fresh, personalized spotlight lineup.
+ */
+object HomeFeaturedCurator {
+    const val HERO_AUTO_SLIDE_MS: Long = 5_000L
+
+    private val PERSONALIZED_SHELF_HINTS = listOf(
+        "made for", "because you", "for you", "discover", "pick", "fresh", "mix", "recommend", "listening",
+    )
+
+    fun selectFeaturedItems(
+        shelves: List<Shelf>,
+        likedTracks: List<OnlineTrack> = emptyList(),
+        recentlyPlayed: List<OnlineTrack> = emptyList(),
+        savedArtists: List<CatalogEntry> = emptyList(),
+        topArtistNames: List<String> = emptyList(),
+        savedLanguages: List<String> = emptyList(),
+        sessionSeed: Long = 0L,
+        maxItems: Int = 8,
+    ): List<ShelfItem> {
+        if (shelves.isEmpty() || maxItems <= 0) return emptyList()
+
+        val topArtists = topArtistNames.mapNotNull { normalizeToken(it) }.toSet()
+        val favArtists = savedArtists.mapNotNull { normalizeToken(it.title) }.toSet()
+        val likedArtists = likedTracks.mapNotNull { normalizeToken(it.artist) }.toSet()
+        val recentArtists = recentlyPlayed.take(12).mapNotNull { normalizeToken(it.artist) }.toSet()
+        val languages = savedLanguages.mapNotNull { normalizeToken(it) }.toSet()
+
+        val seenKeys = LinkedHashSet<String>()
+        data class Scored(val item: ShelfItem, val score: Int, val orderIndex: Int)
+        val candidates = ArrayList<Scored>()
+
+        shelves.forEachIndexed { shelfIdx, shelf ->
+            val shelfLower = shelf.title.lowercase()
+            val isPersonalShelf = PERSONALIZED_SHELF_HINTS.any { shelfLower.contains(it) }
+            shelf.items.forEachIndexed { itemIdx, item ->
+                val dedupeKey = item.videoId?.takeIf { it.isNotBlank() }
+                    ?: item.browseId?.takeIf { it.isNotBlank() }
+                    ?: item.title.lowercase().trim()
+                if (dedupeKey.isBlank() || !seenKeys.add(dedupeKey)) return@forEachIndexed
+
+                val haystack = "${item.title} ${item.subtitle} ${shelf.title}".lowercase()
+                var score = 0
+                if (shelfIdx == 0) score += 16
+                if (isPersonalShelf) score += 24
+                if (item.videoId != null) score += 10
+                if (!item.thumbnail.isNullOrBlank()) score += 8
+                if (topArtists.any { haystack.contains(it) }) score += 42
+                if (favArtists.any { haystack.contains(it) }) score += 36
+                if (likedArtists.any { haystack.contains(it) }) score += 26
+                if (recentArtists.any { haystack.contains(it) }) score += 18
+                if (languages.any { haystack.contains(it) }) score += 14
+
+                // Deterministic per-session jitter so each app open refreshes banner order
+                val jitter = (abs(mixHash(sessionSeed, dedupeKey)) % 23L).toInt()
+                score += jitter - (itemIdx.coerceAtMost(8))
+
+                candidates += Scored(item = item, score = score, orderIndex = candidates.size)
+            }
+        }
+
+        if (candidates.isEmpty()) return emptyList()
+
+        val ranked = candidates
+            .sortedWith(compareByDescending<Scored> { it.score }.thenBy { it.orderIndex })
+            .map { it.item }
+
+        val poolSize = minOf(ranked.size, maxItems * 2)
+        val topPool = ranked.take(poolSize)
+        if (topPool.size <= 1) return topPool
+
+        val rotation = (abs(mixHash(sessionSeed, "rotate-spotlight")) % topPool.size.toLong()).toInt()
+        val rotated = buildList(topPool.size) {
+            for (i in topPool.indices) {
+                add(topPool[(rotation + i) % topPool.size])
+            }
+        }
+        return rotated.take(maxItems)
+    }
+
+    fun badgeLabel(item: ShelfItem, preferredTokens: Set<String>): String {
+        val haystack = "${item.title} ${item.subtitle}".lowercase()
+        return when {
+            preferredTokens.isNotEmpty() && preferredTokens.any { haystack.contains(it) } -> "FOR YOUR TASTE"
+            item.videoId != null -> "SPOTLIGHT PICK"
+            else -> "FEATURED"
+        }
+    }
+
+    private fun normalizeToken(raw: String): String? {
+        val cleaned = raw.trim().lowercase()
+        return cleaned.takeIf { it.length >= 3 }
+    }
+
+    private fun mixHash(seed: Long, key: String): Long {
+        var h = seed xor -0x61c8864680b583ebL
+        for (c in key) {
+            h = (h * 31L) xor c.code.toLong()
+        }
+        h = h xor (h ushr 33)
+        h *= -0xae502812aa7333L
+        h = h xor (h ushr 33)
+        return h
+    }
 }
 
 object HomeMoodFilter {
@@ -332,6 +464,10 @@ private fun HomeFeed(
     playlists: List<UserPlaylist>,
     recentlyPlayed: List<OnlineTrack>,
     savedArtists: List<CatalogEntry>,
+    likedTracks: List<OnlineTrack>,
+    topArtistNames: List<String>,
+    savedLanguages: List<String>,
+    homeSessionSeed: Long,
     likedCount: Int,
     downloadsCount: Int,
     styleItems: List<ShelfItem>,
@@ -341,6 +477,7 @@ private fun HomeFeed(
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onOpenCatalogEntry: (CatalogEntry) -> Unit,
     onStartMood: (String) -> Unit,
+    onRefreshSpotlight: () -> Unit,
     onLoadMore: () -> Unit,
     currentTrackId: String?,
     isPlaying: Boolean,
@@ -360,12 +497,40 @@ private fun HomeFeed(
         }
     }
 
-    val (heroShelf, gridA, gridB, rest) = remember(filteredShelves) {
-        val hero = filteredShelves.firstOrNull()
+    val preferredTokens = remember(topArtistNames, savedArtists, likedTracks) {
+        buildSet {
+            topArtistNames.forEach { n -> n.trim().lowercase().takeIf { it.length >= 3 }?.let(::add) }
+            savedArtists.forEach { a -> a.title.trim().lowercase().takeIf { it.length >= 3 }?.let(::add) }
+            likedTracks.take(20).forEach { t -> t.artist.trim().lowercase().takeIf { it.length >= 3 }?.let(::add) }
+        }
+    }
+
+    val curatedHeroItems = remember(
+        filteredShelves,
+        likedTracks,
+        recentlyPlayed,
+        savedArtists,
+        topArtistNames,
+        savedLanguages,
+        homeSessionSeed,
+    ) {
+        HomeFeaturedCurator.selectFeaturedItems(
+            shelves = filteredShelves,
+            likedTracks = likedTracks,
+            recentlyPlayed = recentlyPlayed,
+            savedArtists = savedArtists,
+            topArtistNames = topArtistNames,
+            savedLanguages = savedLanguages,
+            sessionSeed = homeSessionSeed,
+            maxItems = 8,
+        )
+    }
+
+    val (gridA, gridB, rest) = remember(filteredShelves) {
         val playable = filteredShelves.filter { shelf -> shelf.items.any { it.videoId != null } }
-        val grids = (playable - setOfNotNull(hero)).take(2)
-        val used = setOfNotNull(hero) + grids.toSet()
-        HomeSections(hero, grids.getOrNull(0), grids.getOrNull(1), filteredShelves.filterNot { used.contains(it) })
+        val grids = playable.take(2)
+        val used = grids.toSet()
+        HomeShelfGroups(grids.getOrNull(0), grids.getOrNull(1), filteredShelves.filterNot { used.contains(it) })
     }
 
     val quickPicks = remember(likedCount, downloadsCount, playlists, smartMixes, recentlyPlayed) {
@@ -389,33 +554,73 @@ private fun HomeFeed(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 148.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 164.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // ── Dynamic Greeting Header ─────────────────────────────────────
+        // ── Dynamic Greeting Header + Refresh Spotlight Pill ─────────────
         item(key = "home-greeting") {
-            Column(
+            Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(start = 22.dp, end = 22.dp, top = 14.dp, bottom = 2.dp),
+                    .padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    greeting.uppercase(),
-                    style = Musico.type.overline,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    if (displayName.equals("Listener", ignoreCase = true)) {
-                        "Jump back in"
-                    } else {
-                        "Welcome back, $displayName"
-                    },
-                    style = Musico.type.display.copy(fontSize = 30.sp),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        greeting.uppercase(),
+                        style = Musico.type.overline,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        if (displayName.equals("Listener", ignoreCase = true)) {
+                            "Jump back in"
+                        } else {
+                            "Welcome back, $displayName"
+                        },
+                        style = Musico.type.display.copy(fontSize = 30.sp),
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (curatedHeroItems.size > 1) {
+                    Spacer(Modifier.width(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .pointerHoverIcon(PointerIcon.Hand)
+                            .pressable(
+                                onClick = {
+                                    hapticTick()
+                                    onRefreshSpotlight()
+                                },
+                                pressedScale = 0.93f,
+                            ),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "Refresh spotlight picks",
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                "Refresh picks",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -523,7 +728,7 @@ private fun HomeFeed(
             }
         }
 
-        // ── M3E 2-Column Quick-Pick Instant-Resume Grid ─────────────────
+        // ── Responsive M3E Quick-Pick Grid (2 cols phone, 3 cols desktop) ──
         if (quickPicks.size >= 2 && (selectedMood == "All" || selectedMood == "Made for You")) {
             item(key = "home-quick-picks") {
                 QuickPickGrid(
@@ -543,16 +748,18 @@ private fun HomeFeed(
             }
         }
 
-        heroShelf?.let {
-            item(key = "hero") {
+        // ── Auto-Sliding 5-Second Personalized M3E Editorial Spotlight ────
+        if (curatedHeroItems.isNotEmpty()) {
+            item(key = "hero-$homeSessionSeed") {
                 HeroCarousel(
-                    items = it.items.take(8),
+                    items = curatedHeroItems,
+                    preferredTokens = preferredTokens,
                     onOpenItem = onOpenItem,
                 )
             }
         }
 
-        // ── Favorite Artists Circular Row ───────────────────────────────
+        // ── Favorite Artists Scalloped Row ──────────────────────────────
         if (savedArtists.isNotEmpty()) {
             item(key = "home-favorite-artists") {
                 val artistState = rememberLazyListState()
@@ -739,33 +946,40 @@ private fun QuickPickGrid(
     isPlaying: Boolean,
     onClick: (QuickPickEntry) -> Unit,
 ) {
-    Column(
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        entries.chunked(2).forEachIndexed { rowIdx, pair ->
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                pair.forEachIndexed { colIdx, entry ->
-                    QuickPickCard(
-                        entry = entry,
-                        isCurrent = entry is QuickPickEntry.TrackPick && entry.track.videoId == currentTrackId,
-                        isPlaying = isPlaying,
-                        onClick = {
-                            hapticThud()
-                            onClick(entry)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .staggerIn(index = rowIdx * 2 + colIdx),
-                    )
-                }
-                if (pair.size == 1) {
-                    Spacer(Modifier.weight(1f))
+        val cols = HomeLayoutMetrics.quickPickColumns(maxWidth.value)
+        val tileHeight = if (cols >= 3) 64.dp else 58.dp
+        Column(
+            Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            entries.chunked(cols).forEachIndexed { rowIdx, rowEntries ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    rowEntries.forEachIndexed { colIdx, entry ->
+                        QuickPickCard(
+                            entry = entry,
+                            tileHeight = tileHeight,
+                            isCurrent = entry is QuickPickEntry.TrackPick && entry.track.videoId == currentTrackId,
+                            isPlaying = isPlaying,
+                            onClick = {
+                                hapticThud()
+                                onClick(entry)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .staggerIn(index = rowIdx * cols + colIdx),
+                        )
+                    }
+                    repeat((cols - rowEntries.size).coerceAtLeast(0)) {
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -775,6 +989,7 @@ private fun QuickPickGrid(
 @Composable
 private fun QuickPickCard(
     entry: QuickPickEntry,
+    tileHeight: androidx.compose.ui.unit.Dp,
     isCurrent: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
@@ -782,7 +997,7 @@ private fun QuickPickCard(
 ) {
     val isDark = Musico.extras.isDark
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         color = when {
             isCurrent -> MaterialTheme.colorScheme.secondaryContainer
             isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -794,7 +1009,7 @@ private fun QuickPickCard(
             null
         },
         modifier = modifier
-            .height(58.dp)
+            .height(tileHeight)
             .pressable(onClick = onClick, pressedScale = 0.96f),
     ) {
         Row(
@@ -804,7 +1019,7 @@ private fun QuickPickCard(
             when (entry) {
                 is QuickPickEntry.Liked -> Box(
                     Modifier
-                        .size(58.dp)
+                        .size(tileHeight)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -817,7 +1032,7 @@ private fun QuickPickCard(
                 }
                 is QuickPickEntry.Downloads -> Box(
                     Modifier
-                        .size(58.dp)
+                        .size(tileHeight)
                         .background(MaterialTheme.colorScheme.tertiaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -830,15 +1045,15 @@ private fun QuickPickCard(
                 }
                 is QuickPickEntry.PlaylistPick -> PlaylistMosaicArtwork(
                     thumbnails = entry.playlist.tracks.map { it.thumbnail },
-                    modifier = Modifier.size(58.dp),
+                    modifier = Modifier.size(tileHeight),
                     cornerRadius = 0.dp,
                 )
                 is QuickPickEntry.MixPick -> PlaylistMosaicArtwork(
                     thumbnails = entry.mix.tracks.map { it.thumbnail },
-                    modifier = Modifier.size(58.dp),
+                    modifier = Modifier.size(tileHeight),
                     cornerRadius = 0.dp,
                 )
-                is QuickPickEntry.TrackPick -> Box(Modifier.size(58.dp)) {
+                is QuickPickEntry.TrackPick -> Box(Modifier.size(tileHeight)) {
                     Artwork(
                         url = entry.track.thumbnail,
                         contentDescription = entry.title,
@@ -857,16 +1072,16 @@ private fun QuickPickCard(
                     }
                 }
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Column(
                 Modifier
                     .weight(1f)
-                    .padding(end = 10.dp),
+                    .padding(end = 12.dp),
             ) {
                 Text(
                     entry.title,
                     style = Musico.type.title,
-                    fontSize = 13.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isCurrent) {
                         MaterialTheme.colorScheme.onSecondaryContainer
@@ -879,7 +1094,7 @@ private fun QuickPickCard(
                 Text(
                     entry.subtitle,
                     style = Musico.type.tabularCaption,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     color = if (isCurrent) {
                         MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f)
                     } else {
@@ -899,8 +1114,7 @@ private fun EndDetector(onNearEnd: () -> Unit) {
     Spacer(Modifier.height(8.dp))
 }
 
-private data class HomeSections(
-    val hero: Shelf?,
+private data class HomeShelfGroups(
     val gridA: Shelf?,
     val gridB: Shelf?,
     val rest: List<Shelf>,
@@ -947,29 +1161,66 @@ private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
     }
 }
 
-// ── Hero carousel ─────────────────────────────────────────────────────────
+// ── Auto-Sliding 5-Second Personalized M3E Editorial Spotlight ────────────
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HeroCarousel(
     items: List<ShelfItem>,
+    preferredTokens: Set<String>,
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
 ) {
     if (items.isEmpty()) return
     val pagerState = rememberPagerState(pageCount = { items.size })
     val scope = rememberCoroutineScope()
 
+    var pointerHovered by remember { mutableStateOf(false) }
     val userScrolling by remember { derivedStateOf { pagerState.isScrollInProgress } }
-    LaunchedEffect(userScrolling, items.size) {
-        while (items.size > 1) {
-            delay(6000)
-            if (!userScrolling) {
-                pagerState.animateScrollToPage((pagerState.currentPage + 1) % items.size)
-            }
-        }
+    val timerPaused = pointerHovered || userScrolling
+
+    // Draw-phase 120 FPS auto-slide timer state (zero recompositions while counting!)
+    val slideProgressState = remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(pagerState.currentPage, items.size) {
+        slideProgressState.floatValue = 0f
     }
 
-    Column {
+    LaunchedEffect(pagerState.currentPage, timerPaused, items.size) {
+        if (items.size <= 1 || timerPaused) return@LaunchedEffect
+        val totalNanos = HomeFeaturedCurator.HERO_AUTO_SLIDE_MS * 1_000_000L
+        var elapsedNanos = (slideProgressState.floatValue.coerceIn(0f, 1f) * totalNanos).toLong()
+        var lastNanos = 0L
+        while (elapsedNanos < totalNanos) {
+            withFrameNanos { now ->
+                if (lastNanos != 0L) {
+                    elapsedNanos += (now - lastNanos).coerceIn(0L, 100_000_000L)
+                }
+                lastNanos = now
+                slideProgressState.floatValue = (elapsedNanos.toFloat() / totalNanos.toFloat()).coerceIn(0f, 1f)
+            }
+        }
+        val nextPage = (pagerState.currentPage + 1) % items.size
+        slideProgressState.floatValue = 0f
+        pagerState.animateScrollToPage(
+            page = nextPage,
+            animationSpec = tween(durationMillis = 560, easing = MusicoMotion.emphasized),
+        )
+    }
+
+    Column(
+        modifier = Modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    when (event.type) {
+                        PointerEventType.Enter -> pointerHovered = true
+                        PointerEventType.Exit -> pointerHovered = false
+                        else -> Unit
+                    }
+                }
+            }
+        },
+    ) {
         Box(Modifier.fillMaxWidth()) {
             HorizontalPager(
                 state = pagerState,
@@ -980,23 +1231,41 @@ private fun HeroCarousel(
                     .desktopHorizontalPagerScroll(pagerState),
             ) { page ->
                 val item = items[page]
+                val nextIndex = (page + 1) % items.size
+                val nextItem = if (items.size > 1) items[nextIndex] else null
+                val badge = remember(item, preferredTokens) {
+                    HomeFeaturedCurator.badgeLabel(item, preferredTokens)
+                }
                 HeroCard(
                     item = item,
+                    nextItem = nextItem,
+                    badgeLabel = badge,
+                    slideNumber = page + 1,
+                    slideCount = items.size,
                     onClick = { onOpenItem(item, items) },
+                    onNextPreviewClick = {
+                        hapticTick()
+                        scope.launch {
+                            pagerState.animateScrollToPage(
+                                page = nextIndex,
+                                animationSpec = tween(durationMillis = 520, easing = MusicoMotion.emphasized),
+                            )
+                        }
+                    },
                     modifier = Modifier.graphicsLayer {
                         val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-                        val abs = kotlin.math.abs(offset).coerceAtMost(1f)
-                        val s = 1f - 0.06f * abs
+                        val absOff = abs(offset).coerceAtMost(1f)
+                        val s = 1f - 0.045f * absOff
                         scaleX = s
                         scaleY = s
-                        alpha = 1f - 0.35f * (kotlin.math.abs(offset) - 1f).coerceIn(0f, 1f)
+                        alpha = 1f - 0.30f * (abs(offset) - 1f).coerceIn(0f, 1f)
                     },
                 )
             }
 
             if (isDesktopPlatform && items.size > 1) {
                 val arrowBg = if (Musico.extras.isDark) {
-                    MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f)
+                    MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.94f)
                 } else {
                     MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.96f)
                 }
@@ -1005,16 +1274,22 @@ private fun HeroCarousel(
                     shape = CircleShape,
                     color = arrowBg,
                     border = arrowBorder,
-                    shadowElevation = 4.dp,
+                    shadowElevation = 5.dp,
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 30.dp)
-                        .size(38.dp)
+                        .padding(start = 28.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable {
+                            hapticTick()
                             val prev = (pagerState.currentPage - 1 + items.size) % items.size
-                            scope.launch { pagerState.animateScrollToPage(prev) }
+                            scope.launch {
+                                pagerState.animateScrollToPage(
+                                    page = prev,
+                                    animationSpec = tween(durationMillis = 480, easing = MusicoMotion.emphasized),
+                                )
+                            }
                         },
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -1030,16 +1305,22 @@ private fun HeroCarousel(
                     shape = CircleShape,
                     color = arrowBg,
                     border = arrowBorder,
-                    shadowElevation = 4.dp,
+                    shadowElevation = 5.dp,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 30.dp)
-                        .size(38.dp)
+                        .padding(end = 28.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable {
+                            hapticTick()
                             val next = (pagerState.currentPage + 1) % items.size
-                            scope.launch { pagerState.animateScrollToPage(next) }
+                            scope.launch {
+                                pagerState.animateScrollToPage(
+                                    page = next,
+                                    animationSpec = tween(durationMillis = 480, easing = MusicoMotion.emphasized),
+                                )
+                            }
                         },
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -1053,7 +1334,10 @@ private fun HeroCarousel(
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
+
+        Spacer(Modifier.height(12.dp))
+
+        // ── M3E Animated 5-Second Countdown Indicator Strip ──────────────
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
@@ -1062,35 +1346,51 @@ private fun HeroCarousel(
             repeat(items.size) { i ->
                 val active = pagerState.currentPage == i
                 val dotWidth by animateDpAsState(
-                    targetValue = if (active) 18.dp else 6.dp,
-                    animationSpec = MusicoMotion.expressive(),
+                    targetValue = if (active) 36.dp else 7.dp,
+                    animationSpec = MusicoMotion.spatialFast(),
                     label = "heroDotW$i",
                 )
-                val dotColor by animateColorAsState(
+                val dotBgColor by animateColorAsState(
                     targetValue = if (active) {
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.colorScheme.surfaceContainerHighest
                     } else {
-                        Musico.extras.inkFaint
+                        Musico.extras.inkFaint.copy(alpha = 0.55f)
                     },
-                    animationSpec = MusicoMotion.gentle(),
+                    animationSpec = MusicoMotion.effectsFast(),
                     label = "heroDotC$i",
                 )
+                val activeFill = MaterialTheme.colorScheme.primary
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .clickable {
-                            scope.launch { pagerState.animateScrollToPage(i) }
+                            hapticTick()
+                            scope.launch {
+                                pagerState.animateScrollToPage(
+                                    page = i,
+                                    animationSpec = tween(durationMillis = 480, easing = MusicoMotion.emphasized),
+                                )
+                            }
                         }
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        Modifier
-                            .size(width = dotWidth.coerceAtLeast(0.dp), height = 6.dp)
-                            .clip(CircleShape)
-                            .background(dotColor),
-                    )
+                    if (active && items.size > 1) {
+                        HeroProgressPill(
+                            progressState = slideProgressState,
+                            trackColor = dotBgColor,
+                            fillColor = activeFill,
+                            modifier = Modifier.size(width = dotWidth.coerceAtLeast(8.dp), height = 7.dp),
+                        )
+                    } else {
+                        Box(
+                            Modifier
+                                .size(width = dotWidth.coerceAtLeast(4.dp), height = 7.dp)
+                                .clip(CircleShape)
+                                .background(if (active) activeFill else dotBgColor),
+                        )
+                    }
                 }
             }
         }
@@ -1098,114 +1398,284 @@ private fun HeroCarousel(
 }
 
 @Composable
-private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun HeroProgressPill(
+    progressState: FloatState,
+    trackColor: Color,
+    fillColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val r = size.height / 2f
+        val corner = CornerRadius(r, r)
+        drawRoundRect(
+            color = trackColor,
+            topLeft = Offset.Zero,
+            size = size,
+            cornerRadius = corner,
+        )
+        val fillW = (size.width * progressState.floatValue.coerceIn(0f, 1f)).coerceAtLeast(size.height)
+        drawRoundRect(
+            color = fillColor,
+            topLeft = Offset.Zero,
+            size = Size(fillW.coerceAtMost(size.width), size.height),
+            cornerRadius = corner,
+        )
+    }
+}
+
+@Composable
+private fun HeroCard(
+    item: ShelfItem,
+    nextItem: ShelfItem?,
+    badgeLabel: String,
+    slideNumber: Int,
+    slideCount: Int,
+    onClick: () -> Unit,
+    onNextPreviewClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val compact = HomeLayoutMetrics.isCompactHero(maxWidth.value)
-        val artworkSize = if (compact) 104.dp else 176.dp
-        val cardPadding = if (compact) 14.dp else 18.dp
-        val contentGap = if (compact) 14.dp else 18.dp
-
+        val showUpNext = HomeLayoutMetrics.showHeroUpNextPreview(maxWidth.value) && nextItem != null
+        val artworkSize = when {
+            compact -> 108.dp
+            showUpNext -> 196.dp
+            else -> 176.dp
+        }
+        val cardPadding = if (compact) 14.dp else 22.dp
+        val contentGap = if (compact) 14.dp else 22.dp
         val isDark = Musico.extras.isDark
+
+        val cardColor = if (isDark) {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLowest
+        }
+        val decorativeTint = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.08f else 0.06f)
+
         Surface(
-            shape = MusicoShapes.hero,
-            color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
-            border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) else null,
-            shadowElevation = if (isDark) 0.dp else 2.dp,
+            shape = RoundedCornerShape(if (compact) 26.dp else 32.dp),
+            color = cardColor,
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.42f else 0.60f),
+            ),
+            shadowElevation = if (isDark) 0.dp else 3.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (compact) Modifier.heightIn(min = 148.dp) else Modifier.height(212.dp))
-                .pressable(onClick = onClick, pressedScale = 0.97f),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(cardPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(contentGap),
-            ) {
-                Artwork(
-                    url = item.thumbnail,
-                    contentDescription = item.title,
-                    modifier = Modifier.size(artworkSize),
-                    cornerRadius = if (compact) 18.dp else 22.dp,
+                .then(
+                    when {
+                        compact -> Modifier.heightIn(min = 152.dp)
+                        showUpNext -> Modifier.height(242.dp)
+                        else -> Modifier.height(220.dp)
+                    },
                 )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
+                .pressable(onClick = onClick, pressedScale = 0.98f),
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                // Subtle M3 Expressive geometric SoftBurst12 backdrop accent
+                if (!compact) {
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterEnd)
+                            .offset(x = 36.dp, y = (-18).dp)
+                            .size(230.dp)
+                            .clip(ExpressiveShapes.SoftBurst12)
+                            .background(decorativeTint),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(cardPadding),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(contentGap),
                 ) {
-                    Column {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                        ) {
+                    Artwork(
+                        url = item.thumbnail,
+                        contentDescription = item.title,
+                        modifier = Modifier.size(artworkSize),
+                        cornerRadius = if (compact) 18.dp else 24.dp,
+                    )
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp),
+                    ) {
+                        Column {
                             Row(
-                                Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Icon(
-                                    Icons.Filled.AutoAwesome,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(12.dp),
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(999.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                ) {
+                                    Row(
+                                        Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                        Text(
+                                            badgeLabel,
+                                            style = Musico.type.overline,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        )
+                                    }
+                                }
+                                if (!compact && slideCount > 1) {
+                                    Text(
+                                        "$slideNumber / $slideCount",
+                                        style = Musico.type.tabularCaption,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
+                            Text(
+                                item.title,
+                                style = when {
+                                    compact -> Musico.type.titleLarge.copy(fontSize = 19.sp, lineHeight = 23.sp)
+                                    showUpNext -> Musico.type.headline.copy(fontSize = 27.sp, lineHeight = 32.sp)
+                                    else -> Musico.type.headline
+                                },
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (item.subtitle.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "FEATURED",
-                                    style = Musico.type.overline,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    item.subtitle,
+                                    style = if (compact) Musico.type.caption else Musico.type.body,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = if (compact) 1 else 2,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                        Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
-                        Text(
-                            item.title,
-                            style = if (compact) {
-                                Musico.type.titleLarge.copy(fontSize = 19.sp, lineHeight = 23.sp)
-                            } else {
-                                Musico.type.headline
-                            },
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (item.subtitle.isNotBlank()) {
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                item.subtitle,
-                                style = Musico.type.caption,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = if (compact) 1 else 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                            ) {
+                                Row(
+                                    Modifier.padding(
+                                        horizontal = if (compact) 14.dp else 20.dp,
+                                        vertical = if (compact) 9.dp else 12.dp,
+                                    ),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.PlayArrow,
+                                        contentDescription = "Play",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(if (compact) 18.dp else 22.dp),
+                                    )
+                                    Text(
+                                        "Play now",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = if (compact) 12.5.sp else 14.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                            }
                         }
                     }
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                    ) {
-                        Row(
-                            Modifier.padding(
-                                horizontal = if (compact) 12.dp else 16.dp,
-                                vertical = if (compact) 8.dp else 10.dp,
-                            ),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+
+                    // Widescreen right-side "Up Next in Spotlight" preview card (eliminates dead whitespace!)
+                    if (showUpNext && nextItem != null) {
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = if (isDark) {
+                                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.86f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainer
+                            },
+                            modifier = Modifier
+                                .width(236.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable(onClick = onNextPreviewClick),
                         ) {
-                            Icon(
-                                Icons.Filled.PlayArrow,
-                                contentDescription = "Play",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(if (compact) 18.dp else 20.dp),
-                            )
-                            Text(
-                                "Play now",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (compact) 12.sp else 13.sp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
+                            Column(
+                                Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        "UP NEXT",
+                                        style = Musico.type.overline,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = "Jump to next spotlight",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    Artwork(
+                                        url = nextItem.thumbnail,
+                                        contentDescription = nextItem.title,
+                                        modifier = Modifier.size(60.dp),
+                                        cornerRadius = 16.dp,
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            nextItem.title,
+                                            style = Musico.type.title,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (nextItem.subtitle.isNotBlank()) {
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(
+                                                nextItem.subtitle,
+                                                style = Musico.type.caption,
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    "Auto-slides every 5s",
+                                    style = Musico.type.caption,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+                                )
+                            }
                         }
                     }
                 }
@@ -1340,7 +1810,7 @@ private fun GridCard(
 private fun HomeSkeleton() {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 140.dp),
+        contentPadding = PaddingValues(bottom = 160.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -1348,8 +1818,8 @@ private fun HomeSkeleton() {
                 Modifier
                     .padding(horizontal = 20.dp, vertical = 14.dp)
                     .fillMaxWidth()
-                    .aspectRatio(1.55f)
-                    .clip(MusicoShapes.hero)
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(30.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .shimmer(),
             )

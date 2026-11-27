@@ -16,6 +16,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -70,8 +71,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,12 +83,17 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -109,8 +113,10 @@ import io.github.aryan007h.musicoonline.platform.currentTimeMillis
 import io.github.aryan007h.musicoonline.platform.showPlatformToast
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveLiveWavySeekBar
 import io.github.aryan007h.musicoonline.ui.components.ExpressivePlayPauseButton
-import io.github.aryan007h.musicoonline.ui.components.ExpressiveWavySeekBar
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSlider
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveTransportButton
 import io.github.aryan007h.musicoonline.ui.components.LikeButton
 import io.github.aryan007h.musicoonline.ui.components.TrackActionSheet
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
@@ -128,9 +134,7 @@ import io.github.aryan007h.musicoonline.ui.onboarding.OnboardingScreen
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.player.NowPlayingScreen
 import io.github.aryan007h.musicoonline.ui.player.PlayerBackdrop
-import io.github.aryan007h.musicoonline.ui.player.formatTime
 import io.github.aryan007h.musicoonline.ui.player.rememberArtworkAtmosphere
-import io.github.aryan007h.musicoonline.ui.player.rememberSmoothPositionMs
 import io.github.aryan007h.musicoonline.ui.profile.ProfileScreen
 import io.github.aryan007h.musicoonline.ui.radio.RadioScreen
 import io.github.aryan007h.musicoonline.ui.search.SearchScreen
@@ -145,6 +149,7 @@ import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
@@ -304,6 +309,7 @@ fun MusicoApp(
                             mainTabs(state, activeAtmosphere)
                             DesktopDockedPlayerBar(
                                 state = state,
+                                positionMsFlow = vm.positionMs,
                                 atmosphere = activeAtmosphere,
                                 onExpandPlayer = { vm.openPlayer(0) },
                                 onOpenLyrics = { vm.openPlayer(1) },
@@ -317,8 +323,8 @@ fun MusicoApp(
                                 onVolumeChange = vm::setVolume,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .padding(horizontal = 16.dp, vertical = 14.dp)
-                                    .widthIn(max = 1040.dp),
+                                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                                    .widthIn(max = 1220.dp),
                             )
                         }
                     }
@@ -350,6 +356,7 @@ fun MusicoApp(
                             lastTrack?.let { track ->
                                 MiniPlayer(
                                     state = state,
+                                    positionMsFlow = vm.positionMs,
                                     track = track,
                                     atmosphere = activeAtmosphere,
                                     onExpand = { if (state.nowPlaying != null) vm.openPlayer(0) },
@@ -452,7 +459,7 @@ fun MusicoApp(
                     track = state.nowPlaying,
                     isPlaying = state.isPlaying,
                     isBuffering = state.isBuffering,
-                    positionMs = state.positionMs,
+                    positionMsFlow = vm.positionMs,
                     durationMs = state.durationMs,
                     lyrics = state.lyrics,
                     lyricsLoading = state.lyricsLoading,
@@ -751,9 +758,9 @@ fun MusicoApp(
 
             // ── Bottom Toast with Optional Action (Undo / Retry) ─────────
             val toastLift = when {
-                isWidescreen -> 100.dp
-                (state.nowPlaying != null || state.resolvingTrack != null) && state.overlay == AppOverlay.NONE -> 152.dp
-                else -> 92.dp
+                isWidescreen -> 124.dp
+                (state.nowPlaying != null || state.resolvingTrack != null) && state.overlay == AppOverlay.NONE -> 156.dp
+                else -> 94.dp
             }
             AnimatedVisibility(
                 visible = state.error != null,
@@ -856,6 +863,11 @@ private fun MainTabContent(
                 currentTrackId = state.nowPlaying?.videoId,
                 isPlaying = state.isPlaying,
                 savedArtists = state.libraryArtists,
+                likedTracks = state.likedTracks,
+                topArtistNames = state.listeningStats?.topArtists?.map { it.artist }.orEmpty(),
+                savedLanguages = state.savedLanguages,
+                homeSessionSeed = state.homeSessionSeed,
+                onRefreshSpotlight = vm::refreshHomeSpotlight,
                 onOpenCatalogEntry = vm::openCatalogEntry,
                 onStartMood = { mood ->
                     val styleMatch = state.radioStyles.firstOrNull {
@@ -1350,6 +1362,7 @@ private fun RailNavItem(
 @Composable
 private fun DesktopDockedPlayerBar(
     state: MusicViewModel.UiState,
+    positionMsFlow: StateFlow<Long>,
     atmosphere: ArtworkAtmosphere,
     onExpandPlayer: () -> Unit,
     onOpenLyrics: () -> Unit,
@@ -1364,26 +1377,19 @@ private fun DesktopDockedPlayerBar(
     modifier: Modifier = Modifier,
 ) {
     val track = state.resolvingTrack ?: state.nowPlaying
-    val smoothPosition = rememberSmoothPositionMs(
-        polledPositionMs = state.positionMs,
-        isPlaying = state.isPlaying,
-        durationMs = state.durationMs,
-    )
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val seekFraction = if (state.durationMs > 0L) {
-        (smoothPosition.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else 0f
-    val shownSeek = dragFraction ?: seekFraction
-
     val isDark = Musico.extras.isDark
+
     Surface(
-        shape = RoundedCornerShape(28.dp),
+        shape = RoundedCornerShape(32.dp),
         color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.45f else 0.7f)),
-        shadowElevation = if (isDark) 8.dp else 4.dp,
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.50f else 0.75f),
+        ),
+        shadowElevation = if (isDark) 12.dp else 6.dp,
         modifier = modifier
             .fillMaxWidth()
-            .height(82.dp),
+            .height(98.dp),
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val barWidthDp = maxWidth.value
@@ -1397,8 +1403,8 @@ private fun DesktopDockedPlayerBar(
                     trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .height(3.dp)
+                        .padding(horizontal = 32.dp)
+                        .height(3.5.dp)
                         .clip(CircleShape)
                         .align(Alignment.TopCenter),
                 )
@@ -1407,15 +1413,15 @@ private fun DesktopDockedPlayerBar(
             Row(
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = if (showVolumeSlider) 18.dp else 12.dp),
+                    .padding(horizontal = if (showVolumeSlider) 22.dp else 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (showVolumeSlider) 16.dp else 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (showVolumeSlider) 20.dp else 12.dp),
             ) {
-                // Left: Track Info + Like
+                // Left: Generous Artwork + Track Metadata + Like
                 Row(
                     Modifier
-                        .weight(if (showVolumeSlider) 0.30f else 0.34f)
-                        .clip(RoundedCornerShape(16.dp))
+                        .weight(if (showVolumeSlider) 0.27f else 0.32f)
+                        .clip(RoundedCornerShape(20.dp))
                         .pressable(onClick = onExpandPlayer, enabled = track != null, pressedScale = 0.98f)
                         .padding(vertical = 6.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1424,20 +1430,22 @@ private fun DesktopDockedPlayerBar(
                         Artwork(
                             url = track.thumbnail,
                             contentDescription = track.title,
-                            modifier = Modifier.size(if (showVolumeSlider) 52.dp else 46.dp),
-                            cornerRadius = 14.dp,
+                            modifier = Modifier.size(if (showVolumeSlider) 62.dp else 54.dp),
+                            cornerRadius = 16.dp,
                         )
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 track.title.ifEmpty { "Untitled" },
                                 style = Musico.type.title,
-                                fontSize = if (showVolumeSlider) 15.sp else 14.sp,
+                                fontSize = if (showVolumeSlider) 15.5.sp else 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.basicMarquee(),
                             )
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 when {
                                     state.resolvingId == track.videoId -> "Resolving…"
@@ -1445,6 +1453,7 @@ private fun DesktopDockedPlayerBar(
                                     else -> track.artist.ifEmpty { "Unknown artist" }
                                 },
                                 style = Musico.type.caption,
+                                fontSize = 12.5.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1455,135 +1464,209 @@ private fun DesktopDockedPlayerBar(
                             LikeButton(
                                 liked = track.videoId in state.likedIds,
                                 onToggle = onLikeToggle,
-                                size = 20.dp,
+                                size = 22.dp,
                             )
                         }
                     } else {
-                        Text(
-                            "Pick any song to listen",
-                            style = Musico.type.caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Box(
+                            Modifier
+                                .size(54.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Ready to play",
+                                style = Musico.type.title,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                "Pick any song to listen",
+                                style = Musico.type.caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
 
-                // Center: Native M3E Morphing Play/Pause + Expressive Wavy Seek Bar
+                // Center: Chunky M3E Mixed-Geometry Transport Cluster + Wide 120 FPS Wavy Seekbar
                 Column(
-                    Modifier.weight(if (showVolumeSlider) 0.42f else 0.46f),
+                    Modifier.weight(if (showVolumeSlider) 0.47f else 0.48f),
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(if (showExtras) 10.dp else 6.dp),
                     ) {
                         if (showExtras) {
-                            IconButton(onClick = { hapticTick(); onToggleRepeat() }, modifier = Modifier.size(30.dp)) {
-                                Icon(
-                                    Icons.Filled.Repeat,
-                                    contentDescription = "Repeat",
-                                    tint = if (state.repeatAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                            Surface(
+                                shape = CircleShape,
+                                color = if (state.repeatAll) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    Color.Transparent
+                                },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .pressable(onClick = { hapticTick(); onToggleRepeat() }, pressedScale = 0.90f),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Filled.Repeat,
+                                        contentDescription = "Repeat",
+                                        tint = if (state.repeatAll) {
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             }
                         }
-                        IconButton(onClick = { hapticThud(); onPrevious() }, enabled = track != null, modifier = Modifier.size(34.dp)) {
-                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface)
-                        }
+                        ExpressiveTransportButton(
+                            icon = Icons.Filled.SkipPrevious,
+                            contentDescription = "Previous",
+                            onClick = { hapticThud(); onPrevious() },
+                            enabled = track != null,
+                            width = 42.dp,
+                            height = 38.dp,
+                            iconSize = 22.dp,
+                            restingCorner = 14.dp,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                         ExpressivePlayPauseButton(
                             isPlaying = state.isPlaying,
                             isBuffering = state.isBuffering || state.resolvingId != null,
                             enabled = track != null,
                             onClick = onTogglePlay,
-                            size = 42.dp,
+                            width = 62.dp,
+                            height = 44.dp,
+                            containerColorPaused = MaterialTheme.colorScheme.primary,
+                            containerColorPlaying = MaterialTheme.colorScheme.primary,
+                            contentColorPaused = MaterialTheme.colorScheme.onPrimary,
+                            contentColorPlaying = MaterialTheme.colorScheme.onPrimary,
                         )
-                        IconButton(onClick = { hapticThud(); onNext() }, enabled = track != null, modifier = Modifier.size(34.dp)) {
-                            Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
-                        }
+                        ExpressiveTransportButton(
+                            icon = Icons.Filled.SkipNext,
+                            contentDescription = "Next",
+                            onClick = { hapticThud(); onNext() },
+                            enabled = track != null,
+                            width = 42.dp,
+                            height = 38.dp,
+                            iconSize = 22.dp,
+                            restingCorner = 14.dp,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
                         if (showExtras) {
-                            if (track != null) {
-                                EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(14.dp))
-                            } else {
-                                Spacer(Modifier.width(16.dp))
+                            Box(
+                                Modifier.width(34.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (track != null) {
+                                    EqualizerBars(
+                                        playing = state.isPlaying,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.height(16.dp),
+                                    )
+                                }
                             }
                         }
                     }
 
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text(
-                            formatTime(if (dragFraction == null) smoothPosition else (shownSeek * state.durationMs).toLong()),
-                            style = Musico.type.tabularCaption,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        ExpressiveWavySeekBar(
-                            progress = seekFraction,
-                            isPlaying = state.isPlaying,
-                            enabled = track != null && state.durationMs > 0L,
-                            activeColor = MaterialTheme.colorScheme.primary,
-                            inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            trackHeight = 3.5.dp,
-                            waveAmplitude = 2.6.dp,
-                            waveLength = 20.dp,
-                            thumbHeight = 16.dp,
-                            onDragProgress = { dragFraction = it },
-                            onSeek = { frac ->
-                                if (state.durationMs > 0L) {
-                                    onSeek((frac * state.durationMs).toLong())
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(22.dp),
-                        )
-                        Text(
-                            formatTime(state.durationMs),
-                            style = Musico.type.tabularCaption,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    ExpressiveLiveWavySeekBar(
+                        positionMsFlow = positionMsFlow,
+                        durationMs = state.durationMs,
+                        isPlaying = state.isPlaying,
+                        enabled = track != null && state.durationMs > 0L,
+                        onSeekMs = onSeek,
+                        showInlineTimestamps = true,
+                        timestampFontSize = 11.sp,
+                        timestampMinWidth = 34.dp,
+                        activeColor = MaterialTheme.colorScheme.primary,
+                        inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        trackHeight = 5.5.dp,
+                        waveAmplitude = 3.8.dp,
+                        waveLength = 24.dp,
+                        thumbHeight = 22.dp,
+                        barHeight = 30.dp,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
 
-                // Right: Lyrics Studio + Queue + Mute (+ spacious Volume Slider when >= 740dp)
+                // Right: M3E Tonal Pill Controls (Lyrics Studio · Queue · Mute · Thick M3E Volume Slider)
                 Row(
-                    modifier = if (showVolumeSlider) Modifier.weight(0.28f) else Modifier,
+                    modifier = if (showVolumeSlider) Modifier.weight(0.26f) else Modifier,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
                 ) {
-                    IconButton(
-                        onClick = onOpenLyrics,
-                        enabled = track != null,
-                        modifier = Modifier.size(34.dp),
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (track != null) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .pressable(onClick = onOpenLyrics, enabled = track != null, pressedScale = 0.90f),
                     ) {
-                        Icon(
-                            Icons.Filled.Lyrics,
-                            contentDescription = "Open Lyrics Studio",
-                            tint = if (track != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.size(19.dp),
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.Lyrics,
+                                contentDescription = "Open Lyrics Studio",
+                                tint = if (track != null) {
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                },
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
                     }
-                    IconButton(
-                        onClick = onOpenQueue,
-                        enabled = track != null,
-                        modifier = Modifier.size(34.dp),
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = if (track != null) 0.9f else 0.5f),
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .pressable(onClick = onOpenQueue, enabled = track != null, pressedScale = 0.90f),
                     ) {
-                        Icon(
-                            Icons.Filled.QueueMusic,
-                            contentDescription = "Open Queue",
-                            tint = if (track != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.size(19.dp),
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.QueueMusic,
+                                contentDescription = "Open Queue",
+                                tint = if (track != null) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                },
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
                     }
                     var lastNonZeroVol by remember { mutableFloatStateOf(0.8f) }
                     IconButton(
                         onClick = {
+                            hapticTick()
                             if (state.volume > 0.01f) {
                                 lastNonZeroVol = state.volume
                                 onVolumeChange(0f)
@@ -1597,19 +1680,18 @@ private fun DesktopDockedPlayerBar(
                             if (state.volume <= 0.01f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = "Mute",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(19.dp),
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                     if (showVolumeSlider) {
-                        Slider(
+                        ExpressiveSlider(
                             value = state.volume,
                             onValueChange = onVolumeChange,
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            ),
-                            modifier = Modifier.width(88.dp),
+                            valueRange = 0f..1f,
+                            trackHeight = 10.dp,
+                            thumbHeight = 22.dp,
+                            barHeight = 28.dp,
+                            modifier = Modifier.width(102.dp),
                         )
                     }
                 }
@@ -1623,6 +1705,7 @@ private fun DesktopDockedPlayerBar(
 @Composable
 private fun MiniPlayer(
     state: MusicViewModel.UiState,
+    positionMsFlow: StateFlow<Long>,
     track: OnlineTrack,
     atmosphere: ArtworkAtmosphere,
     onExpand: () -> Unit,
@@ -1639,20 +1722,14 @@ private fun MiniPlayer(
         label = "miniSwipeX",
     )
 
-    val smoothPosition = rememberSmoothPositionMs(
-        polledPositionMs = state.positionMs,
-        isPlaying = state.isPlaying,
-        durationMs = state.durationMs,
-    )
-
     val isDark = Musico.extras.isDark
     Surface(
         color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(26.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.45f else 0.7f)),
-        shadowElevation = if (isDark) 6.dp else 3.dp,
+        shadowElevation = if (isDark) 8.dp else 4.dp,
         modifier = Modifier
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
             .fillMaxWidth()
             .graphicsLayer {
                 translationX = animDragX.coerceIn(-swipeThresholdPx * 1.15f, swipeThresholdPx * 1.15f)
@@ -1688,8 +1765,8 @@ private fun MiniPlayer(
                 Artwork(
                     url = track.thumbnail,
                     contentDescription = track.title,
-                    modifier = Modifier.size(44.dp),
-                    cornerRadius = 12.dp,
+                    modifier = Modifier.size(48.dp),
+                    cornerRadius = 14.dp,
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
@@ -1722,7 +1799,8 @@ private fun MiniPlayer(
                     isPlaying = state.isPlaying,
                     isBuffering = state.isBuffering || state.resolvingId != null,
                     onClick = onToggle,
-                    size = 42.dp,
+                    width = 48.dp,
+                    height = 44.dp,
                 )
             }
             if (state.resolvingId != null) {
@@ -1731,26 +1809,72 @@ private fun MiniPlayer(
                     trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.dp),
+                        .height(4.dp),
                 )
             } else {
-                val fraction = if (state.durationMs > 0) {
-                    (smoothPosition.toFloat() / state.durationMs).coerceIn(0f, 1f)
-                } else 0f
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(fraction)
-                            .height(3.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
-                    )
+                MiniPlayerLiveProgressBar(
+                    positionMsFlow = positionMsFlow,
+                    durationMs = state.durationMs,
+                    isPlaying = state.isPlaying,
+                    activeColor = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
+            }
+        }
+    }
+}
+
+/** Zero-recomposition 120 Hz draw-phase progress bar for the compact MiniPlayer. */
+@Composable
+private fun MiniPlayerLiveProgressBar(
+    positionMsFlow: StateFlow<Long>,
+    durationMs: Long,
+    isPlaying: Boolean,
+    activeColor: Color,
+    trackColor: Color,
+) {
+    val fractionState = remember { mutableFloatStateOf(0f) }
+    val latestDuration by rememberUpdatedState(durationMs)
+    var polledPosMs by remember { mutableLongStateOf(0L) }
+    var anchorNanos by remember { mutableLongStateOf(-1L) }
+
+    LaunchedEffect(positionMsFlow, durationMs) {
+        positionMsFlow.collect { pos ->
+            polledPosMs = pos.coerceAtLeast(0L)
+            anchorNanos = -1L
+            val dur = latestDuration
+            fractionState.floatValue = if (dur > 0L) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+        }
+    }
+
+    LaunchedEffect(isPlaying, durationMs) {
+        if (!isPlaying || durationMs <= 0L) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { now ->
+                if (anchorNanos < 0L) anchorNanos = now
+                val dur = latestDuration
+                if (dur > 0L) {
+                    val est = (polledPosMs + ((now - anchorNanos) / 1_000_000L).coerceIn(0L, 2_500L)).coerceAtMost(dur)
+                    fractionState.floatValue = (est.toFloat() / dur).coerceIn(0f, 1f)
                 }
             }
+        }
+    }
+
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(4.dp),
+    ) {
+        drawRect(color = trackColor)
+        val fillW = size.width * fractionState.floatValue.coerceIn(0f, 1f)
+        if (fillW > 0.5f) {
+            drawRoundRect(
+                color = activeColor,
+                topLeft = Offset.Zero,
+                size = Size(fillW, size.height),
+                cornerRadius = CornerRadius(size.height / 2f, size.height / 2f),
+            )
         }
     }
 }

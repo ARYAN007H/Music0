@@ -89,9 +89,9 @@ import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.ConnectedButtonOption
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveActionPill
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveConnectedButtonGroup
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveLiveWavySeekBar
 import io.github.aryan007h.musicoonline.ui.components.ExpressivePlayPauseButton
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveTransportButton
-import io.github.aryan007h.musicoonline.ui.components.ExpressiveWavySeekBar
 import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalPagerScroll
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.theme.Musico
@@ -101,6 +101,7 @@ import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
 import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
 import io.github.aryan007h.musicoonline.ui.theme.safePositiveScale
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -120,7 +121,7 @@ fun NowPlayingScreen(
     track: OnlineTrack?,
     isPlaying: Boolean,
     isBuffering: Boolean,
-    positionMs: Long,
+    positionMsFlow: StateFlow<Long>,
     durationMs: Long,
     lyrics: EnhancedLyrics?,
     lyricsLoading: Boolean,
@@ -149,20 +150,16 @@ fun NowPlayingScreen(
     onDragProgressChange: (Float) -> Unit = {},
 ) {
     val activeTrack = track ?: return
-    val smoothPositionMs = rememberSmoothPositionMs(
-        polledPositionMs = positionMs,
-        isPlaying = isPlaying,
-        durationMs = durationMs,
-    )
     var pureCinema by remember { mutableStateOf(false) }
 
     val sharedLyricsPane = remember {
         movableContentOf<LyricsSlotState> { s ->
-            LyricsPane(
+            LiveLyricsPane(
                 track = s.track,
                 lyrics = s.lyrics,
                 loading = s.loading,
-                positionMs = s.positionMs,
+                positionMsFlow = s.positionMsFlow,
+                isPlaying = s.isPlaying,
                 durationMs = s.durationMs,
                 mode = s.mode,
                 offsetMs = s.offsetMs,
@@ -193,7 +190,8 @@ fun NowPlayingScreen(
         track = activeTrack,
         lyrics = lyrics,
         loading = lyricsLoading,
-        positionMs = smoothPositionMs,
+        positionMsFlow = positionMsFlow,
+        isPlaying = isPlaying,
         durationMs = durationMs,
         mode = lyricsMode,
         offsetMs = lyricOffsetMs,
@@ -211,7 +209,7 @@ fun NowPlayingScreen(
                 activeTrack = activeTrack,
                 isPlaying = isPlaying,
                 isBuffering = isBuffering,
-                smoothPositionMs = smoothPositionMs,
+                positionMsFlow = positionMsFlow,
                 durationMs = durationMs,
                 atmosphere = atmosphere,
                 queueSize = queue.size,
@@ -235,7 +233,7 @@ fun NowPlayingScreen(
                 activeTrack = activeTrack,
                 isPlaying = isPlaying,
                 isBuffering = isBuffering,
-                smoothPositionMs = smoothPositionMs,
+                positionMsFlow = positionMsFlow,
                 durationMs = durationMs,
                 atmosphere = atmosphere,
                 queueSize = queue.size,
@@ -265,7 +263,8 @@ private data class LyricsSlotState(
     val track: OnlineTrack,
     val lyrics: EnhancedLyrics?,
     val loading: Boolean,
-    val positionMs: Long,
+    val positionMsFlow: StateFlow<Long>,
+    val isPlaying: Boolean,
     val durationMs: Long,
     val mode: LyricsDisplayMode,
     val offsetMs: Long,
@@ -285,7 +284,7 @@ private fun WidescreenSplitNowPlaying(
     activeTrack: OnlineTrack,
     isPlaying: Boolean,
     isBuffering: Boolean,
-    smoothPositionMs: Long,
+    positionMsFlow: StateFlow<Long>,
     durationMs: Long,
     atmosphere: ArtworkAtmosphere,
     queueSize: Int,
@@ -375,7 +374,9 @@ private fun WidescreenSplitNowPlaying(
                 )
                 Spacer(Modifier.height(22.dp))
                 Column(
-                    modifier = Modifier.fillMaxWidth(0.94f),
+                    modifier = Modifier
+                        .fillMaxWidth(0.96f)
+                        .padding(horizontal = 4.dp),
                     horizontalAlignment = Alignment.Start,
                 ) {
                     Text(
@@ -384,7 +385,9 @@ private fun WidescreenSplitNowPlaying(
                         style = Musico.type.headline.copy(fontSize = 24.sp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.basicMarquee(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .basicMarquee(),
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
@@ -397,11 +400,11 @@ private fun WidescreenSplitNowPlaying(
                 }
                 Spacer(Modifier.height(16.dp))
                 ExpressiveInlineSeekBar(
-                    positionMs = smoothPositionMs,
+                    positionMsFlow = positionMsFlow,
                     durationMs = durationMs,
                     isPlaying = isPlaying,
                     onSeek = onSeek,
-                    modifier = Modifier.fillMaxWidth(0.96f),
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(16.dp))
                 ExpressiveTransportCluster(
@@ -471,7 +474,7 @@ private fun CompactPagerNowPlaying(
     activeTrack: OnlineTrack,
     isPlaying: Boolean,
     isBuffering: Boolean,
-    smoothPositionMs: Long,
+    positionMsFlow: StateFlow<Long>,
     durationMs: Long,
     atmosphere: ArtworkAtmosphere,
     queueSize: Int,
@@ -679,9 +682,9 @@ private fun CompactPagerNowPlaying(
                     .padding(horizontal = 22.dp, vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // 1. Inline-timestamped M3 Expressive Wavy Seekbar
+                // 1. Inline-timestamped M3 Expressive Wavy Seekbar (120 FPS draw-phase)
                 ExpressiveInlineSeekBar(
-                    positionMs = smoothPositionMs,
+                    positionMsFlow = positionMsFlow,
                     durationMs = durationMs,
                     isPlaying = isPlaying,
                     onSeek = onSeek,
@@ -764,16 +767,16 @@ private fun ExpressiveTransportCluster(
     onNext: () -> Unit,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ExpressiveTransportButton(
             icon = Icons.Filled.SkipPrevious,
             contentDescription = "Previous",
             onClick = onPrevious,
-            width = 74.dp,
-            height = 68.dp,
-            iconSize = 30.dp,
+            width = 80.dp,
+            height = 70.dp,
+            iconSize = 32.dp,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
@@ -781,8 +784,8 @@ private fun ExpressiveTransportCluster(
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             onClick = onTogglePlay,
-            width = 96.dp,
-            height = 72.dp,
+            width = 104.dp,
+            height = 74.dp,
             containerColorPaused = MaterialTheme.colorScheme.primary,
             containerColorPlaying = MaterialTheme.colorScheme.primary,
             contentColorPaused = MaterialTheme.colorScheme.onPrimary,
@@ -792,9 +795,9 @@ private fun ExpressiveTransportCluster(
             icon = Icons.Filled.SkipNext,
             contentDescription = "Next",
             onClick = onNext,
-            width = 74.dp,
-            height = 68.dp,
-            iconSize = 30.dp,
+            width = 80.dp,
+            height = 70.dp,
+            iconSize = 32.dp,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
@@ -911,56 +914,36 @@ private fun ContextualBottomChip(
 
 /**
  * Inline-timestamped Material 3 Expressive wavy seekbar matching Google's M3E
- * media control layout (`1:12  ~~~~|--------  3:45`).
+ * media control layout (`1:12  ~~~~|--------  3:45`), rendered at native 120 FPS
+ * strictly in the Canvas draw phase with zero parent recompositions.
  */
 @Composable
 private fun ExpressiveInlineSeekBar(
-    positionMs: Long,
+    positionMsFlow: StateFlow<Long>,
     durationMs: Long,
     isPlaying: Boolean,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val posFraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    val shown = dragFraction ?: posFraction
-
-    Row(
+    ExpressiveLiveWavySeekBar(
+        positionMsFlow = positionMsFlow,
+        durationMs = durationMs,
+        isPlaying = isPlaying,
+        enabled = durationMs > 0L,
+        onSeekMs = onSeek,
+        showInlineTimestamps = true,
+        timestampFontSize = 12.5.sp,
+        timestampMinWidth = 40.dp,
+        activeColor = MaterialTheme.colorScheme.primary,
+        inactiveColor = MaterialTheme.colorScheme.outlineVariant,
+        thumbColor = MaterialTheme.colorScheme.primary,
+        trackHeight = 6.dp,
+        waveAmplitude = 4.4.dp,
+        waveLength = 26.dp,
+        thumbHeight = 28.dp,
+        barHeight = 38.dp,
         modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = formatTime(if (dragFraction == null) positionMs else (shown * durationMs).toLong()),
-            style = Musico.type.tabularCaption,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-            modifier = Modifier.widthIn(min = 38.dp),
-        )
-        ExpressiveWavySeekBar(
-            progress = posFraction,
-            isPlaying = isPlaying,
-            enabled = durationMs > 0L,
-            activeColor = MaterialTheme.colorScheme.primary,
-            inactiveColor = MaterialTheme.colorScheme.outlineVariant,
-            thumbColor = MaterialTheme.colorScheme.primary,
-            onDragProgress = { dragFraction = it },
-            onSeek = { frac ->
-                if (durationMs > 0L) {
-                    onSeek((frac * durationMs).toLong())
-                }
-            },
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = formatTime(durationMs),
-            style = Musico.type.tabularCaption,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-            textAlign = TextAlign.End,
-            modifier = Modifier.widthIn(min = 38.dp),
-        )
-    }
+    )
 }
 
 // ── Living Breathing Artwork ──────────────────────────────────────────────

@@ -572,10 +572,13 @@ where
         };
 
     // YouTube track: race JioSaavn cross-source CDN vs InnerTube/Piped direct
-    // streaming in parallel so whichever opens first starts playing immediately.
+    // streaming in parallel, and on desktop hedge `yt-dlp -g` after 1.5 s if
+    // neither fast path has won yet so tracks never stall for 10+ seconds.
     enum StreamRaceHit {
         Saavn(super::saavn::CrossSourceStream),
         Direct(super::sources::OpenedAudioStream),
+        #[cfg(not(target_os = "android"))]
+        YtDlp(super::sources::OpenedAudioStream),
     }
 
     if !track.title.trim().is_empty() {
@@ -591,7 +594,7 @@ where
                 let _ = tx_saavn.send(res);
             });
         let vid_direct = track.video_id.clone();
-        let tx_direct = tx;
+        let tx_direct = tx.clone();
         let _ = std::thread::Builder::new()
             .name("musico-stream-race-direct".into())
             .spawn(move || {
@@ -600,26 +603,62 @@ where
                 let _ = tx_direct.send(res);
             });
 
+        let mut remaining_racers = 2usize;
+        #[cfg(not(target_os = "android"))]
+        let mut ytdlp_hedged = false;
+        #[cfg(not(target_os = "android"))]
+        let ytdlp_hedge_at = Instant::now() + Duration::from_millis(1_500);
         let mut last_err = String::new();
-        for _ in 0..2 {
-            match rx.recv() {
+
+        while remaining_racers > 0 {
+            #[cfg(not(target_os = "android"))]
+            let recv_res = if !ytdlp_hedged && yt_dlp_available() {
+                let wait = ytdlp_hedge_at.saturating_duration_since(Instant::now());
+                match rx.recv_timeout(wait) {
+                    Ok(msg) => Ok(msg),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        ytdlp_hedged = true;
+                        remaining_racers += 1;
+                        let vid_ytdlp = track.video_id.clone();
+                        let tx_ytdlp = tx.clone();
+                        let _ = std::thread::Builder::new()
+                            .name("musico-stream-race-ytdlp".into())
+                            .spawn(move || {
+                                let res = open_yt_dlp_stream(&vid_ytdlp).map(StreamRaceHit::YtDlp);
+                                let _ = tx_ytdlp.send(res);
+                            });
+                        continue;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(()),
+                }
+            } else {
+                rx.recv().map_err(|_| ())
+            };
+            #[cfg(target_os = "android")]
+            let recv_res = rx.recv().map_err(|_| ());
+
+            match recv_res {
                 Ok(Ok(StreamRaceHit::Saavn(super::saavn::CrossSourceStream::Cached(hit)))) => {
                     return Ok(hit.display().to_string());
                 }
                 Ok(Ok(StreamRaceHit::Saavn(super::saavn::CrossSourceStream::Opened(
                     matched,
                     opened,
-                )))) => match start_loopback(opened, matched.song_id(), "mp4") {
-                    Ok(url) => return Ok(url),
-                    Err(e) => {
-                        log::info!(
-                            "saavn loopback failed for {} ({e}) — continuing stream race",
-                            track.video_id
-                        );
-                        last_err = e;
+                )))) => {
+                    remaining_racers = remaining_racers.saturating_sub(1);
+                    match start_loopback(opened, matched.song_id(), "mp4") {
+                        Ok(url) => return Ok(url),
+                        Err(e) => {
+                            log::info!(
+                                "saavn loopback failed for {} ({e}) — continuing stream race",
+                                track.video_id
+                            );
+                            last_err = e;
+                        }
                     }
-                },
+                }
                 Ok(Ok(StreamRaceHit::Direct(opened))) => {
+                    remaining_racers = remaining_racers.saturating_sub(1);
                     let ext = cache_ext_for_content_type(&opened.content_type);
                     match start_loopback(opened, track.video_id.clone(), ext) {
                         Ok(url) => return Ok(url),
@@ -632,15 +671,46 @@ where
                         }
                     }
                 }
-                Ok(Err(e)) => last_err = e,
-                Err(_) => break,
+                #[cfg(not(target_os = "android"))]
+                Ok(Ok(StreamRaceHit::YtDlp(opened))) => {
+                    remaining_racers = remaining_racers.saturating_sub(1);
+                    let ext = cache_ext_for_content_type(&opened.content_type);
+                    match start_loopback(opened, track.video_id.clone(), ext) {
+                        Ok(url) => return Ok(url),
+                        Err(e) => {
+                            log::info!(
+                                "yt-dlp loopback failed for {} ({e}) — continuing stream race",
+                                track.video_id
+                            );
+                            last_err = e;
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    remaining_racers = remaining_racers.saturating_sub(1);
+                    last_err = e;
+                }
+                Err(()) => break,
             }
         }
+        drop(tx);
         log::info!(
-            "parallel stream race exhausted for {} after {}ms ({last_err}) — falling back to yt-dlp",
+            "parallel stream race exhausted for {} after {}ms ({last_err}) — falling back to whole-file",
             track.video_id,
             t_start.elapsed().as_millis()
         );
+        #[cfg(not(target_os = "android"))]
+        if ytdlp_hedged {
+            // yt-dlp -g already raced above; fall straight to whole-file download.
+            return resolve_with_mode(
+                &track.video_id,
+                1,
+                PLAY_RESOLVE_BUDGET,
+                Some(PLAY_RESOLVE_BUDGET),
+                false,
+            )
+            .map(|p| p.display().to_string());
+        }
         return fallback_to_yt_dlp_or_file(&mut start_loopback);
     }
 
@@ -890,6 +960,8 @@ fn open_yt_dlp_stream(video_id: &str) -> Result<super::sources::OpenedAudioStrea
             "--no-playlist",
             "--no-warnings",
             "--no-progress",
+            "--socket-timeout",
+            "5",
             "-f",
             "140/139/bestaudio[ext=m4a][protocol=https]/bestaudio[protocol=https]",
             "-g",

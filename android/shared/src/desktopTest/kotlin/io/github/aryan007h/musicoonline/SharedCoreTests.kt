@@ -2,8 +2,10 @@ package io.github.aryan007h.musicoonline
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import io.github.aryan007h.musicoonline.core.CatalogEntry
 import io.github.aryan007h.musicoonline.core.CoreException
 import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
+import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.PlaylistImportResult
 import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
 import io.github.aryan007h.musicoonline.core.ResolvedTrack
@@ -19,8 +21,10 @@ import io.github.aryan007h.musicoonline.ui.ResolveFailureAction
 import io.github.aryan007h.musicoonline.ui.ResolveFailurePolicy
 import io.github.aryan007h.musicoonline.ui.StreamResolvePolicy
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveSeekMath
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSliderMath
 import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.HorizontalWheelAction
+import io.github.aryan007h.musicoonline.ui.home.HomeFeaturedCurator
 import io.github.aryan007h.musicoonline.ui.home.HomeLayoutMetrics
 import io.github.aryan007h.musicoonline.ui.home.HomeMoodFilter
 import io.github.aryan007h.musicoonline.ui.resolveLanguageGenreStyle
@@ -31,6 +35,7 @@ import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.player.ArtworkPaletteCache
 import io.github.aryan007h.musicoonline.ui.player.PlayerBackdropSpecs
 import io.github.aryan007h.musicoonline.ui.player.formatTime
+import io.github.aryan007h.musicoonline.ui.settings.EqCurveMath
 import io.github.aryan007h.musicoonline.ui.settings.snapCacheCapMb
 import androidx.compose.ui.graphics.luminance
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveSegmentedMath
@@ -557,5 +562,87 @@ class SharedCoreTests {
             val factor = ExpressiveSegmentedMath.scallopRadiusFactor(rad, lobes = 8, amplitude = amp)
             assertTrue(factor in (1f - amp - 1e-4f)..(1f + 1e-4f), "Factor $factor out of bounds at $deg deg")
         }
+    }
+
+    @Test
+    fun expressiveSliderMathConvertsRangesAndClampsNaN() {
+        val range = 512f..5120f
+        assertEquals(0f, ExpressiveSliderMath.valueToFraction(512f, range), 1e-5f)
+        assertEquals(1f, ExpressiveSliderMath.valueToFraction(5120f, range), 1e-5f)
+        assertEquals(0f, ExpressiveSliderMath.valueToFraction(Float.NaN, range), 1e-5f)
+        assertEquals(512f, ExpressiveSliderMath.clampToRange(Float.NaN, range), 1e-5f)
+        assertEquals(2816f, ExpressiveSliderMath.fractionToValue(0.5f, range), 1e-3f)
+        assertEquals(5120f, ExpressiveSliderMath.fractionToValue(1.5f, range), 1e-3f)
+    }
+
+    @Test
+    fun eqCurveMathFormatsDbMapsBandsAndSnapsSteps() {
+        val range = -1200..1200
+        assertEquals(0.5f, EqCurveMath.levelToNormalized(0, range), 1e-5f)
+        assertEquals(1.0f, EqCurveMath.levelToNormalized(1200, range), 1e-5f)
+        assertEquals(0.0f, EqCurveMath.levelToNormalized(-1200, range), 1e-5f)
+        assertEquals(0.5f, EqCurveMath.levelToBipolar(600, range), 1e-5f)
+        assertEquals(-0.5f, EqCurveMath.levelToBipolar(-600, range), 1e-5f)
+
+        assertEquals(0, EqCurveMath.fractionToMillibels(0.5f, range))
+        assertEquals(1200, EqCurveMath.fractionToMillibels(1.2f, range))
+        assertEquals(-1200, EqCurveMath.fractionToMillibels(-0.3f, range))
+        assertEquals(0, EqCurveMath.fractionToMillibels(Float.NaN, range))
+
+        assertEquals("0", EqCurveMath.formatDb(0))
+        assertEquals("+6", EqCurveMath.formatDb(600))
+        assertEquals("-2.5", EqCurveMath.formatDb(-250))
+        assertEquals(8, EqCurveMath.PRESETS.size)
+    }
+
+    @Test
+    fun homeFeaturedCuratorPersonalizesAndRefreshesAcrossLaunches() {
+        assertEquals(5_000L, HomeFeaturedCurator.HERO_AUTO_SLIDE_MS)
+        assertEquals(3, HomeLayoutMetrics.quickPickColumns(900f))
+        assertEquals(2, HomeLayoutMetrics.quickPickColumns(420f))
+        assertTrue(HomeLayoutMetrics.showHeroUpNextPreview(840f))
+        assertTrue(!HomeLayoutMetrics.showHeroUpNextPreview(500f))
+
+        val genericShelf = Shelf(
+            title = "Global Charts",
+            items = (1..10).map { i ->
+                ShelfItem(title = "Chart Song $i", subtitle = "Generic Artist $i", videoId = "vid_g_$i", thumbnail = "https://img/$i")
+            },
+        )
+        val favShelf = Shelf(
+            title = "Made for You",
+            items = listOf(
+                ShelfItem(title = "Blinding Lights", subtitle = "The Weeknd", videoId = "vid_wknd", thumbnail = "https://img/w"),
+                ShelfItem(title = "Cruel Summer", subtitle = "Taylor Swift", videoId = "vid_ts", thumbnail = "https://img/t"),
+            ),
+        )
+        val liked = listOf(OnlineTrack(videoId = "l1", title = "Save Your Tears", artist = "The Weeknd"))
+        val saved = listOf(CatalogEntry(id = "art1", title = "Taylor Swift", kind = "artist"))
+
+        val launchA = HomeFeaturedCurator.selectFeaturedItems(
+            shelves = listOf(genericShelf, favShelf),
+            likedTracks = liked,
+            savedArtists = saved,
+            topArtistNames = listOf("The Weeknd"),
+            sessionSeed = 1001L,
+            maxItems = 6,
+        )
+        val launchB = HomeFeaturedCurator.selectFeaturedItems(
+            shelves = listOf(genericShelf, favShelf),
+            likedTracks = liked,
+            savedArtists = saved,
+            topArtistNames = listOf("The Weeknd"),
+            sessionSeed = 999_888_777L,
+            maxItems = 6,
+        )
+
+        assertEquals(6, launchA.size)
+        assertEquals(6, launchB.size)
+        // Personalized favorites must be surfaced in the featured lineup.
+        assertTrue(launchA.any { it.videoId == "vid_wknd" })
+        assertTrue(launchA.any { it.videoId == "vid_ts" })
+        // Distinct app launch seeds refresh the spotlight ordering.
+        assertNotEquals(launchA.map { it.videoId }, launchB.map { it.videoId })
+        assertEquals("FOR YOUR TASTE", HomeFeaturedCurator.badgeLabel(favShelf.items.first(), setOf("the weeknd")))
     }
 }

@@ -60,6 +60,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -95,6 +96,7 @@ import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
 import io.github.aryan007h.musicoonline.ui.theme.shimmer
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -121,15 +123,76 @@ fun rememberSmoothPositionMs(
         }
         val anchorPos = polledPositionMs
         var anchorFrameNanos = -1L
+        var lastEmitNanos = -1L
         while (true) {
             withInfiniteAnimationFrameNanos { now ->
                 if (anchorFrameNanos < 0L) anchorFrameNanos = now
-                val raw = anchorPos + (now - anchorFrameNanos) / 1_000_000L
-                value = if (durationMs > 0) raw.coerceAtMost(durationMs) else raw
+                // Throttle lyric-state recompositions to ~30 Hz (33 ms): visually identical
+                // for synced lyrics while avoiding 120 Hz layout/recomposition churn.
+                if (lastEmitNanos < 0L || now - lastEmitNanos >= 33_000_000L) {
+                    lastEmitNanos = now
+                    val raw = anchorPos + (now - anchorFrameNanos) / 1_000_000L
+                    value = if (durationMs > 0) raw.coerceAtMost(durationMs) else raw
+                }
             }
         }
     }
     return state.value
+}
+
+/**
+ * Leaf wrapper isolating playback-position collection strictly to the Lyrics pane so
+ * parent screens (`NowPlayingScreen`) stay at zero recompositions per tick at 120 Hz.
+ */
+@Composable
+fun LiveLyricsPane(
+    track: OnlineTrack?,
+    lyrics: EnhancedLyrics?,
+    loading: Boolean,
+    positionMsFlow: StateFlow<Long>,
+    isPlaying: Boolean,
+    durationMs: Long,
+    mode: LyricsDisplayMode,
+    offsetMs: Long,
+    atmosphere: ArtworkAtmosphere,
+    pureCinema: Boolean,
+    onTogglePureCinema: () -> Unit,
+    onModeChange: (LyricsDisplayMode) -> Unit,
+    onOffsetChange: (Long) -> Unit,
+    onCycleBackdrop: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onShareFeedback: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val polledPos by positionMsFlow.collectAsState()
+    val hasTimedLyrics = lyrics != null && lyrics.lines.isNotEmpty()
+    val effectivePosition = if (hasTimedLyrics) {
+        rememberSmoothPositionMs(
+            polledPositionMs = polledPos,
+            isPlaying = isPlaying,
+            durationMs = durationMs,
+        )
+    } else {
+        polledPos
+    }
+    LyricsPane(
+        track = track,
+        lyrics = lyrics,
+        loading = loading,
+        positionMs = effectivePosition,
+        durationMs = durationMs,
+        mode = mode,
+        offsetMs = offsetMs,
+        atmosphere = atmosphere,
+        pureCinema = pureCinema,
+        onTogglePureCinema = onTogglePureCinema,
+        onModeChange = onModeChange,
+        onOffsetChange = onOffsetChange,
+        onCycleBackdrop = onCycleBackdrop,
+        onSeek = onSeek,
+        onShareFeedback = onShareFeedback,
+        modifier = modifier,
+    )
 }
 
 @Composable

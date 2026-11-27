@@ -42,11 +42,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +67,8 @@ import io.github.aryan007h.musicoonline.ui.components.ExpressiveConnectedButtonG
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveFilterChip
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveSegmentedColumn
 import io.github.aryan007h.musicoonline.ui.components.ExpressiveSegmentedItem
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSlider
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSwitch
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.components.musicoWash
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
@@ -149,7 +147,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .musicoTopInset()
                 .navigationBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 140.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item(key = "header") {
@@ -501,8 +499,8 @@ fun SettingsScreen(
                                         )
                                     }
                                 }
-                                Spacer(Modifier.height(6.dp))
-                                Slider(
+                                Spacer(Modifier.height(12.dp))
+                                ExpressiveSlider(
                                     value = dragMb.coerceIn(CACHE_CAP_MIN_MB.toFloat(), CACHE_CAP_MAX_MB.toFloat()),
                                     onValueChange = { raw ->
                                         dragging = true
@@ -518,12 +516,11 @@ fun SettingsScreen(
                                     },
                                     valueRange = CACHE_CAP_MIN_MB.toFloat()..CACHE_CAP_MAX_MB.toFloat(),
                                     enabled = !settingsSaving || dragging,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = MaterialTheme.colorScheme.primary,
-                                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    ),
+                                    trackHeight = 14.dp,
+                                    thumbHeight = 30.dp,
+                                    barHeight = 38.dp,
                                 )
+                                Spacer(Modifier.height(6.dp))
                                 Text(
                                     "Cache cap: $displayedCapMb MB",
                                     style = Musico.type.tabularCaption,
@@ -917,14 +914,10 @@ private fun SwitchSettingRow(
             Text(subtitle, style = Musico.type.caption, color = Musico.extras.inkDim)
         }
         Spacer(Modifier.size(12.dp))
-        Switch(
+        ExpressiveSwitch(
             checked = checked,
             onCheckedChange = onToggle,
             enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-            ),
         )
     }
 }

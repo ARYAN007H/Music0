@@ -173,7 +173,6 @@ class MusicViewModel(
         val nowPlaying: OnlineTrack? = null,
         val isPlaying: Boolean = false,
         val isBuffering: Boolean = false,
-        val positionMs: Long = 0,
         val durationMs: Long = 0,
         val volume: Float = 1f,
         val resolvingId: String? = null,
@@ -223,6 +222,7 @@ class MusicViewModel(
         val styleItems: List<ShelfItem> = emptyList(),
         val styleQueue: List<ShelfItem> = emptyList(),
         val chartsAppended: Boolean = false,
+        val homeSessionSeed: Long = currentTimeMillis(),
         // Radio tab
         val radioStyles: List<ShelfItem> = emptyList(),
         val radioLoading: Boolean = false,
@@ -270,6 +270,12 @@ class MusicViewModel(
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
 
+    /**
+     * Decoupled playback position stream collected ONLY by leaf seekbars and
+     * lyrics highlighters so 120 Hz playback ticks never trigger root-tree recomposition.
+     */
+    val positionMs: StateFlow<Long> = playback.positionMs
+
     private val json = Json { ignoreUnknownKeys = true }
 
     // Queue bookkeeping (mirrors state.queue / state.queueIndex)
@@ -310,7 +316,6 @@ class MusicViewModel(
         scope.launch { playback.nowPlaying.collect { t -> _state.update { it.copy(nowPlaying = t) } } }
         scope.launch { playback.isPlaying.collect { p -> _state.update { it.copy(isPlaying = p) } } }
         scope.launch { playback.isBuffering.collect { b -> _state.update { it.copy(isBuffering = b) } } }
-        scope.launch { playback.positionMs.collect { p -> _state.update { it.copy(positionMs = p) } } }
         scope.launch { playback.durationMs.collect { d -> _state.update { it.copy(durationMs = d) } } }
         scope.launch { playback.volume.collect { v -> _state.update { it.copy(volume = v) } } }
         scope.launch { playback.trackEnded.collect { onTrackEnded() } }
@@ -1350,6 +1355,11 @@ class MusicViewModel(
         }
     }
 
+    fun refreshHomeSpotlight() {
+        _state.update { it.copy(homeSessionSeed = currentTimeMillis()) }
+        loadHome()
+    }
+
     fun openShelfItem(item: ShelfItem, context: List<ShelfItem>) {
         val browseId = item.browseId
         if (browseId != null) {
@@ -1641,7 +1651,7 @@ class MusicViewModel(
     }
 
     fun previous() {
-        if (_state.value.positionMs > 3000) {
+        if (playback.positionMs.value > 3000) {
             scope.launch { playback.seekTo(0) }
         } else {
             flushTelemetry(completedNaturally = false)
@@ -1951,7 +1961,7 @@ class MusicViewModel(
 
     fun seekBy(deltaMs: Long) {
         val dur = _state.value.durationMs
-        val target = (_state.value.positionMs + deltaMs).coerceIn(0L, dur.coerceAtLeast(0L))
+        val target = (playback.positionMs.value + deltaMs).coerceIn(0L, dur.coerceAtLeast(0L))
         seekTo(target)
     }
 

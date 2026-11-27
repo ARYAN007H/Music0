@@ -57,6 +57,8 @@ import io.github.aryan007h.musicoonline.ui.AppTab
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.MusicoApp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import java.awt.Dimension
 import java.io.File
 
@@ -82,22 +84,23 @@ fun main() = application {
     val updater = remember { DesktopPlatformUpdater() }
     val vm = remember { MusicViewModel(playback = playback, prefs = prefs, updater = updater) }
 
-    val state by vm.state.collectAsState()
+    val windowTitleFlow = remember(vm) {
+        vm.state.map { st ->
+            val track = st.nowPlaying
+            if (track != null && track.title.isNotBlank()) {
+                val prefix = if (st.isPlaying) "▶ " else ""
+                val artistPart = track.artist.takeIf { it.isNotBlank() }?.let { " — $it" }.orEmpty()
+                "$prefix${track.title}$artistPart · Music0"
+            } else {
+                "Music0"
+            }
+        }.distinctUntilChanged()
+    }
+    val windowTitle by windowTitleFlow.collectAsState(initial = "Music0")
     val windowState = rememberWindowState(
         size = DpSize(1280.dp, 820.dp),
         position = WindowPosition.Aligned(Alignment.Center),
     )
-
-    val windowTitle = remember(state.nowPlaying?.title, state.nowPlaying?.artist, state.isPlaying) {
-        val track = state.nowPlaying
-        if (track != null && track.title.isNotBlank()) {
-            val prefix = if (state.isPlaying) "▶ " else ""
-            val artistPart = track.artist.takeIf { it.isNotBlank() }?.let { " — $it" }.orEmpty()
-            "$prefix${track.title}$artistPart · Music0"
-        } else {
-            "Music0"
-        }
-    }
 
     Window(
         onCloseRequest = {

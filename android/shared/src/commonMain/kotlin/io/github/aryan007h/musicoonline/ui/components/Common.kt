@@ -72,13 +72,16 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -234,7 +237,7 @@ fun SectionHeader(
     }
 }
 
-// ── Equalizer bars ─────────────────────────────────────────────────────────
+// ── Equalizer bars (zero-recomposition draw-phase Canvas at 120 Hz) ───────
 
 @Composable
 fun EqualizerBars(
@@ -243,45 +246,50 @@ fun EqualizerBars(
     color: Color = Musico.extras.mint,
     barCount: Int = 4,
 ) {
-    Box(modifier = modifier, contentAlignment = Alignment.BottomCenter) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            repeat(barCount) { i ->
-                val bounce = if (playing) {
-                    val transition = rememberInfiniteTransition(label = "eq$i")
-                    transition.animateFloat(
-                        initialValue = 0.25f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(
-                                durationMillis = 520 + i * 130,
-                                delayMillis = i * 110,
-                                easing = FastOutSlowInEasing,
-                            ),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                        label = "bar$i",
-                    ).value
-                } else {
-                    0.45f
+    val phaseState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        var lastNanos = 0L
+        while (true) {
+            withFrameNanos { now ->
+                if (lastNanos != 0L) {
+                    val dt = ((now - lastNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000f
+                    phaseState.floatValue = (phaseState.floatValue + dt * 5.8f) % 628.3185f
                 }
-                val targetHeight = if (playing) 4.dp + 10.dp * bounce else 3.dp
-                val height by animateDpAsState(
-                    targetValue = targetHeight,
-                    animationSpec = MusicoMotion.snappy(),
-                    label = "barH$i",
-                )
-                Box(
-                    Modifier
-                        .width(3.dp)
-                        .height(height.coerceAtLeast(1.dp))
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (playing) color else Musico.extras.inkFaint)
-                        .alpha(if (playing) 1f else 0.4f),
-                )
+                lastNanos = now
             }
+        }
+    }
+
+    val inactiveColor = Musico.extras.inkFaint.copy(alpha = 0.42f)
+    val count = barCount.coerceAtLeast(1)
+    val totalWidth = (count * 3 + (count - 1) * 2).dp
+
+    Canvas(modifier = modifier.width(totalWidth)) {
+        val barW = 3.dp.toPx()
+        val gap = 2.dp.toPx()
+        val maxH = size.height.coerceAtLeast(4.dp.toPx())
+        val minH = (maxH * 0.24f).coerceAtLeast(2.dp.toPx())
+        val corner = CornerRadius(barW / 2f, barW / 2f)
+        val t = phaseState.floatValue
+
+        for (i in 0 until count) {
+            val fraction = if (playing) {
+                val freq = 1.0f + i * 0.27f
+                val offset = i * 1.35f
+                val wave = (kotlin.math.sin((t * freq + offset).toDouble()).toFloat() * 0.5f + 0.5f)
+                0.24f + 0.76f * wave
+            } else {
+                0.30f + (i % 2) * 0.10f
+            }
+            val h = (minH + (maxH - minH) * fraction).coerceIn(minH, maxH)
+            val x = i * (barW + gap)
+            drawRoundRect(
+                color = if (playing) color else inactiveColor,
+                topLeft = Offset(x, size.height - h),
+                size = Size(barW, h),
+                cornerRadius = corner,
+            )
         }
     }
 }
