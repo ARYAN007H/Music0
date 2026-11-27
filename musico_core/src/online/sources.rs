@@ -200,6 +200,243 @@ const ENV_INVIDIOUS: &str = "MUSICO_INVIDIOUS_INSTANCES";
 /// Kill-switch for the InnerTube-direct source: unset or any non-blank value
 /// keeps it enabled (the default); a blank value disables it (hermetic tests).
 const ENV_INNERTUBE_DIRECT: &str = "MUSICO_INNERTUBE_DIRECT";
+const MAX_REDIRECT_HOPS: usize = 5;
+
+const BLOCKED_LOCAL_SUFFIXES: &[&str] = &[
+    "localhost",
+    "local",
+    "internal",
+    "arpa",
+    "lan",
+    "localdomain",
+    "home",
+    "corp",
+    "intranet",
+    "private",
+];
+
+// Prevent sibling-proxy expansion from collapsing a 3-label domain onto a
+// public ccTLD SLD or multi-tenant hosting suffix (e.g. `evil.co.uk` or `evil.workers.dev`).
+const PUBLIC_MULTI_LABEL_SUFFIXES: &[&str] = &[
+    "co.uk", "org.uk", "me.uk", "ac.uk", "gov.uk", "net.uk", "ltd.uk", "plc.uk",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au",
+    "co.nz", "org.nz", "net.nz", "govt.nz",
+    "co.za", "org.za", "net.za",
+    "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp", "ed.jp",
+    "co.in", "net.in", "org.in", "gen.in", "ind.in", "ac.in", "gov.in",
+    "com.br", "org.br", "net.br", "gov.br",
+    "com.mx", "org.mx", "net.mx",
+    "co.kr", "ne.kr", "or.kr",
+    "com.cn", "net.cn", "org.cn", "gov.cn",
+    "com.tw", "org.tw", "net.tw",
+    "com.hk", "org.hk", "net.hk",
+    "com.sg", "org.sg", "net.sg",
+    "com.tr", "org.tr", "net.tr",
+    "com.ar", "org.ar",
+    "com.pl", "net.pl", "org.pl",
+    "co.id", "or.id", "web.id",
+    "com.my", "net.my", "org.my",
+    "com.ph", "com.vn", "com.ua", "com.ru", "net.ru", "org.ru",
+    "co.il", "org.il", "ac.il",
+    "eu.org", "uk.com", "us.com", "de.com", "eu.com", "jp.net", "se.net",
+    "uk.net", "gb.net", "za.com", "br.com", "cn.com", "hu.net", "in.net",
+    "github.io", "gitlab.io", "bitbucket.io", "pages.dev", "workers.dev", "r2.dev",
+    "vercel.app", "netlify.app", "herokuapp.com", "onrender.com", "fly.dev",
+    "appspot.com", "blogspot.com", "wordpress.com", "cloudfront.net",
+    "amazonaws.com", "azurewebsites.net", "firebaseapp.com", "web.app",
+    "ngrok.io", "trycloudflare.com", "duckdns.org", "ddns.net", "no-ip.org", "dynv6.net",
+];
+
+const GENERIC_SLD_LABELS: &[&str] = &[
+    "co", "com", "org", "net", "edu", "gov", "mil", "ac", "sch", "nom",
+    "gob", "gouv", "gv", "or", "ne", "go", "ed",
+];
+
+/// Exact domain-or-subdomain match on dot boundaries so lookalike suffixes
+/// (e.g. `evilgooglevideo.com`) never pass.
+pub(crate) fn host_matches_domain(host: &str, domain: &str) -> bool {
+    let h = host.to_ascii_lowercase();
+    let d = domain.to_ascii_lowercase();
+    !d.is_empty()
+        && (h == d
+            || (h.len() > d.len()
+                && h.ends_with(&d)
+                && h.as_bytes()[h.len() - d.len() - 1] == b'.'))
+}
+
+/// Validates that `host` is a multi-label public DNS hostname (rejects IPv4/IPv6
+/// literals, single-label names, trailing dots, and local/private suffixes).
+pub(crate) fn is_safe_public_domain(host: &str) -> bool {
+    if host.is_empty()
+        || host.len() > 253
+        || host.starts_with('.')
+        || host.ends_with('.')
+        || host.contains("..")
+        || host.contains(['[', ']', ':', '@'])
+        || host.bytes().any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+    {
+        return false;
+    }
+    if host.parse::<std::net::IpAddr>().is_ok() {
+        return false;
+    }
+    let lower = host.to_ascii_lowercase();
+    if !lower.contains('.') {
+        return false;
+    }
+    let labels: Vec<&str> = lower.split('.').collect();
+    let all_labels_valid = labels.iter().all(|label| {
+        (1..=63).contains(&label.len())
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    });
+    if !all_labels_valid {
+        return false;
+    }
+    let Some(tld) = labels.last() else { return false };
+    if tld.len() < 2 || !tld.bytes().any(|b| b.is_ascii_alphabetic()) {
+        return false;
+    }
+    !BLOCKED_LOCAL_SUFFIXES
+        .iter()
+        .any(|suffix| host_matches_domain(&lower, suffix))
+}
+
+/// Validates structural HTTPS URL safety on an already-parsed `Url`.
+pub(crate) fn is_safe_https_url(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && !url.authority().contains('@')
+        && url.port().is_none()
+        && url.host_str().is_some_and(is_safe_public_domain)
+}
+
+/// Parses and validates an untrusted HTTPS URL (rejects whitespace/control chars
+/// before WHATWG parsing strips them, non-HTTPS schemes, userinfo, non-default
+/// ports, IP literals, and private/local hostnames).
+pub(crate) fn parse_safe_https_url(raw: &str) -> Option<reqwest::Url> {
+    if raw.is_empty() || raw != raw.trim() || raw.bytes().any(|b| b.is_ascii_control()) {
+        return None;
+    }
+    if let Some((_, after_scheme)) = raw.split_once("://") {
+        let raw_authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+        if raw_authority.contains('@') {
+            return None;
+        }
+    }
+    let url = reqwest::Url::parse(raw).ok()?;
+    is_safe_https_url(&url).then_some(url)
+}
+
+fn is_valid_configured_host(host: &str) -> bool {
+    is_safe_public_domain(host)
+        && parse_safe_https_url(&format!("https://{host}/"))
+            .is_some_and(|u| u.host_str().is_some_and(|h| h.eq_ignore_ascii_case(host)))
+}
+
+fn safe_parent_domain(host: &str) -> Option<&str> {
+    let (_, parent) = host.split_once('.')?;
+    let (first_label, rest) = parent.split_once('.')?;
+    // Two-label parent: reject public/shared suffixes so sibling matching stays
+    // scoped to a single operator's registrable domain.
+    if !rest.contains('.')
+        && (PUBLIC_MULTI_LABEL_SUFFIXES.contains(&parent)
+            || GENERIC_SLD_LABELS.contains(&first_label))
+    {
+        return None;
+    }
+    Some(parent)
+}
+
+fn host_matches_instance_or_sibling(target_host: &str, instance_host: &str) -> bool {
+    let target = target_host.to_ascii_lowercase();
+    let inst = instance_host.to_ascii_lowercase();
+    if !is_safe_public_domain(&target) || !is_safe_public_domain(&inst) {
+        return false;
+    }
+    if host_matches_domain(&target, &inst) {
+        return true;
+    }
+    safe_parent_domain(&inst).is_some_and(|parent| host_matches_domain(&target, parent))
+}
+
+#[derive(Clone, Copy, Debug)]
+enum StreamHostPolicy<'a> {
+    GoogleVideoOnly,
+    PipedInstance(&'a str),
+    InvidiousInstance(&'a str),
+}
+
+fn is_allowed_stream_url(raw: &str, policy: StreamHostPolicy<'_>) -> bool {
+    let Some(url) = parse_safe_https_url(raw) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    match policy {
+        StreamHostPolicy::GoogleVideoOnly => host_matches_domain(host, "googlevideo.com"),
+        StreamHostPolicy::PipedInstance(piped_host) => {
+            host_matches_domain(host, "googlevideo.com")
+                || host_matches_instance_or_sibling(host, piped_host)
+        }
+        StreamHostPolicy::InvidiousInstance(inv_host) => {
+            is_valid_configured_host(inv_host) && host.eq_ignore_ascii_case(inv_host)
+        }
+    }
+}
+
+fn validate_redirect_pair(origin: &reqwest::Url, target: &reqwest::Url) -> Result<(), &'static str> {
+    if !is_safe_https_url(origin) {
+        return Err("blocked redirect from unsafe origin");
+    }
+    let origin_host = origin.host_str().unwrap_or_default();
+    let target_host = target.host_str().unwrap_or_default();
+    let allowed = if host_matches_domain(origin_host, "youtube.com") {
+        host_matches_domain(target_host, "youtube.com")
+    } else if host_matches_domain(origin_host, "googlevideo.com") {
+        host_matches_domain(target_host, "googlevideo.com")
+    } else {
+        host_matches_instance_or_sibling(target_host, origin_host)
+            || host_matches_domain(target_host, "googlevideo.com")
+    };
+    if allowed {
+        Ok(())
+    } else {
+        Err("blocked redirect to untrusted host")
+    }
+}
+
+fn validate_source_redirect(
+    previous: &[reqwest::Url],
+    target: &reqwest::Url,
+) -> Result<(), &'static str> {
+    if previous.len() >= MAX_REDIRECT_HOPS {
+        return Err("too many redirects");
+    }
+    if !is_safe_https_url(target) {
+        return Err("blocked unsafe redirect target");
+    }
+    let Some(initial) = previous.first() else {
+        return Err("missing initial request url");
+    };
+    let Some(prev) = previous.last() else {
+        return Err("missing previous request url");
+    };
+    validate_redirect_pair(initial, target)?;
+    validate_redirect_pair(prev, target)
+}
+
+fn source_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        match validate_source_redirect(attempt.previous(), attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(reason) => attempt.error(reason),
+        }
+    })
+}
 
 /// Dedicated HTTP client for source fetches. Separate from the InnerTube
 /// client (`client::http_client`) on purpose: these are untrusted third-party
@@ -209,6 +446,7 @@ static SOURCE_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
     reqwest::blocking::Client::builder()
         .user_agent(super::client::USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
+        .redirect(source_redirect_policy())
         .tcp_nodelay(true)
         .pool_max_idle_per_host(4)
         .pool_idle_timeout(Duration::from_secs(60))
@@ -225,6 +463,7 @@ static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
         .user_agent(super::client::USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(STREAM_READ_TIMEOUT)
+        .redirect(source_redirect_policy())
         .tcp_nodelay(true)
         .pool_max_idle_per_host(4)
         .pool_idle_timeout(Duration::from_secs(60))
@@ -469,6 +708,7 @@ pub(crate) fn validate_audio_response(
 /// audio GET request and validates it via [`validate_audio_response`].
 fn send_and_validate_audio(
     url: &str,
+    host_policy: StreamHostPolicy<'_>,
     user_agent: Option<&str>,
     deadline: Instant,
     streaming: bool,
@@ -476,6 +716,9 @@ fn send_and_validate_audio(
     source_name: String,
     err_prefix: &str,
 ) -> Result<OpenedAudioStream, String> {
+    if !is_allowed_stream_url(url, host_policy) {
+        return Err(format!("{err_prefix}: rejected untrusted stream url"));
+    }
     let budget = remaining(deadline)?;
     let resp = if streaming {
         let sclient = STREAM_CLIENT
@@ -577,24 +820,49 @@ fn parse_audio_streams(meta: &PipedStreams) -> Vec<PipedAudio> {
         .collect()
 }
 
-/// Selects the best downloadable m4a from a Piped `audioStreams` array:
-/// `audio/mp4` only, bitrate ≤ `cap`, highest first. Pure — exercised against
-/// embedded fixtures including junk input.
-fn select_best_m4a_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
-    streams
+#[derive(Clone, Copy)]
+enum BitrateMode {
+    WithinCap(u64),
+    ClosestUpTo(u64, u64),
+}
+
+fn best_stream_for_mime(
+    streams: &[PipedAudio],
+    mime_prefix: &str,
+    mode: BitrateMode,
+    policy: StreamHostPolicy<'_>,
+) -> Option<String> {
+    let eligible = streams
         .iter()
         .filter(|s| {
             s.mime_type
                 .as_deref()
-                .is_some_and(|m| m.starts_with("audio/mp4"))
+                .is_some_and(|m| m.starts_with(mime_prefix))
         })
-        .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
-        .filter(|s| s.url.starts_with("https://"))
-        .max_by_key(|s| s.bitrate.unwrap_or(0))
-        .map(|s| s.url.clone())
+        .filter(|s| is_allowed_stream_url(&s.url, policy));
+    match mode {
+        BitrateMode::WithinCap(cap) => eligible
+            .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
+            .max_by_key(|s| s.bitrate.unwrap_or(0))
+            .map(|s| s.url.clone()),
+        BitrateMode::ClosestUpTo(cap, max_bitrate) => eligible
+            .filter(|s| s.bitrate.unwrap_or(128_000) <= max_bitrate)
+            .min_by_key(|s| s.bitrate.unwrap_or(128_000).abs_diff(cap))
+            .map(|s| s.url.clone()),
+    }
 }
 
-/// Selects the best playable direct audio stream.
+/// Selects the best downloadable m4a from a Piped `audioStreams` array:
+/// `audio/mp4` only, bitrate ≤ `cap`, highest first, validated against `policy`.
+fn select_best_m4a_within(
+    streams: &[PipedAudio],
+    cap: u64,
+    policy: StreamHostPolicy<'_>,
+) -> Option<String> {
+    best_stream_for_mime(streams, "audio/mp4", BitrateMode::WithinCap(cap), policy)
+}
+
+/// Selects the best playable direct audio stream validated against `policy`.
 ///
 /// Priority:
 /// 1. `audio/mp4` (AAC) with `bitrate <= cap` (highest first).
@@ -603,51 +871,38 @@ fn select_best_m4a_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
 ///    receives an undecodable `.webm` stream or poisons the disk cache.
 /// 3. On Android only (`#[cfg(target_os = "android")]`), ExoPlayer natively
 ///    decodes Opus/WebM, so `audio/webm` acts as a last-resort fallback.
-fn select_best_audio_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
-    if let Some(m4a) = select_best_m4a_within(streams, cap) {
+fn select_best_audio_within(
+    streams: &[PipedAudio],
+    cap: u64,
+    policy: StreamHostPolicy<'_>,
+) -> Option<String> {
+    if let Some(m4a) = select_best_m4a_within(streams, cap, policy) {
         return Some(m4a);
     }
-    if let Some(uncapped_m4a) = streams
-        .iter()
-        .filter(|s| {
-            s.mime_type
-                .as_deref()
-                .is_some_and(|m| m.starts_with("audio/mp4"))
-        })
-        .filter(|s| s.bitrate.unwrap_or(128_000) <= 512_000)
-        .filter(|s| s.url.starts_with("https://"))
-        .min_by_key(|s| s.bitrate.unwrap_or(128_000).abs_diff(cap))
-        .map(|s| s.url.clone())
-    {
+    if let Some(uncapped_m4a) = best_stream_for_mime(
+        streams,
+        "audio/mp4",
+        BitrateMode::ClosestUpTo(cap, 512_000),
+        policy,
+    ) {
         return Some(uncapped_m4a);
     }
     #[cfg(target_os = "android")]
     {
-        if let Some(webm) = streams
-            .iter()
-            .filter(|s| {
-                s.mime_type
-                    .as_deref()
-                    .is_some_and(|m| m.starts_with("audio/webm"))
-            })
-            .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
-            .filter(|s| s.url.starts_with("https://"))
-            .max_by_key(|s| s.bitrate.unwrap_or(0))
-            .map(|s| s.url.clone())
-        {
+        if let Some(webm) = best_stream_for_mime(
+            streams,
+            "audio/webm",
+            BitrateMode::WithinCap(cap),
+            policy,
+        ) {
             return Some(webm);
         }
-        return streams
-            .iter()
-            .filter(|s| {
-                s.mime_type
-                    .as_deref()
-                    .is_some_and(|m| m.starts_with("audio/webm"))
-            })
-            .filter(|s| s.bitrate.unwrap_or(128_000) <= 512_000)
-            .filter(|s| s.url.starts_with("https://"))
-            .min_by_key(|s| s.bitrate.unwrap_or(128_000).abs_diff(cap))
-            .map(|s| s.url.clone());
+        return best_stream_for_mime(
+            streams,
+            "audio/webm",
+            BitrateMode::ClosestUpTo(cap, 512_000),
+            policy,
+        );
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -658,7 +913,7 @@ fn select_best_audio_within(streams: &[PipedAudio], cap: u64) -> Option<String> 
 /// The default-cap variant — the unit-test target for the fixture suite.
 #[cfg(test)]
 fn select_best_m4a(streams: &[PipedAudio]) -> Option<String> {
-    select_best_m4a_within(streams, MAX_AUDIO_BITRATE)
+    select_best_m4a_within(streams, MAX_AUDIO_BITRATE, StreamHostPolicy::GoogleVideoOnly)
 }
 
 impl PipedSource {
@@ -668,6 +923,9 @@ impl PipedSource {
         deadline: Instant,
         streaming: bool,
     ) -> Result<OpenedAudioStream, String> {
+        if !is_valid_configured_host(&self.host) {
+            return Err(format!("piped {}: invalid host", self.host));
+        }
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
@@ -686,7 +944,8 @@ impl PipedSource {
         let parsed: PipedStreams = serde_json::from_slice(&bytes)
             .map_err(|e| format!("piped {}: metadata parse: {e}", self.host))?;
         let cap = fast_path_bitrate_cap();
-        let url = select_best_audio_within(&parse_audio_streams(&parsed), cap)
+        let policy = StreamHostPolicy::PipedInstance(&self.host);
+        let url = select_best_audio_within(&parse_audio_streams(&parsed), cap, policy)
             .ok_or_else(|| {
                 format!(
                     "piped {}: no usable audio stream ≤{}k",
@@ -698,6 +957,7 @@ impl PipedSource {
         let err_prefix = format!("piped {}: download", self.host);
         send_and_validate_audio(
             &url,
+            policy,
             None,
             deadline,
             streaming,
@@ -736,6 +996,9 @@ impl InvidiousSource {
         deadline: Instant,
         streaming: bool,
     ) -> Result<OpenedAudioStream, String> {
+        if !is_valid_configured_host(&self.host) {
+            return Err(format!("invidious {}: invalid host", self.host));
+        }
         let url = format!(
             "https://{}/latest_version?id={video_id}&itag=140&local=true",
             self.host
@@ -743,6 +1006,7 @@ impl InvidiousSource {
         let err_prefix = format!("invidious {}", self.host);
         send_and_validate_audio(
             &url,
+            StreamHostPolicy::InvidiousInstance(&self.host),
             None,
             deadline,
             streaming,
@@ -1373,20 +1637,25 @@ impl InnerTubeDirectSource {
         // before anything can fail below.
         capture_stream_loudness(&bytes, video_id);
         let cap = fast_path_bitrate_cap();
-        let (url, used_n_fallback) = if let Some(u) = select_best_audio_within(&ready, cap) {
-            (u, false)
-        } else if let Some(u) = select_best_audio_within(&all_streams, cap) {
-            (u, true)
-        } else {
-            return Err(format!(
-                "{}: no direct audio stream (cipher-only formats)",
-                p.id
-            ));
-        };
+        let (url, used_n_fallback) =
+            if let Some(u) = select_best_audio_within(&ready, cap, StreamHostPolicy::GoogleVideoOnly)
+            {
+                (u, false)
+            } else if let Some(u) =
+                select_best_audio_within(&all_streams, cap, StreamHostPolicy::GoogleVideoOnly)
+            {
+                (u, true)
+            } else {
+                return Err(format!(
+                    "{}: no direct audio stream (cipher-only formats)",
+                    p.id
+                ));
+            };
 
         let err_prefix = format!("{}: download", p.id);
         match send_and_validate_audio(
             &url,
+            StreamHostPolicy::GoogleVideoOnly,
             Some(p.user_agent),
             deadline,
             streaming,
@@ -1909,24 +2178,27 @@ mod tests {
     fn selects_highest_m4a_within_cap() {
         let streams = parse_streams(
             r#"{"audioStreams":[
-                {"url":"https://a/48","bitrate":48000,"mimeType":"audio/mp4; codec=\"mp4a.40.2\"","quality":"48 kbps"},
-                {"url":"https://a/129","bitrate":129611,"mimeType":"audio/mp4; codec=\"mp4a.40.2\"","quality":"128 kbps"},
-                {"url":"https://a/192","bitrate":192000,"mimeType":"audio/mp4","quality":"192 kbps"},
-                {"url":"https://a/256","bitrate":256000,"mimeType":"audio/mp4","quality":"256 kbps"},
-                {"url":"https://a/webm","bitrate":160000,"mimeType":"audio/webm; codecs=\"opus\"","quality":"160 kbps"}
+                {"url":"https://rr1---sn-test.googlevideo.com/48","bitrate":48000,"mimeType":"audio/mp4; codec=\"mp4a.40.2\"","quality":"48 kbps"},
+                {"url":"https://rr1---sn-test.googlevideo.com/129","bitrate":129611,"mimeType":"audio/mp4; codec=\"mp4a.40.2\"","quality":"128 kbps"},
+                {"url":"https://rr1---sn-test.googlevideo.com/192","bitrate":192000,"mimeType":"audio/mp4","quality":"192 kbps"},
+                {"url":"https://rr1---sn-test.googlevideo.com/256","bitrate":256000,"mimeType":"audio/mp4","quality":"256 kbps"},
+                {"url":"https://rr1---sn-test.googlevideo.com/webm","bitrate":160000,"mimeType":"audio/webm; codecs=\"opus\"","quality":"160 kbps"}
             ]}"#,
         );
-        assert_eq!(select_best_m4a(&streams).as_deref(), Some("https://a/192"));
+        assert_eq!(
+            select_best_m4a(&streams).as_deref(),
+            Some("https://rr1---sn-test.googlevideo.com/192")
+        );
     }
 
     #[test]
     fn rejects_webm_missing_fields_and_insecure_urls() {
         let streams = parse_streams(
             r#"{"audioStreams":[
-                {"url":"http://insecure/x","bitrate":128000,"mimeType":"audio/mp4"},
-                {"url":"https://a/nobitrate","mimeType":"audio/mp4"},
+                {"url":"http://rr1---sn-test.googlevideo.com/x","bitrate":128000,"mimeType":"audio/mp4"},
+                {"url":"https://rr1---sn-test.googlevideo.com/nobitrate","mimeType":"audio/mp4"},
                 {"bitrate":128000,"mimeType":"audio/mp4"},
-                {"url":"https://a/zero","bitrate":0,"mimeType":"audio/mp4"}
+                {"url":"https://rr1---sn-test.googlevideo.com/zero","bitrate":0,"mimeType":"audio/mp4"}
             ]}"#,
         );
         assert_eq!(select_best_m4a(&streams), None);
@@ -1935,7 +2207,7 @@ mod tests {
     #[test]
     fn no_m4a_only_webm_yields_none() {
         let streams = parse_streams(
-            r#"{"audioStreams":[{"url":"https://a/x","bitrate":128000,"mimeType":"audio/webm"}]}"#,
+            r#"{"audioStreams":[{"url":"https://rr1---sn-test.googlevideo.com/x","bitrate":128000,"mimeType":"audio/webm"}]}"#,
         );
         assert_eq!(select_best_m4a(&streams), None);
     }
@@ -1959,7 +2231,7 @@ mod tests {
         // Within a well-formed array, junk entries are dropped, not fatal.
         let meta: PipedStreams = serde_json::from_str(
             r#"{"audioStreams":[
-                {"url":"https://a/good","bitrate":128000,"mimeType":"audio/mp4"},
+                {"url":"https://rr1---sn-test.googlevideo.com/good","bitrate":128000,"mimeType":"audio/mp4"},
                 {"url":null,"bitrate":128000,"mimeType":"audio/mp4"},
                 {"bitrate":"128000","mimeType":"audio/mp4"},
                 17
@@ -1968,7 +2240,10 @@ mod tests {
         .expect("array parses");
         let parsed = parse_audio_streams(&meta);
         assert_eq!(parsed.len(), 1, "only the well-formed entry survives");
-        assert_eq!(select_best_m4a(&parsed).as_deref(), Some("https://a/good"));
+        assert_eq!(
+            select_best_m4a(&parsed).as_deref(),
+            Some("https://rr1---sn-test.googlevideo.com/good")
+        );
     }
 
     // -- pool construction --------------------------------------------------
@@ -2201,15 +2476,23 @@ mod tests {
     #[test]
     fn high_tier_selector_accepts_256k_stream() {
         let streams = vec![
-            pa("https://a/140", Some(128_000)),
-            pa("https://a/256", Some(256_000)),
+            pa("https://rr1---sn-test.googlevideo.com/140", Some(128_000)),
+            pa("https://rr1---sn-test.googlevideo.com/256", Some(256_000)),
         ];
         assert_eq!(
-            select_best_m4a_within(&streams, HIGH_TIER_AUDIO_BITRATE).as_deref(),
-            Some("https://a/256")
+            select_best_m4a_within(
+                &streams,
+                HIGH_TIER_AUDIO_BITRATE,
+                StreamHostPolicy::GoogleVideoOnly
+            )
+            .as_deref(),
+            Some("https://rr1---sn-test.googlevideo.com/256")
         );
         // The default cap still rejects it (video-derived guard).
-        assert_eq!(select_best_m4a(&streams).as_deref(), Some("https://a/140"));
+        assert_eq!(
+            select_best_m4a(&streams).as_deref(),
+            Some("https://rr1---sn-test.googlevideo.com/140")
+        );
     }
 
     #[test]
@@ -2501,7 +2784,11 @@ mod tests {
             }
         });
 
-        let client = SOURCE_CLIENT.as_ref().expect("SOURCE_CLIENT");
+        // Dedicated local test client so SOURCE_CLIENT redirect/HTTPS policy remains decoupled.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .expect("test client");
         let url = format!("http://{addr}/track");
 
         let r_html = client.get(&url).timeout(Duration::from_secs(2)).send().unwrap();
@@ -2575,12 +2862,21 @@ mod tests {
         }];
         #[cfg(target_os = "android")]
         assert_eq!(
-            select_best_audio_within(&only_opus, MAX_AUDIO_BITRATE).as_deref(),
+            select_best_audio_within(
+                &only_opus,
+                MAX_AUDIO_BITRATE,
+                StreamHostPolicy::GoogleVideoOnly
+            )
+            .as_deref(),
             Some("https://rr1---sn.googlevideo.com/videoplayback?itag=251")
         );
         #[cfg(not(target_os = "android"))]
         assert_eq!(
-            select_best_audio_within(&only_opus, MAX_AUDIO_BITRATE),
+            select_best_audio_within(
+                &only_opus,
+                MAX_AUDIO_BITRATE,
+                StreamHostPolicy::GoogleVideoOnly
+            ),
             None,
             "desktop Symphonia lacks an Opus decoder so audio/webm must never be selected"
         );
@@ -2593,7 +2889,12 @@ mod tests {
             Some(256_000),
         ));
         assert_eq!(
-            select_best_audio_within(&uncapped_m4a_and_webm, MAX_AUDIO_BITRATE).as_deref(),
+            select_best_audio_within(
+                &uncapped_m4a_and_webm,
+                MAX_AUDIO_BITRATE,
+                StreamHostPolicy::GoogleVideoOnly
+            )
+            .as_deref(),
             Some("https://rr1---sn.googlevideo.com/videoplayback?itag=141")
         );
 
@@ -2603,7 +2904,12 @@ mod tests {
             Some(130_000),
         ));
         assert_eq!(
-            select_best_audio_within(&mixed, MAX_AUDIO_BITRATE).as_deref(),
+            select_best_audio_within(
+                &mixed,
+                MAX_AUDIO_BITRATE,
+                StreamHostPolicy::GoogleVideoOnly
+            )
+            .as_deref(),
             Some("https://rr1---sn.googlevideo.com/videoplayback?itag=140")
         );
     }
@@ -2647,6 +2953,281 @@ mod tests {
         assert_eq!(
             body["context"]["thirdParty"]["embedUrl"],
             serde_json::json!("https://www.youtube.com/")
+        );
+    }
+
+    #[test]
+    fn stream_url_validator_rejects_schemes_userinfo_ports_ips_private_and_lookalikes() {
+        let gv = StreamHostPolicy::GoogleVideoOnly;
+        assert!(is_allowed_stream_url(
+            "https://rr1---sn-abc.googlevideo.com/videoplayback?itag=140",
+            gv
+        ));
+        assert!(is_allowed_stream_url(
+            "https://redirector.googlevideo.com:443/videoplayback",
+            gv
+        ));
+
+        let rejected = [
+            "",
+            "not a url",
+            "http://rr1---sn-abc.googlevideo.com/videoplayback",
+            "file:///etc/passwd",
+            "ftp://rr1---sn-abc.googlevideo.com/videoplayback",
+            "javascript:alert(1)",
+            " https://rr1---sn-abc.googlevideo.com/videoplayback",
+            "https://rr1---sn-abc.googlevideo.com/videoplayback\n",
+            "https://evil.com@rr1---sn-abc.googlevideo.com/videoplayback",
+            "https://user:pass@rr1---sn-abc.googlevideo.com/videoplayback",
+            "https://@rr1---sn-abc.googlevideo.com/videoplayback",
+            "https://rr1---sn-abc.googlevideo.com:8443/videoplayback",
+            "https://rr1---sn-abc.googlevideo.com:80/videoplayback",
+            "https://127.0.0.1/videoplayback",
+            "https://10.0.0.1/videoplayback",
+            "https://172.16.0.1/videoplayback",
+            "https://192.168.1.1/videoplayback",
+            "https://169.254.169.254/latest/meta-data",
+            "https://0.0.0.0/videoplayback",
+            "https://2130706433/videoplayback",
+            "https://0x7f000001/videoplayback",
+            "https://[::1]/videoplayback",
+            "https://[::ffff:127.0.0.1]/videoplayback",
+            "https://[fe80::1]/videoplayback",
+            "https://localhost/videoplayback",
+            "https://sub.localhost/videoplayback",
+            "https://box.local/videoplayback",
+            "https://metadata.google.internal/videoplayback",
+            "https://router.home.arpa/videoplayback",
+            "https://nas.lan/videoplayback",
+            "https://localhost.localdomain/videoplayback",
+            "https://a/192",
+            "https://intranet/audio",
+            "https://rr1---sn-abc.googlevideo.com./videoplayback",
+            "https://evilgooglevideo.com/videoplayback",
+            "https://evil-googlevideo.com/videoplayback",
+            "https://googlevideo.com.evil.com/videoplayback",
+            "https://pipedproxy.kavin.rocks/videoplayback",
+        ];
+        for url in rejected {
+            assert!(
+                !is_allowed_stream_url(url, gv),
+                "expected GoogleVideoOnly to reject `{url}`"
+            );
+        }
+
+        // select_best_audio_within skips untrusted candidates and picks the valid one.
+        let mixed = vec![
+            pa("http://rr1---sn-abc.googlevideo.com/insecure", Some(192_000)),
+            pa("https://evilgooglevideo.com/lookalike", Some(192_000)),
+            pa("https://169.254.169.254/ssrf", Some(192_000)),
+            pa("https://evil.com@rr1---sn-abc.googlevideo.com/userinfo", Some(192_000)),
+            pa("https://rr1---sn-abc.googlevideo.com:8443/port", Some(192_000)),
+            pa("https://rr1---sn-abc.googlevideo.com/valid", Some(128_000)),
+        ];
+        assert_eq!(
+            select_best_audio_within(&mixed, MAX_AUDIO_BITRATE, gv).as_deref(),
+            Some("https://rr1---sn-abc.googlevideo.com/valid")
+        );
+    }
+
+    #[test]
+    fn piped_host_policy_allows_self_safe_sibling_and_googlevideo_only() {
+        let kavin = StreamHostPolicy::PipedInstance("pipedapi.kavin.rocks");
+        assert!(is_allowed_stream_url("https://pipedapi.kavin.rocks/videoplayback", kavin));
+        assert!(is_allowed_stream_url("https://cdn.pipedapi.kavin.rocks/videoplayback", kavin));
+        assert!(is_allowed_stream_url("https://pipedproxy.kavin.rocks/videoplayback", kavin));
+        assert!(is_allowed_stream_url("https://rr1---sn-abc.googlevideo.com/videoplayback", kavin));
+        assert!(!is_allowed_stream_url("https://evilkavin.rocks/videoplayback", kavin));
+        assert!(!is_allowed_stream_url("https://kavin.rocks.evil.com/videoplayback", kavin));
+        assert!(!is_allowed_stream_url("https://evil.example.com/videoplayback", kavin));
+        assert!(!is_allowed_stream_url("https://127.0.0.1/videoplayback", kavin));
+
+        // 2-label host never expands to the TLD.
+        let two_label = StreamHostPolicy::PipedInstance("piped.video");
+        assert!(is_allowed_stream_url("https://piped.video/stream", two_label));
+        assert!(is_allowed_stream_url("https://proxy.piped.video/stream", two_label));
+        assert!(!is_allowed_stream_url("https://evil.video/stream", two_label));
+
+        // 3-label host under ccTLD SLD or multi-tenant PaaS never expands onto the public suffix.
+        let cc_sld = StreamHostPolicy::PipedInstance("piped.co.uk");
+        assert!(is_allowed_stream_url("https://piped.co.uk/stream", cc_sld));
+        assert!(!is_allowed_stream_url("https://evil.co.uk/stream", cc_sld));
+
+        let paas = StreamHostPolicy::PipedInstance("mypiped.workers.dev");
+        assert!(is_allowed_stream_url("https://mypiped.workers.dev/stream", paas));
+        assert!(!is_allowed_stream_url("https://evil.workers.dev/stream", paas));
+
+        // 4-label host under ccTLD SLD still permits its own 3-label operator sibling.
+        let four_label = StreamHostPolicy::PipedInstance("pipedapi.example.co.uk");
+        assert!(is_allowed_stream_url("https://pipedproxy.example.co.uk/stream", four_label));
+        assert!(!is_allowed_stream_url("https://evil.co.uk/stream", four_label));
+
+        for host in DEFAULT_PIPED.iter().chain(DEFAULT_INVIDIOUS.iter()) {
+            assert!(is_valid_configured_host(host), "default host must validate: {host}");
+        }
+        for bad in ["127.0.0.1", "localhost", "evil.com/x#", "user@piped.kavin.rocks", "piped.kavin.rocks:8443"] {
+            assert!(!is_valid_configured_host(bad), "invalid configured host must fail: {bad}");
+        }
+    }
+
+    #[test]
+    fn redirect_policy_enforces_https_origin_trust_and_hop_limits() {
+        let u = |s: &str| reqwest::Url::parse(s).unwrap();
+
+        // Allowed redirects
+        assert!(validate_source_redirect(
+            &[u("https://redirector.googlevideo.com/videoplayback")],
+            &u("https://rr1---sn-abc.googlevideo.com/videoplayback"),
+        )
+        .is_ok());
+        assert!(validate_source_redirect(
+            &[u("https://pipedapi.kavin.rocks/streams/vid")],
+            &u("https://pipedproxy.kavin.rocks/videoplayback"),
+        )
+        .is_ok());
+        assert!(validate_source_redirect(
+            &[
+                u("https://pipedapi.kavin.rocks/streams/vid"),
+                u("https://pipedproxy.kavin.rocks/videoplayback"),
+            ],
+            &u("https://rr1---sn-abc.googlevideo.com/videoplayback"),
+        )
+        .is_ok());
+        assert!(validate_source_redirect(
+            &[u("https://www.youtube.com/sw.js_data")],
+            &u("https://music.youtube.com/sw.js_data"),
+        )
+        .is_ok());
+
+        // Blocked redirects
+        let blocked = [
+            (
+                vec![u("https://redirector.googlevideo.com/x")],
+                u("http://rr1---sn-abc.googlevideo.com/x"),
+                "HTTP downgrade",
+            ),
+            (
+                vec![u("https://pipedproxy.kavin.rocks/x")],
+                u("https://169.254.169.254/latest/meta-data"),
+                "metadata IPv4",
+            ),
+            (
+                vec![u("https://pipedproxy.kavin.rocks/x")],
+                u("https://[::1]/x"),
+                "IPv6 loopback",
+            ),
+            (
+                vec![u("https://redirector.googlevideo.com/x")],
+                u("https://evil.com@rr1---sn-abc.googlevideo.com/x"),
+                "userinfo smuggling",
+            ),
+            (
+                vec![u("https://redirector.googlevideo.com/x")],
+                u("https://rr1---sn-abc.googlevideo.com:8443/x"),
+                "non-default port",
+            ),
+            (
+                vec![u("https://www.youtube.com/sw.js_data")],
+                u("https://evil.com/x"),
+                "youtube.com off-origin",
+            ),
+            (
+                vec![u("https://www.youtube.com/sw.js_data")],
+                u("https://rr1---sn-abc.googlevideo.com/x"),
+                "youtube.com redirecting to googlevideo",
+            ),
+            (
+                vec![u("https://redirector.googlevideo.com/x")],
+                u("https://evilgooglevideo.com/x"),
+                "lookalike suffix",
+            ),
+            (
+                vec![u("https://pipedproxy.kavin.rocks/x")],
+                u("https://evil.com/x"),
+                "piped redirecting off trust boundary",
+            ),
+            (
+                vec![
+                    u("https://pipedapi.kavin.rocks/streams/vid"),
+                    u("https://rr1---sn-abc.googlevideo.com/videoplayback"),
+                ],
+                u("https://pipedproxy.kavin.rocks/videoplayback"),
+                "googlevideo chain escaping back out",
+            ),
+        ];
+        for (prev, target, label) in blocked {
+            assert!(
+                validate_source_redirect(&prev, &target).is_err(),
+                "expected redirect policy to block {label}: {target}"
+            );
+        }
+
+        // Excess hops
+        let too_many = vec![u("https://redirector.googlevideo.com/x"); MAX_REDIRECT_HOPS];
+        assert!(
+            validate_source_redirect(
+                &too_many,
+                &u("https://rr1---sn-abc.googlevideo.com/x")
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn source_and_stream_clients_block_redirects_over_http_wire() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::atomic::AtomicUsize;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().unwrap();
+        let secret_hits = Arc::new(AtomicUsize::new(0));
+        let hits_c = Arc::clone(&secret_hits);
+
+        let handle = std::thread::spawn(move || {
+            for _ in 0..2 {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut buf = [0u8; 512];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    if req.contains("/secret") {
+                        hits_c.fetch_add(1, Ordering::SeqCst);
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+                    } else {
+                        let resp = format!(
+                            "HTTP/1.1 302 Found\r\nLocation: http://{addr}/secret\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        );
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+            }
+        });
+
+        let url = format!("http://{addr}/redir");
+        assert!(
+            SOURCE_CLIENT
+                .as_ref()
+                .expect("SOURCE_CLIENT")
+                .get(&url)
+                .timeout(Duration::from_secs(2))
+                .send()
+                .is_err(),
+            "SOURCE_CLIENT must refuse unsafe redirect"
+        );
+        assert!(
+            STREAM_CLIENT
+                .as_ref()
+                .expect("STREAM_CLIENT")
+                .get(&url)
+                .send()
+                .is_err(),
+            "STREAM_CLIENT must refuse unsafe redirect"
+        );
+        handle.join().unwrap();
+        assert_eq!(
+            secret_hits.load(Ordering::SeqCst),
+            0,
+            "redirect target must never be requested"
         );
     }
 }

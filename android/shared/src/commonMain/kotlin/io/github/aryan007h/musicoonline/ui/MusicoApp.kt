@@ -307,25 +307,33 @@ fun MusicoApp(
                                 .fillMaxHeight(),
                         ) {
                             mainTabs(state, activeAtmosphere)
-                            DesktopDockedPlayerBar(
-                                state = state,
-                                positionMsFlow = vm.positionMs,
-                                atmosphere = activeAtmosphere,
-                                onExpandPlayer = { vm.openPlayer(0) },
-                                onOpenLyrics = { vm.openPlayer(1) },
-                                onOpenQueue = { vm.openPlayer(2) },
-                                onTogglePlay = vm::onTogglePlayback,
-                                onNext = vm::next,
-                                onPrevious = vm::previous,
-                                onSeek = vm::seekTo,
-                                onToggleRepeat = vm::toggleRepeat,
-                                onLikeToggle = vm::toggleLikeCurrent,
-                                onVolumeChange = vm::setVolume,
+                            // Unmount docked bar while full-screen PLAYER covers it so wavy seekbar,
+                            // equalizer bars, and title marquee frame loops stop burning battery.
+                            AnimatedVisibility(
+                                visible = state.overlay != AppOverlay.PLAYER,
+                                enter = fadeIn(tween(MusicoMotion.FAST)),
+                                exit = fadeOut(tween(MusicoMotion.FAST)),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .padding(horizontal = 20.dp, vertical = 14.dp)
                                     .widthIn(max = 1220.dp),
-                            )
+                            ) {
+                                DesktopDockedPlayerBar(
+                                    state = state,
+                                    positionMsFlow = vm.positionMs,
+                                    atmosphere = activeAtmosphere,
+                                    onExpandPlayer = { vm.openPlayer(0) },
+                                    onOpenLyrics = { vm.openPlayer(1) },
+                                    onOpenQueue = { vm.openPlayer(2) },
+                                    onTogglePlay = vm::onTogglePlayback,
+                                    onNext = vm::next,
+                                    onPrevious = vm::previous,
+                                    onSeek = vm::seekTo,
+                                    onToggleRepeat = vm::toggleRepeat,
+                                    onLikeToggle = vm::toggleLikeCurrent,
+                                    onVolumeChange = vm::setVolume,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                                )
+                            }
                         }
                     }
                 } else {
@@ -345,8 +353,10 @@ fun MusicoApp(
                         var lastTrack by remember { mutableStateOf<OnlineTrack?>(null) }
                         val activeMiniTrack = state.resolvingTrack ?: state.nowPlaying
                         activeMiniTrack?.let { lastTrack = it }
+                        // Dispose MiniPlayer behind full-screen PLAYER so MiniPlayerLiveProgressBar,
+                        // EqualizerBars, and basicMarquee don't tick off-screen.
                         AnimatedVisibility(
-                            visible = activeMiniTrack != null,
+                            visible = activeMiniTrack != null && state.overlay != AppOverlay.PLAYER,
                             enter = slideInVertically(MusicoMotion.spatial()) { it } +
                                 fadeIn(tween(MusicoMotion.MED)),
                             exit = slideOutVertically(

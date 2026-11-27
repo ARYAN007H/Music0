@@ -333,12 +333,18 @@ jobs:
             echo "cargo-ndk already packed a real libc++_shared.so"
           fi
           ls -lh android/app/src/main/jniLibs/arm64-v8a/
-          READELF=$(find "$ANDROID_NDK_HOME" -name 'llvm-readelf' 2>/dev/null | head -1)
-          if [ -n "$READELF" ]; then
-            "$READELF" -d android/app/src/main/jniLibs/arm64-v8a/libmusico_online_lib.so | grep NEEDED
-            "$READELF" --dyn-syms "$TARGET_LIB" | grep -q "__gxx_personality_v0" \
-              || { echo "libc++_shared.so missing __gxx_personality_v0" >&2; exit 1; }
+          READELF=""
+          if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+            READELF=$(find "$ANDROID_NDK_HOME" -name 'llvm-readelf' \( -type f -o -type l \) 2>/dev/null | head -1)
           fi
+          [ -n "$READELF" ] && [ -x "$READELF" ] \
+            || { echo "llvm-readelf not found under ANDROID_NDK_HOME (${ANDROID_NDK_HOME:-<unset>})" >&2; exit 1; }
+          NEEDED=$("$READELF" -d android/app/src/main/jniLibs/arm64-v8a/libmusico_online_lib.so | grep NEEDED || true)
+          echo "$NEEDED"
+          echo "$NEEDED" | grep -q "libc++_shared\.so" \
+            || { echo "libmusico_online_lib.so missing NEEDED libc++_shared.so" >&2; exit 1; }
+          "$READELF" --dyn-syms "$TARGET_LIB" | grep -q "__gxx_personality_v0" \
+            || { echo "libc++_shared.so missing __gxx_personality_v0" >&2; exit 1; }
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

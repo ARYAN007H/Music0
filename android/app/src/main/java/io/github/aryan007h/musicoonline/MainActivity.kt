@@ -12,16 +12,23 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.platform.AndroidPlatformHost
 import io.github.aryan007h.musicoonline.platform.AndroidPlatformPrefs
 import io.github.aryan007h.musicoonline.player.PlaybackController
+import io.github.aryan007h.musicoonline.ui.AppOverlay
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.MusicoApp
 import io.github.aryan007h.musicoonline.updater.AndroidPlatformUpdater
 import io.github.aryan007h.musicoonline.updater.EXTRA_OPEN_UPDATE
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Retains the shared KMP [MusicViewModel] and [PlaybackController] safely
@@ -64,7 +71,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        requestHighRefreshRate()
 
         AndroidPlatformHost.init(applicationContext)
         MusicoCore.init(filesDir.absolutePath, cacheDir.absolutePath)
@@ -85,6 +91,19 @@ class MainActivity : ComponentActivity() {
             vm.openFromUpdateNotification()
         }
 
+        // Request high refresh rate (90/120/144Hz) only while the animated full-screen
+        // player is active and started; browse/library screens reset to system default (0).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.state
+                    .map { it.overlay == AppOverlay.PLAYER }
+                    .distinctUntilChanged()
+                    .collect { playerActive ->
+                        requestHighRefreshRate(enabled = playerActive)
+                    }
+            }
+        }
+
         setContent {
             MusicoApp(
                 vm = vm,
@@ -97,33 +116,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        // Drop any high-refresh mode preference as soon as the activity leaves the foreground.
+        requestHighRefreshRate(enabled = false)
+        super.onStop()
+    }
+
     /**
-     * Selects the highest refresh-rate display mode matching the active physical
-     * resolution so LTPO / 90Hz / 120Hz / 144Hz Android panels render at full
-     * native frame rate instead of defaulting to 60Hz.
+     * Requests the highest refresh-rate display mode matching the active physical
+     * resolution while the animated player is open, or resets `preferredDisplayModeId`
+     * to `0` otherwise so LTPO panels drop back to power-saving rates on static screens.
      */
-    @Suppress("DEPRECATION")
-    private fun requestHighRefreshRate() {
+    private fun requestHighRefreshRate(enabled: Boolean) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         runCatching {
-            val activeDisplay: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                display
-            } else {
-                windowManager.defaultDisplay
-            }
-            val currentMode = activeDisplay?.mode ?: return
-            val bestMode = activeDisplay.supportedModes
-                .filter {
-                    it.physicalWidth == currentMode.physicalWidth &&
-                        it.physicalHeight == currentMode.physicalHeight
-                }
-                .maxByOrNull { it.refreshRate }
-                ?: return
-            if (bestMode.refreshRate > currentMode.refreshRate + 1f) {
-                val attrs = window.attributes
-                attrs.preferredDisplayModeId = bestMode.modeId
+            val targetModeId = if (enabled) resolveBestHighRefreshModeId() else 0
+            val attrs = window.attributes
+            if (attrs.preferredDisplayModeId != targetModeId) {
+                attrs.preferredDisplayModeId = targetModeId
                 window.attributes = attrs
             }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun resolveBestHighRefreshModeId(): Int {
+        val activeDisplay: Display? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display ?: windowManager.defaultDisplay
+        } else {
+            windowManager.defaultDisplay
+        }
+        val currentMode = activeDisplay?.mode ?: return 0
+        val sameResolution = activeDisplay.supportedModes.filter {
+            it.physicalWidth == currentMode.physicalWidth &&
+                it.physicalHeight == currentMode.physicalHeight
+        }
+        val bestMode = sameResolution.maxByOrNull { it.refreshRate } ?: return 0
+        val minRefresh = sameResolution.minOfOrNull { it.refreshRate } ?: currentMode.refreshRate
+        return if (bestMode.refreshRate > minRefresh + 1f) bestMode.modeId else 0
     }
 }

@@ -41,6 +41,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 
 use super::models::OnlineTrack;
+use super::sources::{host_matches_domain, is_safe_https_url, parse_safe_https_url};
 use super::stream;
 
 /// Native JioSaavn web API (verified shape in the module docs).  Overridable
@@ -71,29 +72,113 @@ const PLAY_BUDGET: Duration = Duration::from_secs(90);
 /// past this is not a song.  Buffering whole-body means the cap is also the
 /// worst-case RAM spike per resolve.
 const MAX_AUDIO_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_REDIRECT_HOPS: usize = 3;
 
-/// Dedicated client: saavn is an independent upstream — its failures must not
-/// share connection-pool state with InnerTube traffic. Short API calls set a
-/// per-request `.timeout(...)`; live CDN streams omit `.timeout(...)` on the
-/// request so `blocking::ClientBuilder::timeout(15 s)` acts per `read()` chunk.
-static API_CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
+fn validate_saavn_api_redirect(
+    previous: &[reqwest::Url],
+    target: &reqwest::Url,
+) -> Result<(), &'static str> {
+    if previous.len() >= MAX_REDIRECT_HOPS {
+        return Err("too many redirects");
+    }
+    if !target.username().is_empty()
+        || target.password().is_some()
+        || target.authority().contains('@')
+    {
+        return Err("blocked userinfo in redirect");
+    }
+    let Some(initial) = previous.first() else {
+        return Err("missing initial request url");
+    };
+    if initial.scheme() == "https" {
+        if !is_safe_https_url(target) {
+            return Err("blocked unsafe redirect target");
+        }
+        let initial_host = initial.host_str().unwrap_or_default();
+        let target_host = target.host_str().unwrap_or_default();
+        if host_matches_domain(target_host, "jiosaavn.com")
+            || host_matches_domain(target_host, initial_host)
+        {
+            Ok(())
+        } else {
+            Err("blocked redirect to untrusted host")
+        }
+    } else if target.scheme() == initial.scheme()
+        && target.host_str() == initial.host_str()
+        && target.port() == initial.port()
+    {
+        // Local dev/test override via MUSICO_SAAVN_API stays locked to its own origin.
+        Ok(())
+    } else {
+        Err("blocked cross-origin redirect from override base")
+    }
+}
+
+fn validate_saavn_media_redirect(
+    previous: &[reqwest::Url],
+    target: &reqwest::Url,
+) -> Result<(), &'static str> {
+    if previous.len() >= MAX_REDIRECT_HOPS {
+        return Err("too many redirects");
+    }
+    if !is_safe_https_url(target) {
+        return Err("blocked unsafe media redirect target");
+    }
+    let target_host = target.host_str().unwrap_or_default();
+    if host_matches_domain(target_host, "saavncdn.com") {
+        Ok(())
+    } else {
+        Err("blocked media redirect off saavncdn.com")
+    }
+}
+
+fn is_safe_saavn_media_url(url: &str) -> bool {
+    parse_safe_https_url(url)
+        .and_then(|u| u.host_str().map(|h| host_matches_domain(h, "saavncdn.com")))
+        .unwrap_or(false)
+}
+
+const SAAVN_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
+     (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+fn build_saavn_client(policy: reqwest::redirect::Policy) -> Option<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
-        .user_agent(
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
-             (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        )
+        .user_agent(SAAVN_USER_AGENT)
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(15))
+        .redirect(policy)
         .tcp_nodelay(true)
         .pool_max_idle_per_host(4)
         .pool_idle_timeout(Duration::from_secs(60))
         .build()
-        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+        .ok()
+}
+
+/// Dedicated API client: saavn is an independent upstream — its failures must
+/// not share connection-pool state with InnerTube traffic.
+static API_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
+    build_saavn_client(reqwest::redirect::Policy::custom(|attempt| {
+        match validate_saavn_api_redirect(attempt.previous(), attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(reason) => attempt.error(reason),
+        }
+    }))
 });
 
-/// Warms the JioSaavn HTTP client's TLS root store off the UI/play path.
+/// Dedicated CDN media client: redirects are strictly confined to HTTPS `*.saavncdn.com`.
+static MEDIA_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
+    build_saavn_client(reqwest::redirect::Policy::custom(|attempt| {
+        match validate_saavn_media_redirect(attempt.previous(), attempt.url()) {
+            Ok(()) => attempt.follow(),
+            Err(reason) => attempt.error(reason),
+        }
+    }))
+});
+
+/// Warms the JioSaavn HTTP clients' TLS root store off the UI/play path.
 pub(crate) fn prewarm_client() {
     let _ = LazyLock::force(&API_CLIENT);
+    let _ = LazyLock::force(&MEDIA_CLIENT);
 }
 
 /// API base with `MUSICO_SAAVN_API` override applied (trailing `/` trimmed
@@ -250,7 +335,10 @@ fn search_hits_with_timeout(query: &str, limit: usize, timeout: Duration) -> Vec
     }
     let url = format!("{}?__call=search.getResults&{API_PARAMS}", api_base());
     let n = limit.to_string();
-    let resp = API_CLIENT
+    let Some(client) = API_CLIENT.as_ref() else {
+        return Vec::new();
+    };
+    let resp = client
         .get(&url)
         .query(&[("q", q), ("n", n.as_str()), ("p", "1")])
         .timeout(timeout)
@@ -432,12 +520,19 @@ fn open_saavn_stream_from_encrypted(
     } else {
         settings.download_quality
     };
+    let client = MEDIA_CLIENT
+        .as_ref()
+        .ok_or_else(|| "saavn stream: HTTP client unavailable".to_string())?;
     let mut last_err = String::from("saavn stream: no candidates");
     for url in media_candidates_with_quality(&base, has_320, &pref_quality) {
-        // API_CLIENT has connect_timeout(2s) + client-level 15s chunk wait, so
+        if !is_safe_saavn_media_url(&url) {
+            last_err = "saavn stream: rejected untrusted media url".into();
+            continue;
+        }
+        // MEDIA_CLIENT has connect_timeout(2s) + client-level 15s chunk wait, so
         // headers fail fast on a stalled CDN while slow-network full songs
         // never hit an artificial whole-request cutoff.
-        let resp = match API_CLIENT.get(&url).send() {
+        let resp = match client.get(&url).send() {
             Ok(r) => r,
             Err(e) => {
                 last_err = format!("saavn stream: {e}");
@@ -727,7 +822,10 @@ fn duration_plausible(a: Option<u32>, b: Option<u32>) -> bool {
 /// frontend round-trips carries only the id, not the encrypted URL).
 fn song_details(id: &str) -> Result<SongJson, String> {
     let url = format!("{}?__call=song.getDetails&{API_PARAMS}", api_base());
-    let resp = API_CLIENT
+    let client = API_CLIENT
+        .as_ref()
+        .ok_or_else(|| "saavn details: HTTP client unavailable".to_string())?;
+    let resp = client
         .get(&url)
         .query(&[("pids", id)])
         .timeout(API_TIMEOUT)
@@ -771,7 +869,10 @@ fn decrypt_media_url(enc: &str) -> Option<String> {
             .ok()?,
     )
     .ok()?;
-    (url.starts_with("https://aac.saavncdn.com/") && url.contains("_96.")).then_some(url)
+    let valid = parse_safe_https_url(&url).is_some_and(|parsed| {
+        parsed.host_str() == Some("aac.saavncdn.com") && parsed.path().contains("_96.")
+    });
+    valid.then_some(url)
 }
 
 /// Quality-aware bitrate ladder (#54 + audio quality settings).
@@ -811,7 +912,13 @@ fn media_candidates(base: &str, has_320: bool) -> Vec<String> {
 /// (a track is ~10 MB; streaming to disk adds failure modes the buffer
 /// doesn't have).
 fn fetch_audio(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
-    let resp = API_CLIENT
+    if !is_safe_saavn_media_url(url) {
+        return Err("saavn download: rejected untrusted media url".into());
+    }
+    let client = MEDIA_CLIENT
+        .as_ref()
+        .ok_or_else(|| "saavn download: HTTP client unavailable".to_string())?;
+    let resp = client
         .get(url)
         .timeout(timeout)
         .send()
@@ -1233,5 +1340,73 @@ mod tests {
             Some("Blinding Lights The Weeknd"),
             "cleaned title must be tried before noisy raw title"
         );
+    }
+
+    #[test]
+    fn decrypt_rejects_userinfo_port_http_and_query_smuggling() {
+        use base64::Engine as _;
+        use des::cipher::block_padding::Pkcs7;
+        use des::cipher::generic_array::GenericArray;
+        use des::cipher::{BlockEncryptMut, KeyInit};
+
+        type DesEcbEnc = ecb::Encryptor<des::Des>;
+        for plaintext in [
+            "http://aac.saavncdn.com/248/a_96.mp4",
+            "https://evil.com@aac.saavncdn.com/248/a_96.mp4",
+            "https://aac.saavncdn.com:8443/248/a_96.mp4",
+            "https://aac.saavncdn.com/248/a.mp4?q=_96.",
+        ] {
+            let ct = DesEcbEnc::new(GenericArray::from_slice(MEDIA_KEY))
+                .encrypt_padded_vec_mut::<Pkcs7>(plaintext.as_bytes());
+            let enc = base64::engine::general_purpose::STANDARD.encode(ct);
+            assert!(decrypt_media_url(&enc).is_none(), "must reject {plaintext}");
+        }
+    }
+
+    #[test]
+    fn saavn_redirect_policies_block_downgrades_ips_and_off_cdn_hosts() {
+        let u = |s: &str| reqwest::Url::parse(s).unwrap();
+
+        assert!(validate_saavn_media_redirect(
+            &[u("https://aac.saavncdn.com/248/a_320.mp4")],
+            &u("https://cdn.saavncdn.com/248/a_320.mp4"),
+        )
+        .is_ok());
+        assert!(validate_saavn_media_redirect(
+            &[u("https://aac.saavncdn.com/248/a_320.mp4")],
+            &u("http://aac.saavncdn.com/248/a_320.mp4"),
+        )
+        .is_err());
+        assert!(validate_saavn_media_redirect(
+            &[u("https://aac.saavncdn.com/248/a_320.mp4")],
+            &u("https://evilsaavncdn.com/a_320.mp4"),
+        )
+        .is_err());
+        assert!(validate_saavn_media_redirect(
+            &[u("https://aac.saavncdn.com/248/a_320.mp4")],
+            &u("https://127.0.0.1/a_320.mp4"),
+        )
+        .is_err());
+
+        assert!(validate_saavn_api_redirect(
+            &[u("https://www.jiosaavn.com/api.php")],
+            &u("https://api.jiosaavn.com/api.php"),
+        )
+        .is_ok());
+        assert!(validate_saavn_api_redirect(
+            &[u("https://www.jiosaavn.com/api.php")],
+            &u("https://evil.example.com/api.php"),
+        )
+        .is_err());
+        assert!(validate_saavn_api_redirect(
+            &[u("http://localhost:8080/api.php")],
+            &u("http://localhost:8080/v2/api.php"),
+        )
+        .is_ok());
+        assert!(validate_saavn_api_redirect(
+            &[u("http://localhost:8080/api.php")],
+            &u("http://169.254.169.254/latest/meta-data"),
+        )
+        .is_err());
     }
 }
