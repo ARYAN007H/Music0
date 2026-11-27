@@ -44,12 +44,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
@@ -101,6 +106,8 @@ import io.github.aryan007h.musicoonline.platform.currentTimeMillis
 import io.github.aryan007h.musicoonline.platform.showPlatformToast
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
+import io.github.aryan007h.musicoonline.ui.components.ExpressivePlayPauseButton
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveWavySeekBar
 import io.github.aryan007h.musicoonline.ui.components.LikeButton
 import io.github.aryan007h.musicoonline.ui.components.TrackActionSheet
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
@@ -265,7 +272,11 @@ fun MusicoApp(
                         DesktopNavigationRail(
                             state = state,
                             onSelectTab = { hapticTick(); vm.selectTab(it) },
+                            onOpenMadeForYou = { hapticTick(); vm.openMadeForYou() },
+                            onOpenLibrarySection = { hapticTick(); vm.openLibrarySection(it) },
                             onOpenCollection = { hapticTick(); vm.openCollection(it) },
+                            onOpenQueue = { hapticTick(); vm.openPlayer(2) },
+                            onImportPlaylist = { hapticTick(); showImportPlaylistDialog = true },
                             onNewPlaylist = { hapticTick(); showCreatePlaylistDialog = true },
                             onOpenProfile = { hapticTick(); vm.openOverlay(AppOverlay.PROFILE) },
                             onOpenSettings = { hapticTick(); vm.openOverlay(AppOverlay.SETTINGS) },
@@ -825,6 +836,8 @@ private fun MainTabContent(
                 onDismissPersonalizationError = vm::dismissPersonalizationError,
                 currentTrackId = state.nowPlaying?.videoId,
                 isPlaying = state.isPlaying,
+                savedArtists = state.libraryArtists,
+                onOpenCatalogEntry = vm::openCatalogEntry,
             )
             AppTab.RADIO -> RadioScreen(
                 atmosphere = atmosphere,
@@ -857,6 +870,8 @@ private fun MainTabContent(
                 onOpenTrack = vm::playTrack,
                 onLikeToggle = vm::toggleLike,
                 onTrackLongClick = onTrackLongClick,
+                selectedSection = state.librarySection,
+                onSelectSection = vm::openLibrarySection,
             )
             AppTab.SEARCH -> SearchScreen(
                 atmosphere = atmosphere,
@@ -882,130 +897,247 @@ private fun MainTabContent(
     }
 }
 
-// ── Desktop Left Navigation Sidebar (Widescreen >= 840dp) ─────────────────
+// ── Desktop Left Navigation Drawer (Native Material 3 Expressive) ─────────
 
 @Composable
 private fun DesktopNavigationRail(
     state: MusicViewModel.UiState,
     onSelectTab: (AppTab) -> Unit,
+    onOpenMadeForYou: () -> Unit,
+    onOpenLibrarySection: (LibrarySection) -> Unit,
     onOpenCollection: (LibraryCollectionRef) -> Unit,
+    onOpenQueue: () -> Unit,
+    onImportPlaylist: () -> Unit,
     onNewPlaylist: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
-            .width(248.dp)
+            .width(264.dp)
             .fillMaxHeight(),
     ) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 18.dp),
+                .padding(horizontal = 14.dp, vertical = 16.dp),
         ) {
-            // Brand wordmark
+            // Brand wordmark (solid M3 primaryContainer — zero gradients)
             Row(
                 Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
                     Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(
-                            Brush.linearGradient(listOf(Musico.extras.primary, Musico.extras.mint)),
-                        ),
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("M", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color.White)
+                    Text(
+                        "M",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
                 }
                 Column {
                     Text(
                         "Music0",
                         style = Musico.type.titleLarge,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        state.coreVersion?.let { "v$it" } ?: "Desktop",
+                        state.coreVersion?.let { "v$it" } ?: "Material 3",
                         style = Musico.type.caption,
-                        color = Musico.extras.mint,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // Primary navigation destinations
-            val navItems = listOf(
-                Triple(AppTab.HOME, Icons.Filled.Home, "Home"),
-                Triple(AppTab.RADIO, Icons.Filled.Radio, "Radio"),
-                Triple(AppTab.LIBRARY, Icons.Filled.LibraryMusic, "Library"),
-                Triple(AppTab.SEARCH, Icons.Filled.Search, "Search"),
-            )
-            navItems.forEach { (tab, icon, label) ->
-                val active = state.overlay == AppOverlay.NONE && state.tab == tab
-                RailNavItem(
-                    icon = icon,
-                    label = label,
-                    active = active,
-                    onClick = { onSelectTab(tab) },
-                )
-            }
-
-            Spacer(Modifier.height(14.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-            Spacer(Modifier.height(14.dp))
-
-            // Quick Library shortcuts
-            RailNavItem(
-                icon = Icons.Filled.Favorite,
-                label = "Liked Songs · ${state.likedIds.size}",
-                active = state.overlay == AppOverlay.COLLECTION && state.activeCollection == LibraryCollectionRef.LikedSongs,
-                accentTint = Musico.extras.coral,
-                onClick = { onOpenCollection(LibraryCollectionRef.LikedSongs) },
-            )
-            RailNavItem(
-                icon = Icons.Filled.DownloadDone,
-                label = "Downloads · ${state.downloads.size}",
-                active = state.overlay == AppOverlay.COLLECTION && state.activeCollection == LibraryCollectionRef.OfflineDownloads,
-                accentTint = Musico.extras.mint,
-                onClick = { onOpenCollection(LibraryCollectionRef.OfflineDownloads) },
-            )
-
-            Spacer(Modifier.height(14.dp))
-
-            // Playlists header + "+ New"
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    "PLAYLISTS",
-                    style = Musico.type.overline,
-                    color = Musico.extras.inkDim,
-                )
-                IconButton(onClick = onNewPlaylist, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Filled.Add, contentDescription = "New playlist", tint = Musico.extras.mint, modifier = Modifier.size(18.dp))
-                }
-            }
-
+            // Scrollable navigation drawer body so all sections stay reachable on any height
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                item(key = "sec-discover") {
+                    RailSectionHeader("DISCOVER")
+                }
+                item(key = "nav-home") {
+                    RailNavItem(
+                        icon = Icons.Filled.Home,
+                        label = "Home",
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.HOME,
+                        onClick = { onSelectTab(AppTab.HOME) },
+                    )
+                }
+                item(key = "nav-made-for-you") {
+                    val activeMix = state.overlay == AppOverlay.COLLECTION && state.activeCollection is LibraryCollectionRef.Mix
+                    RailNavItem(
+                        icon = Icons.Filled.AutoAwesome,
+                        label = "Made for You",
+                        badge = state.smartMixes.size.takeIf { it > 0 }?.toString(),
+                        active = activeMix,
+                        onClick = onOpenMadeForYou,
+                    )
+                }
+                item(key = "nav-radio") {
+                    RailNavItem(
+                        icon = Icons.Filled.Radio,
+                        label = "Radio",
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.RADIO,
+                        onClick = { onSelectTab(AppTab.RADIO) },
+                    )
+                }
+                item(key = "nav-search") {
+                    RailNavItem(
+                        icon = Icons.Filled.Search,
+                        label = "Search",
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.SEARCH,
+                        onClick = { onSelectTab(AppTab.SEARCH) },
+                    )
+                }
+
+                item(key = "div-library") {
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                    Spacer(Modifier.height(10.dp))
+                    RailSectionHeader("YOUR LIBRARY")
+                }
+                item(key = "nav-library-all") {
+                    RailNavItem(
+                        icon = Icons.Filled.LibraryMusic,
+                        label = "Library Hub",
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.LIBRARY && state.librarySection == LibrarySection.ALL,
+                        onClick = { onOpenLibrarySection(LibrarySection.ALL) },
+                    )
+                }
+                item(key = "nav-artists") {
+                    RailNavItem(
+                        icon = Icons.Filled.Person,
+                        label = "Artists",
+                        badge = state.libraryArtists.size.takeIf { it > 0 }?.toString(),
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.LIBRARY && state.librarySection == LibrarySection.ARTISTS,
+                        onClick = { onOpenLibrarySection(LibrarySection.ARTISTS) },
+                    )
+                }
+                item(key = "nav-albums") {
+                    RailNavItem(
+                        icon = Icons.Filled.Album,
+                        label = "Albums",
+                        badge = state.libraryAlbums.size.takeIf { it > 0 }?.toString(),
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.LIBRARY && state.librarySection == LibrarySection.ALBUMS,
+                        onClick = { onOpenLibrarySection(LibrarySection.ALBUMS) },
+                    )
+                }
+                item(key = "nav-recent") {
+                    RailNavItem(
+                        icon = Icons.Filled.History,
+                        label = "Recently Played",
+                        badge = state.recentlyPlayed.size.takeIf { it > 0 }?.toString(),
+                        active = state.overlay == AppOverlay.NONE && state.tab == AppTab.LIBRARY && state.librarySection == LibrarySection.RECENT,
+                        onClick = { onOpenLibrarySection(LibrarySection.RECENT) },
+                    )
+                }
+                item(key = "nav-liked") {
+                    RailNavItem(
+                        icon = Icons.Filled.Favorite,
+                        label = "Liked Songs",
+                        badge = state.likedIds.size.takeIf { it > 0 }?.toString(),
+                        active = state.overlay == AppOverlay.COLLECTION && state.activeCollection == LibraryCollectionRef.LikedSongs,
+                        accentTint = Musico.extras.coral,
+                        onClick = { onOpenCollection(LibraryCollectionRef.LikedSongs) },
+                    )
+                }
+                item(key = "nav-downloads") {
+                    RailNavItem(
+                        icon = Icons.Filled.DownloadDone,
+                        label = "Downloads",
+                        badge = state.downloads.size.takeIf { it > 0 }?.toString(),
+                        active = state.overlay == AppOverlay.COLLECTION && state.activeCollection == LibraryCollectionRef.OfflineDownloads,
+                        accentTint = MaterialTheme.colorScheme.tertiary,
+                        onClick = { onOpenCollection(LibraryCollectionRef.OfflineDownloads) },
+                    )
+                }
+                item(key = "nav-queue") {
+                    RailNavItem(
+                        icon = Icons.Filled.QueueMusic,
+                        label = "Up Next",
+                        badge = state.queue.size.takeIf { it > 0 }?.toString(),
+                        active = state.overlay == AppOverlay.PLAYER && state.playerInitialPage == 2,
+                        onClick = onOpenQueue,
+                    )
+                }
+
+                if (state.smartMixes.isNotEmpty()) {
+                    item(key = "div-mixes") {
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                        Spacer(Modifier.height(10.dp))
+                        RailSectionHeader("SMART MIXES")
+                    }
+                    items(state.smartMixes.take(4), key = { "rail-mix-${it.id}" }) { mix ->
+                        val active = state.overlay == AppOverlay.COLLECTION &&
+                            (state.activeCollection as? LibraryCollectionRef.Mix)?.id == mix.id
+                        RailNavItem(
+                            icon = Icons.Filled.AutoAwesome,
+                            label = mix.title,
+                            badge = "${mix.tracks.size}",
+                            active = active,
+                            onClick = { onOpenCollection(LibraryCollectionRef.Mix(mix.id)) },
+                        )
+                    }
+                }
+
+                item(key = "div-playlists") {
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "PLAYLISTS",
+                            style = Musico.type.overline,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            IconButton(onClick = onImportPlaylist, modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Filled.FileDownload,
+                                    contentDescription = "Import playlist",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(17.dp),
+                                )
+                            }
+                            IconButton(onClick = onNewPlaylist, modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = "New playlist",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 items(state.playlists, key = { "rail-pl-${it.id}" }) { pl ->
                     val active = state.overlay == AppOverlay.COLLECTION &&
                         (state.activeCollection as? LibraryCollectionRef.Playlist)?.id == pl.id
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f) else Color.Transparent)
+                            .clip(MusicoShapes.chip)
+                            .background(if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                             .pressable(onClick = { onOpenCollection(LibraryCollectionRef.Playlist(pl.id)) }, pressedScale = 0.97f)
                             .padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1022,7 +1154,7 @@ private fun DesktopNavigationRail(
                                 style = Musico.type.body,
                                 fontSize = 13.sp,
                                 fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onBackground,
+                                color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -1030,14 +1162,14 @@ private fun DesktopNavigationRail(
                                 formatSongCount(pl.tracks.size),
                                 style = Musico.type.tabularCaption,
                                 fontSize = 10.sp,
-                                color = Musico.extras.inkDim,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
             Spacer(Modifier.height(10.dp))
 
             // Footer: Profile & Settings
@@ -1073,13 +1205,13 @@ private fun DesktopNavigationRail(
                         state.displayName,
                         style = Musico.type.title,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = Musico.extras.inkDim)
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -1087,23 +1219,34 @@ private fun DesktopNavigationRail(
 }
 
 @Composable
+private fun RailSectionHeader(title: String) {
+    Text(
+        title,
+        style = Musico.type.overline,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
 private fun RailNavItem(
     icon: ImageVector,
     label: String,
     active: Boolean,
+    badge: String? = null,
     accentTint: Color? = null,
     onClick: () -> Unit,
 ) {
     val bg by animateColorAsState(
-        targetValue = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
+        targetValue = if (active) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
         animationSpec = MusicoMotion.gentle(),
         label = "railBg",
     )
     val contentTint by animateColorAsState(
         targetValue = when {
-            active -> MaterialTheme.colorScheme.primary
+            active -> MaterialTheme.colorScheme.onSecondaryContainer
             accentTint != null -> accentTint
-            else -> Musico.extras.inkDim
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = MusicoMotion.gentle(),
         label = "railTint",
@@ -1111,7 +1254,7 @@ private fun RailNavItem(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .padding(vertical = 1.dp)
             .clip(MusicoShapes.chip)
             .background(bg)
             .pressable(onClick = onClick, pressedScale = 0.97f)
@@ -1125,14 +1268,23 @@ private fun RailNavItem(
             style = Musico.type.title,
             fontSize = 14.sp,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-            color = if (active) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.82f),
+            color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        if (!badge.isNullOrBlank()) {
+            Text(
+                badge,
+                style = Musico.type.tabularCaption,
+                fontSize = 11.sp,
+                color = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
-// ── Desktop Docked Cover-Tinted Player Bar (Widescreen >= 840dp) ──────────
+// ── Desktop Docked Native Material 3 Expressive Player Bar ────────────────
 
 @Composable
 private fun DesktopDockedPlayerBar(
@@ -1156,56 +1308,30 @@ private fun DesktopDockedPlayerBar(
         isPlaying = state.isPlaying,
         durationMs = state.durationMs,
     )
-    var draggingSeek by remember { mutableFloatStateOf(Float.NaN) }
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
     val seekFraction = if (state.durationMs > 0L) {
         (smoothPosition.toFloat() / state.durationMs).coerceIn(0f, 1f)
     } else 0f
-    val shownSeek = if (draggingSeek.isNaN()) seekFraction else draggingSeek
+    val shownSeek = dragFraction ?: seekFraction
 
-    val barTint by animateColorAsState(
-        targetValue = if (track != null) atmosphere.orbPrimary.copy(alpha = 0.20f) else Color.Transparent,
-        animationSpec = tween(700),
-        label = "dockTint",
-    )
-    val dockBorderTint by animateColorAsState(
-        targetValue = if (track != null) {
-            atmosphere.glow.copy(alpha = 0.24f)
-        } else {
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.30f)
-        },
-        animationSpec = tween(700),
-        label = "dockBorderTint",
-    )
     Surface(
-        shape = MusicoShapes.pillDock,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
-        border = BorderStroke(1.dp, dockBorderTint),
-        shadowElevation = 20.dp,
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+        shadowElevation = 6.dp,
         modifier = modifier
             .fillMaxWidth()
-            .height(76.dp),
+            .height(82.dp),
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        0.00f to barTint,
-                        0.38f to barTint.copy(alpha = barTint.alpha * 0.35f),
-                        0.72f to Color.Transparent,
-                        1.00f to barTint.copy(alpha = barTint.alpha * 0.22f),
-                    ),
-                ),
-        ) {
-            // Inset indeterminate resolve progress along the top pill curve
+        Box(Modifier.fillMaxSize()) {
             if (state.resolvingId != null) {
                 LinearProgressIndicator(
-                    color = atmosphere.glow,
-                    trackColor = atmosphere.glow.copy(alpha = 0.16f),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .height(2.5.dp)
+                        .height(3.dp)
                         .clip(CircleShape)
                         .align(Alignment.TopCenter),
                 )
@@ -1222,7 +1348,7 @@ private fun DesktopDockedPlayerBar(
                 Row(
                     Modifier
                         .weight(0.30f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .pressable(onClick = onExpandPlayer, enabled = track != null, pressedScale = 0.98f)
                         .padding(vertical = 6.dp, horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1239,7 +1365,7 @@ private fun DesktopDockedPlayerBar(
                             Text(
                                 track.title.ifEmpty { "Untitled" },
                                 style = Musico.type.title,
-                                color = MaterialTheme.colorScheme.onBackground,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.basicMarquee(),
@@ -1251,7 +1377,7 @@ private fun DesktopDockedPlayerBar(
                                     else -> track.artist.ifEmpty { "Unknown artist" }
                                 },
                                 style = Musico.type.caption,
-                                color = Musico.extras.inkDim,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -1266,12 +1392,12 @@ private fun DesktopDockedPlayerBar(
                         Text(
                             "Pick any song to start listening",
                             style = Musico.type.caption,
-                            color = Musico.extras.inkDim,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
 
-                // Center: Transport + Scrubbable Seek Bar
+                // Center: Native M3E Morphing Play/Pause + Expressive Wavy Seek Bar
                 Column(
                     Modifier.weight(0.42f),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1284,34 +1410,25 @@ private fun DesktopDockedPlayerBar(
                             Icon(
                                 Icons.Filled.Repeat,
                                 contentDescription = "Repeat",
-                                tint = if (state.repeatAll) Musico.extras.mint else Musico.extras.inkDim,
+                                tint = if (state.repeatAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
-                        IconButton(onClick = { hapticThud(); onPrevious() }, enabled = track != null, modifier = Modifier.size(34.dp)) {
-                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onBackground)
+                        IconButton(onClick = { hapticThud(); onPrevious() }, enabled = track != null, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface)
                         }
-                        Surface(
-                            shape = CircleShape,
-                            color = Musico.extras.mint,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .pressable(onClick = { hapticThud(); onTogglePlay() }, enabled = track != null, pressedScale = 0.88f),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                    tint = Color(0xFF05291D),
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
-                        IconButton(onClick = { hapticThud(); onNext() }, enabled = track != null, modifier = Modifier.size(34.dp)) {
-                            Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onBackground)
+                        ExpressivePlayPauseButton(
+                            isPlaying = state.isPlaying,
+                            isBuffering = state.isBuffering || state.resolvingId != null,
+                            enabled = track != null,
+                            onClick = onTogglePlay,
+                            size = 44.dp,
+                        )
+                        IconButton(onClick = { hapticThud(); onNext() }, enabled = track != null, modifier = Modifier.size(36.dp)) {
+                            Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
                         }
                         if (track != null) {
-                            EqualizerBars(playing = state.isPlaying, color = Musico.extras.mint, modifier = Modifier.height(14.dp))
+                            EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(14.dp))
                         } else {
                             Spacer(Modifier.width(16.dp))
                         }
@@ -1323,35 +1440,37 @@ private fun DesktopDockedPlayerBar(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            formatTime(if (draggingSeek.isNaN()) smoothPosition else (shownSeek * state.durationMs).toLong()),
+                            formatTime(if (dragFraction == null) smoothPosition else (shownSeek * state.durationMs).toLong()),
                             style = Musico.type.tabularCaption,
                             fontSize = 10.sp,
-                            color = Musico.extras.inkDim,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Slider(
-                            value = shownSeek,
-                            onValueChange = { draggingSeek = it },
-                            onValueChangeFinished = {
-                                if (!draggingSeek.isNaN() && state.durationMs > 0L) {
-                                    onSeek((draggingSeek * state.durationMs).toLong())
-                                }
-                                draggingSeek = Float.NaN
-                            },
+                        ExpressiveWavySeekBar(
+                            progress = seekFraction,
+                            isPlaying = state.isPlaying,
                             enabled = track != null && state.durationMs > 0L,
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.onBackground,
-                                activeTrackColor = atmosphere.glow,
-                                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            ),
+                            activeColor = MaterialTheme.colorScheme.primary,
+                            inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            trackHeight = 3.5.dp,
+                            waveAmplitude = 2.6.dp,
+                            waveLength = 20.dp,
+                            thumbHeight = 16.dp,
+                            onDragProgress = { dragFraction = it },
+                            onSeek = { frac ->
+                                if (state.durationMs > 0L) {
+                                    onSeek((frac * state.durationMs).toLong())
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(18.dp),
+                                .height(22.dp),
                         )
                         Text(
                             formatTime(state.durationMs),
                             style = Musico.type.tabularCaption,
                             fontSize = 10.sp,
-                            color = Musico.extras.inkDim,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -1370,7 +1489,7 @@ private fun DesktopDockedPlayerBar(
                         Icon(
                             Icons.Filled.Lyrics,
                             contentDescription = "Open Lyrics Studio",
-                            tint = if (track != null) atmosphere.glow else Musico.extras.inkFaint,
+                            tint = if (track != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -1382,7 +1501,7 @@ private fun DesktopDockedPlayerBar(
                         Icon(
                             Icons.Filled.QueueMusic,
                             contentDescription = "Open Queue",
-                            tint = if (track != null) MaterialTheme.colorScheme.onBackground else Musico.extras.inkFaint,
+                            tint = if (track != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -1401,7 +1520,7 @@ private fun DesktopDockedPlayerBar(
                         Icon(
                             if (state.volume <= 0.01f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = "Mute",
-                            tint = Musico.extras.inkDim,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -1410,8 +1529,8 @@ private fun DesktopDockedPlayerBar(
                         onValueChange = onVolumeChange,
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = Musico.extras.mint,
-                            inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                         ),
                         modifier = Modifier
                             .weight(1f, fill = false)
@@ -1423,7 +1542,7 @@ private fun DesktopDockedPlayerBar(
     }
 }
 
-// ── Compact Swipeable Cover-Tinted Glass Mini Player ──────────────────────
+// ── Compact Native Material 3 Expressive Swipeable Mini Player ────────────
 
 @Composable
 private fun MiniPlayer(
@@ -1449,20 +1568,15 @@ private fun MiniPlayer(
         isPlaying = state.isPlaying,
         durationMs = state.durationMs,
     )
-    val coverTint by animateColorAsState(
-        targetValue = atmosphere.orbPrimary.copy(alpha = 0.24f),
-        animationSpec = tween(700),
-        label = "miniCoverTint",
-    )
 
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = MusicoShapes.chip,
-        shadowElevation = 10.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        shadowElevation = 4.dp,
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .fillMaxWidth()
-            .border(1.dp, atmosphere.glow.copy(alpha = 0.18f), MusicoShapes.chip)
             .graphicsLayer {
                 translationX = animDragX.coerceIn(-swipeThresholdPx * 1.15f, swipeThresholdPx * 1.15f)
             }
@@ -1489,32 +1603,23 @@ private fun MiniPlayer(
             }
             .pressable(onClick = onExpand, pressedScale = 0.985f),
     ) {
-        Column(
-            Modifier.background(
-                Brush.horizontalGradient(
-                    0.00f to coverTint,
-                    0.36f to coverTint.copy(alpha = coverTint.alpha * 0.48f),
-                    0.72f to coverTint.copy(alpha = coverTint.alpha * 0.10f),
-                    1.00f to Color.Transparent,
-                ),
-            ),
-        ) {
+        Column {
             Row(
-                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Artwork(
                     url = track.thumbnail,
                     contentDescription = track.title,
                     modifier = Modifier.size(44.dp),
-                    cornerRadius = 14.dp,
+                    cornerRadius = 12.dp,
                 )
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         track.title.ifEmpty { "Untitled" },
                         style = Musico.type.title,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.basicMarquee(),
@@ -1526,52 +1631,27 @@ private fun MiniPlayer(
                             else -> track.artist.ifEmpty { "Unknown artist" }
                         },
                         style = Musico.type.caption,
-                        color = Musico.extras.inkDim,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
                 }
                 if (state.resolvingId != null || state.isBuffering) {
-                    EqualizerBars(playing = false, color = atmosphere.glow, modifier = Modifier.height(16.dp))
+                    EqualizerBars(playing = false, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(16.dp))
                 } else {
-                    EqualizerBars(playing = state.isPlaying, color = atmosphere.glow, modifier = Modifier.height(16.dp))
+                    EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(16.dp))
                 }
                 Spacer(Modifier.width(10.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = Musico.extras.mint,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .pressable(onClick = { hapticThud(); onToggle() }, pressedScale = 0.86f),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        AnimatedContent(
-                            targetState = state.isPlaying,
-                            transitionSpec = {
-                                (scaleIn(
-                                    initialScale = 0.55f,
-                                    animationSpec = MusicoMotion.snappy(),
-                                ) + fadeIn(tween(MusicoMotion.FAST))) togetherWith
-                                    (scaleOut(
-                                        targetScale = 0.55f,
-                                        animationSpec = tween(MusicoMotion.FAST),
-                                    ) + fadeOut(tween(MusicoMotion.FAST)))
-                            },
-                            label = "miniPlayIcon",
-                        ) { playing ->
-                            Icon(
-                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (playing) "Pause" else "Play",
-                                tint = Color(0xFF05291D),
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
-                    }
-                }
+                ExpressivePlayPauseButton(
+                    isPlaying = state.isPlaying,
+                    isBuffering = state.isBuffering || state.resolvingId != null,
+                    onClick = onToggle,
+                    size = 42.dp,
+                )
             }
             if (state.resolvingId != null) {
                 LinearProgressIndicator(
-                    color = atmosphere.glow,
-                    trackColor = atmosphere.glow.copy(alpha = 0.16f),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp),
@@ -1582,10 +1662,17 @@ private fun MiniPlayer(
                 } else 0f
                 Box(
                     Modifier
-                        .fillMaxWidth(fraction)
+                        .fillMaxWidth()
                         .height(3.dp)
-                        .background(atmosphere.glow, RoundedCornerShape(2.dp)),
-                )
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fraction)
+                            .height(3.dp)
+                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
+                    )
+                }
             }
         }
     }

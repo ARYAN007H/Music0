@@ -79,6 +79,16 @@ enum class LyricBackdrop(val id: String, val label: String) {
 
 enum class AppTab { HOME, RADIO, LIBRARY, SEARCH }
 
+enum class LibrarySection(val label: String) {
+    ALL("All"),
+    PLAYLISTS("Playlists"),
+    LIKED("Liked"),
+    DOWNLOADS("Downloads"),
+    ALBUMS("Albums"),
+    ARTISTS("Artists"),
+    RECENT("Recent"),
+}
+
 enum class AppOverlay { NONE, PLAYER, SETTINGS, PROFILE, DETAIL, COLLECTION, EQ, ONBOARD }
 
 /** Decision matrix when `track.resolve` fails for a queue entry (T11). */
@@ -191,6 +201,7 @@ class MusicViewModel(
         val smartMixes: List<SmartMix> = emptyList(),
         val listeningStats: ListeningStatsReply? = null,
         val activeCollection: LibraryCollectionRef? = null,
+        val librarySection: LibrarySection = LibrarySection.ALL,
         val recentlyPlayed: List<OnlineTrack> = emptyList(),
         // Search
         val searchQuery: String = "",
@@ -475,6 +486,32 @@ class MusicViewModel(
             scope.launch(Dispatchers.IO) { refreshDownloadsInternal() }
         } else if (ref is LibraryCollectionRef.Mix) {
             scope.launch(Dispatchers.IO) { refreshSmartMixesInternal() }
+        }
+    }
+
+    fun openLibrarySection(section: LibrarySection) {
+        _state.update {
+            it.copy(
+                tab = AppTab.LIBRARY,
+                overlay = AppOverlay.NONE,
+                activeCollection = null,
+                librarySection = section,
+            )
+        }
+    }
+
+    fun openMadeForYou() {
+        val firstMix = _state.value.smartMixes.firstOrNull()
+        if (firstMix != null) {
+            openCollection(LibraryCollectionRef.Mix(firstMix.id))
+        } else {
+            _state.update {
+                it.copy(
+                    tab = AppTab.HOME,
+                    overlay = AppOverlay.NONE,
+                    activeCollection = null,
+                )
+            }
         }
     }
 

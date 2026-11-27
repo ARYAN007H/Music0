@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EndpointScoreboard,
+  InnerTubeClientHealthTracker,
   getQualitySpec,
   isCrossSourceMatch,
   isProgressiveStreamPlayable,
   raceHedgedSources,
   rewriteSaavnUrlForQuality,
+  selectBestAudioStream,
 } from './streamer.ts';
 
 test('getQualitySpec and rewriteSaavnUrlForQuality map streaming & download qualities accurately', () => {
@@ -94,4 +96,31 @@ test('isProgressiveStreamPlayable unlocks playback once initial 64KB chunk is bu
   assert.equal(isProgressiveStreamPlayable(32 * 1024, 64, 5_000_000), false);
   assert.equal(isProgressiveStreamPlayable(64 * 1024, 64, 5_000_000), true);
   assert.equal(isProgressiveStreamPlayable(20 * 1024, 64, 20 * 1024), true);
+});
+
+test('selectBestAudioStream prefers direct m4a, falls back to Opus WebM and n-param streams', () => {
+  const opusOnly = [
+    { url: 'https://cdn.example/opus?itag=251', mimeType: 'audio/webm; codecs="opus"', bitrate: 160_000 },
+  ];
+  assert.equal(selectBestAudioStream(opusOnly)?.url, 'https://cdn.example/opus?itag=251');
+
+  const nParamFallback = [
+    { url: 'https://cdn.example/videoplayback?n=abc&itag=140', mimeType: 'audio/mp4', bitrate: 128_000 },
+  ];
+  assert.equal(selectBestAudioStream(nParamFallback)?.url, 'https://cdn.example/videoplayback?n=abc&itag=140');
+});
+
+test('InnerTubeClientHealthTracker requires consecutive transport failures before demoting', () => {
+  const tracker = new InnerTubeClientHealthTracker(3, 90_000);
+  tracker.recordTransportFailure('IOS_20', 1000);
+  tracker.recordTransportFailure('IOS_20', 2000);
+  assert.equal(tracker.isDemoted('IOS_20', 2500), false);
+
+  tracker.recordTransportFailure('IOS_20', 3000);
+  assert.equal(tracker.isDemoted('IOS_20', 4000), true);
+  assert.equal(tracker.isDemoted('IOS_20', 95_000), false);
+
+  tracker.recordTransportFailure('IOS_20', 96_000);
+  tracker.recordSuccess('IOS_20');
+  assert.equal(tracker.isDemoted('IOS_20', 96_500), false);
 });

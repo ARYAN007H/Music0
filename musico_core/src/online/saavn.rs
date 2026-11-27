@@ -482,7 +482,43 @@ pub(crate) fn open_saavn_stream(
     open_saavn_stream_from_encrypted(enc, has_320, interactive)
 }
 
-/// Builds primary + romanized-tail query variants for cross-source matching.
+/// Strips common YouTube video suffixes like "(Official Video)",
+/// "(Official Music Video)", "[Lyrics]", "(Audio)", "(HD)", or "| ..." so
+/// JioSaavn cross-source matching hits fast direct 320 kbps CDN tracks.
+fn strip_video_noise(title: &str) -> String {
+    let base = title.split('|').next().unwrap_or(title).trim();
+    let mut out = base.to_string();
+    for tag in [
+        "(official music video)",
+        "(official video)",
+        "(official audio)",
+        "(official lyric video)",
+        "(lyric video)",
+        "(lyrics)",
+        "(audio)",
+        "(full video)",
+        "(full song)",
+        "(hd)",
+        "(4k)",
+        "[official music video]",
+        "[official video]",
+        "[official audio]",
+        "[lyric video]",
+        "[lyrics]",
+        "[audio]",
+        "[hd]",
+        "[4k]",
+    ] {
+        let lower = out.to_ascii_lowercase();
+        if let Some(pos) = lower.find(tag) {
+            out.replace_range(pos..pos + tag.len(), "");
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Builds primary + romanized-tail + noise-stripped query variants for
+/// cross-source matching.
 ///
 /// YTM renders international songs as `"native - romanized"` (e.g.
 /// `"すずめ - Suzume (feat. Toaka)"`), and saavn's search returns zero results
@@ -492,16 +528,30 @@ fn cross_source_queries(track: &OnlineTrack) -> Option<(String, String, Vec<Stri
     if title.is_empty() {
         return None;
     }
-    let req_title = norm_title(title);
+    let cleaned = strip_video_noise(title);
+    let req_title = norm_title(if cleaned.is_empty() { title } else { &cleaned });
     if req_title.is_empty() {
         return None;
     }
     let req_artist = track.artist.to_lowercase();
     let mut queries = vec![format!("{} {}", title, track.artist)];
+    if !cleaned.is_empty() && cleaned != title {
+        queries.push(format!("{} {}", cleaned, track.artist));
+    }
     if let Some(pos) = title.rfind(" - ") {
         let tail = title[pos + 3..].trim();
         if !tail.is_empty() && tail != title {
-            queries.push(format!("{} {}", tail, track.artist));
+            let tail_query = format!("{} {}", tail, track.artist);
+            if !queries.contains(&tail_query) {
+                queries.push(tail_query);
+            }
+            let cleaned_tail = strip_video_noise(tail);
+            if !cleaned_tail.is_empty() && cleaned_tail != tail {
+                let ct_query = format!("{} {}", cleaned_tail, track.artist);
+                if !queries.contains(&ct_query) {
+                    queries.push(ct_query);
+                }
+            }
         }
     }
     Some((req_title, req_artist, queries))
@@ -1114,5 +1164,20 @@ mod tests {
         )
         .expect("matching candidate expected");
         assert_eq!(best.video_id, "best");
+    }
+
+    #[test]
+    fn strip_video_noise_cleans_youtube_suffixes() {
+        assert_eq!(
+            strip_video_noise("Blinding Lights (Official Audio)"),
+            "Blinding Lights"
+        );
+        assert_eq!(
+            strip_video_noise("Starboy [Official Music Video] | HD"),
+            "Starboy"
+        );
+        let yt = test_track("v2", "Blinding Lights (Official Video)", "The Weeknd", Some(200));
+        let (_, _, queries) = cross_source_queries(&yt).unwrap();
+        assert!(queries.iter().any(|q| q == "Blinding Lights The Weeknd"));
     }
 }

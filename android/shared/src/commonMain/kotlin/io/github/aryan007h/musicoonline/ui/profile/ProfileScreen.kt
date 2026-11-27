@@ -115,20 +115,13 @@ fun ProfileScreen(
                     Modifier
                         .size(112.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    Musico.extras.primary,
-                                    Musico.extras.mint,
-                                ),
-                            ),
-                        ),
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         displayName.trim().take(1).uppercase().ifEmpty { "M" },
                         style = Musico.type.display.copy(fontSize = 44.sp),
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
                 Spacer(Modifier.height(14.dp))

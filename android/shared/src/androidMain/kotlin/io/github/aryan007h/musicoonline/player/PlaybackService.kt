@@ -31,8 +31,8 @@ class PlaybackService : MediaSessionService() {
             .setBufferDurationsMs(
                 /* minBufferMs = */ 15_000,
                 /* maxBufferMs = */ 50_000,
-                /* bufferForPlaybackMs = */ 500,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_500,
+                /* bufferForPlaybackMs = */ 350,
+                /* bufferForPlaybackAfterRebufferMs = */ 1_000,
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()

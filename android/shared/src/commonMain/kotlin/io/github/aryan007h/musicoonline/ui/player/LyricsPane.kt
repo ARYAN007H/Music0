@@ -812,8 +812,7 @@ private fun CinemaLyricRow(
                 scaleX = safeScale
                 scaleY = safeScale
                 transformOrigin = TransformOrigin(0f, 0.5f)
-            }
-            .platformBlur(targetBlurDp),
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

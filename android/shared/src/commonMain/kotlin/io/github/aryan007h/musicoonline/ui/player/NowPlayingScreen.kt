@@ -91,6 +91,8 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.EnhancedLyrics
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.ExpressivePlayPauseButton
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveWavySeekBar
 import io.github.aryan007h.musicoonline.ui.components.LikeButton
 import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalPagerScroll
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
@@ -273,7 +275,7 @@ private fun WidescreenSplitNowPlaying(
         ) {
             Surface(
                 shape = MusicoShapes.chip,
-                color = Color.White.copy(alpha = 0.10f),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.pressable(onClick = onCollapse, pressedScale = 0.94f),
             ) {
                 Row(
@@ -281,30 +283,29 @@ private fun WidescreenSplitNowPlaying(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Icon(Icons.Filled.ExpandMore, contentDescription = "Collapse", tint = Color.White, modifier = Modifier.size(20.dp))
-                    Text("Back", color = Color.White, style = Musico.type.caption, fontWeight = FontWeight.SemiBold)
+                    Icon(Icons.Filled.ExpandMore, contentDescription = "Collapse", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+                    Text("Back", color = MaterialTheme.colorScheme.onSurface, style = Musico.type.caption, fontWeight = FontWeight.SemiBold)
                 }
             }
 
-            // Right-pane switcher: Lyrics Studio ⇄ Up Next
+            // Right-pane switcher: Lyrics Studio ⇄ Up Next (native M3E tonal segmented container)
             Surface(
                 shape = MusicoShapes.chip,
-                color = Color.White.copy(alpha = 0.08f),
-                modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), MusicoShapes.chip),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {
                 Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     SplitStageTab(
                         icon = Icons.Filled.Lyrics,
                         label = "Lyrics Studio",
                         selected = !rightTabQueue,
-                        accent = atmosphere.glow,
+                        accent = MaterialTheme.colorScheme.onSecondaryContainer,
                         onClick = { rightTabQueue = false },
                     )
                     SplitStageTab(
                         icon = Icons.Filled.QueueMusic,
                         label = "Up Next · ${queue.size}",
                         selected = rightTabQueue,
-                        accent = atmosphere.glow,
+                        accent = MaterialTheme.colorScheme.onSecondaryContainer,
                         onClick = { rightTabQueue = true },
                     )
                 }
@@ -371,7 +372,8 @@ private fun WidescreenSplitNowPlaying(
                 SeekBar(
                     positionMs = smoothPositionMs,
                     durationMs = durationMs,
-                    activeColor = atmosphere.glow,
+                    isPlaying = isPlaying,
+                    activeColor = MaterialTheme.colorScheme.primary,
                     onSeek = onSeek,
                     horizontalPadding = 16.dp,
                 )
@@ -463,17 +465,17 @@ private fun SplitStageTab(
     Row(
         Modifier
             .clip(MusicoShapes.chip)
-            .background(if (selected) Color.White.copy(alpha = 0.16f) else Color.Transparent)
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
             .pressable(onClick = onClick, pressedScale = 0.94f)
             .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = if (selected) accent else Color.White.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+        Icon(icon, contentDescription = null, tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
         Text(
             label,
             style = Musico.type.tabularCaption,
-            color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
         )
     }
@@ -719,7 +721,8 @@ private fun CompactPagerNowPlaying(
                 SeekBar(
                     positionMs = smoothPositionMs,
                     durationMs = durationMs,
-                    activeColor = atmosphere.glow,
+                    isPlaying = isPlaying,
+                    activeColor = MaterialTheme.colorScheme.primary,
                     onSeek = onSeek,
                 )
 
@@ -779,38 +782,14 @@ private fun LivingBreathingArtwork(
     modifier: Modifier = Modifier,
 ) {
     val breathScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.0f else 0.89f,
+        targetValue = if (isPlaying) 1.0f else 0.92f,
         animationSpec = MusicoMotion.expressive(),
         label = "livingCoverScale",
     )
-    val auraAlpha by animateFloatAsState(
-        targetValue = if (isPlaying) 0.52f else 0.16f,
-        animationSpec = tween(550),
-        label = "livingAuraAlpha",
-    )
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        // Diffused cover-tinted glow aura behind artwork (bounded inside canvas so edges stay invisible)
-        Canvas(Modifier.fillMaxSize(1.22f)) {
-            if (size.minDimension <= 0f) return@Canvas
-            val safeAura = auraAlpha.coerceIn(0f, 1f)
-            val center = Offset(size.width / 2f, size.height * 0.52f)
-            val radius = (size.minDimension * 0.48f).coerceAtLeast(1f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0.00f to atmosphere.orbPrimary.copy(alpha = safeAura),
-                    0.28f to atmosphere.orbPrimary.copy(alpha = safeAura * 0.62f),
-                    0.54f to atmosphere.glow.copy(alpha = safeAura * 0.24f),
-                    0.78f to atmosphere.glow.copy(alpha = safeAura * 0.05f),
-                    1.00f to Color.Transparent,
-                    center = center,
-                    radius = radius,
-                ),
-                center = center,
-                radius = radius,
-            )
-        }
-
+        // Pure Pixel Material 3 Expressive artwork frame — crisp tonal container,
+        // zero radial glow aura or blurred halo.
         Box(
             Modifier
                 .fillMaxSize()
@@ -819,12 +798,8 @@ private fun LivingBreathingArtwork(
                     scaleX = safeBreath
                     scaleY = safeBreath
                 }
-                .shadow(
-                    elevation = if (isPlaying) 28.dp else 10.dp,
-                    shape = MusicoShapes.cardLarge,
-                    ambientColor = atmosphere.orbPrimary,
-                    spotColor = atmosphere.orbPrimary,
-                ),
+                .clip(MusicoShapes.cardLarge)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
             AnimatedContent(
                 targetState = track,
@@ -1008,45 +983,43 @@ private fun QueuePage(
 private fun SeekBar(
     positionMs: Long,
     durationMs: Long,
+    isPlaying: Boolean,
     activeColor: Color,
     onSeek: (Long) -> Unit,
     horizontalPadding: Dp = 28.dp,
 ) {
-    var dragging by remember { mutableFloatStateOf(Float.NaN) }
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
     val posFraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    val shown = if (dragging.isNaN()) posFraction else dragging
+    val shown = dragFraction ?: posFraction
 
     Column(Modifier.padding(horizontal = horizontalPadding)) {
-        Slider(
-            value = shown,
-            onValueChange = { dragging = it },
-            onValueChangeFinished = {
-                if (!dragging.isNaN() && durationMs > 0) {
-                    onSeek((dragging * durationMs).toLong())
-                    hapticTick()
+        ExpressiveWavySeekBar(
+            progress = posFraction,
+            isPlaying = isPlaying,
+            enabled = durationMs > 0L,
+            activeColor = activeColor,
+            inactiveColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            thumbColor = activeColor,
+            onDragProgress = { dragFraction = it },
+            onSeek = { frac ->
+                if (durationMs > 0L) {
+                    onSeek((frac * durationMs).toLong())
                 }
-                dragging = Float.NaN
             },
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = activeColor,
-                inactiveTrackColor = Color.White.copy(alpha = 0.22f),
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(28.dp),
+            modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(2.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
-                formatTime(if (dragging.isNaN()) positionMs else (shown * durationMs).toLong()),
+                formatTime(if (dragFraction == null) positionMs else (shown * durationMs).toLong()),
                 style = Musico.type.tabularCaption,
-                color = Color.White.copy(alpha = 0.65f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
             )
             Text(
                 formatTime(durationMs),
                 style = Musico.type.tabularCaption,
-                color = Color.White.copy(alpha = 0.65f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
             )
         }
@@ -1060,49 +1033,16 @@ private fun BigPlayButton(
     onClick: () -> Unit,
     size: Dp = 76.dp,
 ) {
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.86f else 1f,
-        animationSpec = MusicoMotion.snappy(),
-        label = "playScale",
+    ExpressivePlayPauseButton(
+        isPlaying = isPlaying,
+        isBuffering = isBuffering,
+        onClick = onClick,
+        size = size,
+        containerColorPaused = MaterialTheme.colorScheme.primaryContainer,
+        containerColorPlaying = MaterialTheme.colorScheme.primary,
+        contentColorPaused = MaterialTheme.colorScheme.onPrimaryContainer,
+        contentColorPlaying = MaterialTheme.colorScheme.onPrimary,
     )
-    Box(
-        Modifier
-            .size(size)
-            .graphicsLayer {
-                val safeScale = scale.coerceAtLeast(0.01f)
-                scaleX = safeScale
-                scaleY = safeScale
-            }
-            .clip(CircleShape)
-            .background(Color.White)
-            .clickable(interactionSource = source, indication = LocalIndication.current) {
-                hapticThud()
-                onClick()
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (isBuffering) {
-            CircularProgressIndicator(color = Color(0xFF3B2A80), modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
-        } else {
-            AnimatedContent(
-                targetState = isPlaying,
-                transitionSpec = {
-                    (scaleIn(initialScale = 0.55f, animationSpec = MusicoMotion.snappy()) + fadeIn(tween(MusicoMotion.FAST))) togetherWith
-                        (scaleOut(targetScale = 0.55f, animationSpec = tween(MusicoMotion.FAST)) + fadeOut(tween(MusicoMotion.FAST)))
-                },
-                label = "playIcon",
-            ) { playing ->
-                Icon(
-                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (playing) "Pause" else "Play",
-                    tint = Color(0xFF12121C),
-                    modifier = Modifier.size(size * 0.52f),
-                )
-            }
-        }
-    }
 }
 
 @Composable

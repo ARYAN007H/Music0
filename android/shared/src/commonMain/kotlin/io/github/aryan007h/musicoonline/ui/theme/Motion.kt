@@ -28,8 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
@@ -124,24 +122,20 @@ fun Modifier.pressable(
         .then(clickModifier)
 }
 
-fun Modifier.shimmer(highlight: Color = Color.White.copy(alpha = 0.30f)): Modifier = composed {
+fun Modifier.shimmer(highlight: Color = Color.White.copy(alpha = 0.14f)): Modifier = composed {
     val transition = rememberInfiniteTransition(label = "shimmer")
-    val progress by transition.animateFloat(
-        initialValue = 0f,
+    val pulse by transition.animateFloat(
+        initialValue = 0.18f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing)),
-        label = "shimmerProgress",
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "shimmerPulse",
     )
     drawBehind {
         if (size.width <= 0f || size.height <= 0f) return@drawBehind
-        val x = (progress * 2f - 0.6f) * size.width
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color.Transparent, highlight, Color.Transparent),
-                start = Offset(x - size.width * 0.25f, 0f),
-                end = Offset(x + size.width * 0.25f, size.height),
-            ),
-        )
+        drawRect(color = highlight.copy(alpha = highlight.alpha * pulse))
     }
 }
 

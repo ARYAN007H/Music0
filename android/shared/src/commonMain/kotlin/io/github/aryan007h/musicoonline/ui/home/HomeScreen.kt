@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -49,13 +50,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.aryan007h.musicoonline.core.CatalogEntry
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.Shelf
 import io.github.aryan007h.musicoonline.core.ShelfItem
@@ -74,8 +76,8 @@ import io.github.aryan007h.musicoonline.platform.PlatformHorizontalGridScrollbar
 import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.platform.currentLocalHour
 import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
-import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
 import io.github.aryan007h.musicoonline.ui.components.EqualizerBars
 import io.github.aryan007h.musicoonline.ui.components.ErrorState
 import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
@@ -84,7 +86,6 @@ import io.github.aryan007h.musicoonline.ui.components.ShelfCarousel
 import io.github.aryan007h.musicoonline.ui.components.ShelfScrollButtons
 import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalPagerScroll
 import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalScroll
-import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.library.LibraryCollectionRef
 import io.github.aryan007h.musicoonline.ui.library.PlaylistMosaicArtwork
@@ -119,6 +120,7 @@ fun HomeScreen(
     smartMixes: List<SmartMix> = emptyList(),
     playlists: List<UserPlaylist> = emptyList(),
     recentlyPlayed: List<OnlineTrack> = emptyList(),
+    savedArtists: List<CatalogEntry> = emptyList(),
     likedCount: Int = 0,
     downloadsCount: Int = 0,
     loading: Boolean,
@@ -130,6 +132,7 @@ fun HomeScreen(
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
     onOpenCollection: (LibraryCollectionRef) -> Unit = {},
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit = { _, _ -> },
+    onOpenCatalogEntry: (CatalogEntry) -> Unit = {},
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onRetryPersonalization: (() -> Unit)? = null,
@@ -137,42 +140,36 @@ fun HomeScreen(
     currentTrackId: String?,
     isPlaying: Boolean = false,
 ) {
-    Box(Modifier.fillMaxSize()) {
-        AmbientTopWash(
-            atmosphere = atmosphere,
-            height = 300.dp,
-            intensity = 0.24f,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
-        Box(Modifier.fillMaxSize().musicoTopInset()) {
-            when {
-                error != null && shelves.isEmpty() && smartMixes.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
-                loading && shelves.isEmpty() && smartMixes.isEmpty() -> HomeSkeleton()
-                else -> Column {
-                    PersonalizationBanner(
-                        personalizing = personalizing,
-                        error = personalizationError,
-                        onRetry = onRetryPersonalization,
-                        onDismiss = onDismissPersonalizationError,
-                    )
-                    HomeFeed(
-                        displayName = displayName,
-                        shelves = shelves,
-                        smartMixes = smartMixes,
-                        playlists = playlists,
-                        recentlyPlayed = recentlyPlayed,
-                        likedCount = likedCount,
-                        downloadsCount = downloadsCount,
-                        styleItems = styleItems,
-                        moreLoading = moreLoading,
-                        onOpenItem = onOpenItem,
-                        onOpenCollection = onOpenCollection,
-                        onOpenTrack = onOpenTrack,
-                        onLoadMore = onLoadMore,
-                        currentTrackId = currentTrackId,
-                        isPlaying = isPlaying,
-                    )
-                }
+    Box(Modifier.fillMaxSize().musicoTopInset()) {
+        when {
+            error != null && shelves.isEmpty() && smartMixes.isEmpty() -> ErrorState(message = error, onRetry = onRetry)
+            loading && shelves.isEmpty() && smartMixes.isEmpty() -> HomeSkeleton()
+            else -> Column {
+                PersonalizationBanner(
+                    personalizing = personalizing,
+                    error = personalizationError,
+                    onRetry = onRetryPersonalization,
+                    onDismiss = onDismissPersonalizationError,
+                )
+                HomeFeed(
+                    displayName = displayName,
+                    shelves = shelves,
+                    smartMixes = smartMixes,
+                    playlists = playlists,
+                    recentlyPlayed = recentlyPlayed,
+                    savedArtists = savedArtists,
+                    likedCount = likedCount,
+                    downloadsCount = downloadsCount,
+                    styleItems = styleItems,
+                    moreLoading = moreLoading,
+                    onOpenItem = onOpenItem,
+                    onOpenCollection = onOpenCollection,
+                    onOpenTrack = onOpenTrack,
+                    onOpenCatalogEntry = onOpenCatalogEntry,
+                    onLoadMore = onLoadMore,
+                    currentTrackId = currentTrackId,
+                    isPlaying = isPlaying,
+                )
             }
         }
     }
@@ -282,6 +279,8 @@ private sealed interface QuickPickEntry {
     }
 }
 
+private val HOME_MOOD_CHIPS = listOf("All", "Made for You", "Chill", "Energize", "Focus", "Workout")
+
 @Composable
 private fun HomeFeed(
     displayName: String,
@@ -289,6 +288,7 @@ private fun HomeFeed(
     smartMixes: List<SmartMix>,
     playlists: List<UserPlaylist>,
     recentlyPlayed: List<OnlineTrack>,
+    savedArtists: List<CatalogEntry>,
     likedCount: Int,
     downloadsCount: Int,
     styleItems: List<ShelfItem>,
@@ -296,17 +296,35 @@ private fun HomeFeed(
     onOpenItem: (ShelfItem, List<ShelfItem>) -> Unit,
     onOpenCollection: (LibraryCollectionRef) -> Unit,
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
+    onOpenCatalogEntry: (CatalogEntry) -> Unit,
     onLoadMore: () -> Unit,
     currentTrackId: String?,
     isPlaying: Boolean,
 ) {
-    val (heroShelf, gridA, gridB, rest) = remember(shelves) {
+    var selectedMood by remember { mutableStateOf("All") }
+
+    val filteredShelves = remember(shelves, selectedMood) {
         val content = shelves.filter { it.items.isNotEmpty() }
-        val hero = content.firstOrNull()
-        val playable = content.filter { shelf -> shelf.items.any { it.videoId != null } }
+        if (selectedMood == "All") {
+            content
+        } else {
+            val needle = selectedMood.lowercase()
+            val matched = content.filter { shelf ->
+                shelf.title.lowercase().contains(needle) ||
+                    shelf.items.any {
+                        it.title.lowercase().contains(needle) || it.subtitle.lowercase().contains(needle)
+                    }
+            }
+            if (matched.isNotEmpty()) matched else content
+        }
+    }
+
+    val (heroShelf, gridA, gridB, rest) = remember(filteredShelves) {
+        val hero = filteredShelves.firstOrNull()
+        val playable = filteredShelves.filter { shelf -> shelf.items.any { it.videoId != null } }
         val grids = (playable - setOfNotNull(hero)).take(2)
         val used = setOfNotNull(hero) + grids.toSet()
-        HomeSections(hero, grids.getOrNull(0), grids.getOrNull(1), content.filterNot { used.contains(it) })
+        HomeSections(hero, grids.getOrNull(0), grids.getOrNull(1), filteredShelves.filterNot { used.contains(it) })
     }
 
     val quickPicks = remember(likedCount, downloadsCount, playlists, smartMixes, recentlyPlayed) {
@@ -344,7 +362,7 @@ private fun HomeFeed(
                     greeting.uppercase(),
                     style = Musico.type.section,
                     fontSize = 11.sp,
-                    color = Musico.extras.mint,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -361,7 +379,47 @@ private fun HomeFeed(
             }
         }
 
-        // ── Spotify-Style 2-Column Quick-Pick Instant-Resume Grid ───────
+        // ── M3E Mood & Vibe Filter Chips ────────────────────────────────
+        item(key = "home-mood-chips") {
+            DesktopScrollableChipRow(
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                edgeFadeColor = MaterialTheme.colorScheme.background,
+            ) {
+                HOME_MOOD_CHIPS.forEach { mood ->
+                    val active = selectedMood == mood
+                    Surface(
+                        shape = RoundedCornerShape(if (active) 12.dp else 20.dp),
+                        color = if (active) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        modifier = Modifier.pressable(
+                            onClick = {
+                                hapticTick()
+                                selectedMood = mood
+                            },
+                            pressedScale = 0.94f,
+                        ),
+                    ) {
+                        Text(
+                            mood,
+                            fontSize = 13.sp,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                            color = if (active) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── M3E 2-Column Quick-Pick Instant-Resume Grid ─────────────────
         if (quickPicks.size >= 2) {
             item(key = "home-quick-picks") {
                 QuickPickGrid(
@@ -389,6 +447,77 @@ private fun HomeFeed(
                 )
             }
         }
+
+        // ── Favorite Artists Circular Row ───────────────────────────────
+        if (savedArtists.isNotEmpty()) {
+            item(key = "home-favorite-artists") {
+                val artistState = rememberLazyListState()
+                val artistScope = rememberCoroutineScope()
+                var artistViewportPx by remember { mutableFloatStateOf(0f) }
+                Column {
+                    SectionHeader(
+                        title = "Favorite artists",
+                        trailing = {
+                            ShelfScrollButtons(
+                                canScrollBackward = artistState.canScrollBackward,
+                                canScrollForward = artistState.canScrollForward,
+                                onScrollBackward = {
+                                    val step = HorizontalScrollMath.computePageStepPx(artistViewportPx)
+                                    artistScope.launch {
+                                        artistState.animateScrollBy(-step, tween(320, easing = MusicoMotion.emphasized))
+                                    }
+                                },
+                                onScrollForward = {
+                                    val step = HorizontalScrollMath.computePageStepPx(artistViewportPx)
+                                    artistScope.launch {
+                                        artistState.animateScrollBy(step, tween(320, easing = MusicoMotion.emphasized))
+                                    }
+                                },
+                            )
+                        },
+                    )
+                    LazyRow(
+                        state = artistState,
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { artistViewportPx = it.width.toFloat() }
+                            .desktopHorizontalScroll(artistState),
+                    ) {
+                        items(savedArtists.take(12), key = { "hart-${it.id}" }) { artist ->
+                            Column(
+                                modifier = Modifier
+                                    .width(104.dp)
+                                    .pressable(
+                                        onClick = { hapticTick(); onOpenCatalogEntry(artist) },
+                                        pressedScale = 0.94f,
+                                    ),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Artwork(
+                                    url = artist.thumbnail,
+                                    contentDescription = artist.title,
+                                    modifier = Modifier.size(104.dp),
+                                    cornerRadius = 52.dp,
+                                    placeholderIcon = Icons.Filled.Person,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    artist.title,
+                                    style = Musico.type.title,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (smartMixes.isNotEmpty()) {
             item(key = "home-smart-mixes") {
                 val mixListState = rememberLazyListState()
@@ -396,7 +525,7 @@ private fun HomeFeed(
                 var mixViewportPx by remember { mutableFloatStateOf(0f) }
                 Column {
                     SectionHeader(
-                        title = "Smart mixes",
+                        title = "Made for you",
                         trailing = {
                             ShelfScrollButtons(
                                 canScrollBackward = mixListState.canScrollBackward,
@@ -550,9 +679,9 @@ private fun QuickPickCard(
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = if (isCurrent) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
+            MaterialTheme.colorScheme.secondaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.88f)
+            MaterialTheme.colorScheme.surfaceContainerHigh
         },
         modifier = modifier
             .height(58.dp)
@@ -566,22 +695,28 @@ private fun QuickPickCard(
                 is QuickPickEntry.Liked -> Box(
                     Modifier
                         .size(58.dp)
-                        .background(
-                            Brush.linearGradient(listOf(Color(0xFF3B2A80), Color(0xFF7C5CFF), Color(0xFF53F2C4))),
-                        ),
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Filled.Favorite, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Icon(
+                        Icons.Filled.Favorite,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
                 is QuickPickEntry.Downloads -> Box(
                     Modifier
                         .size(58.dp)
-                        .background(
-                            Brush.linearGradient(listOf(Color(0xFF0E4B44), Color(0xFF1A8F7D), Color(0xFF53F2C4))),
-                        ),
+                        .background(MaterialTheme.colorScheme.tertiaryContainer),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Filled.DownloadDone, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    Icon(
+                        Icons.Filled.DownloadDone,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
                 is QuickPickEntry.PlaylistPick -> PlaylistMosaicArtwork(
                     thumbnails = entry.playlist.tracks.map { it.thumbnail },
@@ -655,62 +790,40 @@ private data class HomeSections(
 
 @Composable
 private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
-    val (start, end) = when (mix.accent) {
-        "coral" -> Color(0xFF8B2E4E) to Color(0xFFFF6B8B)
-        "mint" -> Color(0xFF0E4B44) to Color(0xFF39D9B4)
-        "support" -> Color(0xFF2B3568) to Color(0xFF6B7CFF)
-        else -> Musico.extras.primary to Musico.extras.support
-    }
-    Column(
-        Modifier
-            .width(152.dp)
+    Surface(
+        shape = MusicoShapes.card,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier
+            .width(164.dp)
             .pressable(onClick = onClick, pressedScale = 0.95f),
     ) {
-        Box(
-            Modifier
-                .size(152.dp)
-                .clip(MusicoShapes.card),
-        ) {
+        Column {
             PlaylistMosaicArtwork(
                 thumbnails = mix.tracks.map { it.thumbnail },
-                modifier = Modifier.fillMaxSize(),
-                cornerRadius = 24.dp,
-                accentStart = start,
-                accentEnd = end,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(148.dp),
+                cornerRadius = 0.dp,
             )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(musicoScrimBrush(Color(0xFF0A0A14), maxAlpha = 0.86f, startFraction = 0.26f)),
-            )
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp),
-            ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Text(
                     mix.title,
                     style = Musico.type.title,
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    formatTrackCount(mix.tracks.size),
-                    style = Musico.type.tabularCaption,
-                    color = Musico.extras.mint,
+                    "${formatTrackCount(mix.tracks.size)} · ${mix.subtitle}",
+                    style = Musico.type.caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            mix.subtitle,
-            style = Musico.type.caption,
-            color = Musico.extras.inkDim,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -856,62 +969,91 @@ private fun HeroCarousel(
 
 @Composable
 private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier
+    Surface(
+        shape = MusicoShapes.hero,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(1.62f)
-            .clip(MusicoShapes.hero)
+            .height(216.dp)
             .pressable(onClick = onClick, pressedScale = 0.97f),
     ) {
-        Artwork(
-            url = item.thumbnail,
-            contentDescription = item.title,
-            modifier = Modifier.fillMaxSize(),
-            cornerRadius = 28.dp,
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(musicoScrimBrush(Color(0xFF0A0A12), maxAlpha = 0.85f, startFraction = 0.24f)),
-        )
         Row(
-            Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalAlignment = Alignment.Bottom,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Column(Modifier.weight(1f)) {
-                if (item.subtitle.isNotBlank()) {
-                    Text(
-                        item.subtitle.uppercase(),
-                        style = Musico.type.overline,
-                        color = Musico.extras.mint,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                }
-                Text(
-                    item.title,
-                    style = Musico.type.headline,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Surface(
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 6.dp,
-                modifier = Modifier.size(44.dp),
+            Artwork(
+                url = item.thumbnail,
+                contentDescription = item.title,
+                modifier = Modifier.size(180.dp),
+                cornerRadius = 22.dp,
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.PlayArrow,
-                        contentDescription = "Play",
-                        tint = Color(0xFF0A0A12),
-                        modifier = Modifier.size(26.dp),
+                Column {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Text(
+                            "FEATURED",
+                            style = Musico.type.overline,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        item.title,
+                        style = Musico.type.headline,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    if (item.subtitle.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            item.subtitle,
+                            style = Musico.type.caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = "Play",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                "Play now",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
                 }
             }
         }

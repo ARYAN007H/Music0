@@ -362,14 +362,10 @@ fun PlaylistDetailScreen(
                                         Modifier
                                             .size(116.dp)
                                             .clip(RoundedCornerShape(24.dp))
-                                            .background(
-                                                Brush.linearGradient(
-                                                    listOf(Color(0xFF3B2A80), Color(0xFF7C5CFF), Color(0xFF53F2C4)),
-                                                ),
-                                            ),
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(Icons.Filled.Favorite, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                                        Icon(Icons.Filled.Favorite, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(44.dp))
                                     }
                                 }
                                 LibraryCollectionRef.OfflineDownloads -> {
@@ -377,14 +373,10 @@ fun PlaylistDetailScreen(
                                         Modifier
                                             .size(116.dp)
                                             .clip(RoundedCornerShape(24.dp))
-                                            .background(
-                                                Brush.linearGradient(
-                                                    listOf(Color(0xFF0E4B44), Color(0xFF1A8F7D), Color(0xFF53F2C4)),
-                                                ),
-                                            ),
+                                            .background(MaterialTheme.colorScheme.tertiaryContainer),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(Icons.Filled.DownloadDone, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                                        Icon(Icons.Filled.DownloadDone, contentDescription = null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(44.dp))
                                     }
                                 }
                                 else -> {

@@ -20,6 +20,10 @@ actual object MusicoCore {
 
     init {
         try {
+            // Ensure the NDK C++ runtime (which exports __gxx_personality_v0) is
+            // loaded into the process namespace before dlopen resolves our Rust
+            // JNI library on all Android API levels and OEM linkers.
+            runCatching { System.loadLibrary("c++_shared") }
             System.loadLibrary("musico_online_lib")
             _isLoaded = true
         } catch (t: Throwable) {

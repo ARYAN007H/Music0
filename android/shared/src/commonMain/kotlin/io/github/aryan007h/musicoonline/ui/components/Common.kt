@@ -127,13 +127,8 @@ fun Modifier.musicoTopInset(): Modifier = this.windowInsetsPadding(
 // ── Ambient Top Wash: seamless cover-extracted atmospheric halo ─────────────
 
 /**
- * Reusable seamless atmospheric top wash.
- *
- * Renders multi-stop radial blooms + a soft top ambient tint inside an
- * offscreen compositing buffer, then multiplies the entire wash with a
- * cubic-eased vertical `BlendMode.DstIn` alpha mask so the wash reaches
- * alpha `0.0f` smoothly BEFORE its geometric bottom edge on every aspect
- * ratio (portrait phones through ultrawide desktop windows) and all palettes.
+ * Flat native Material 3 Expressive surface contract: no atmospheric radial
+ * or vertical gradient washes are painted behind screens.
  */
 fun Modifier.musicoWash(
     primary: Color,
@@ -141,84 +136,16 @@ fun Modifier.musicoWash(
     glow: Color = primary,
     intensity: Float = 0.24f,
 ): Modifier = this
-    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-    .drawBehind {
-        val w = size.width
-        val h = size.height
-        if (w <= 0f || h <= 0f) return@drawBehind
-        val safeIntensity = intensity.coerceIn(0f, 0.85f)
-        // Soft top-down base tint so wide windows don't leave dark side corners.
-        drawRect(
-            brush = Brush.verticalGradient(
-                0.00f to primary.copy(alpha = safeIntensity * 0.52f),
-                0.28f to secondary.copy(alpha = safeIntensity * 0.30f),
-                0.62f to secondary.copy(alpha = safeIntensity * 0.08f),
-                0.88f to Color.Transparent,
-                1.00f to Color.Transparent,
-            ),
-        )
-        // Primary left-biased bloom, height-coupled so it fades cleanly vertically.
-        val rPrimary = (minOf(w * 0.88f, h * 1.45f)).coerceAtLeast(h * 0.78f).coerceAtLeast(1f)
-        drawRect(
-            brush = Brush.radialGradient(
-                0.00f to primary.copy(alpha = safeIntensity * 0.92f),
-                0.28f to primary.copy(alpha = safeIntensity * 0.60f),
-                0.56f to secondary.copy(alpha = safeIntensity * 0.22f),
-                0.80f to secondary.copy(alpha = safeIntensity * 0.04f),
-                1.00f to Color.Transparent,
-                center = Offset(w * 0.22f, h * 0.02f),
-                radius = rPrimary,
-            ),
-        )
-        // Secondary warm/accent glow on the opposite side for organic depth.
-        val rGlow = (minOf(w * 0.72f, h * 1.18f)).coerceAtLeast(h * 0.68f).coerceAtLeast(1f)
-        drawRect(
-            brush = Brush.radialGradient(
-                0.00f to glow.copy(alpha = safeIntensity * 0.50f),
-                0.32f to glow.copy(alpha = safeIntensity * 0.26f),
-                0.64f to glow.copy(alpha = safeIntensity * 0.06f),
-                1.00f to Color.Transparent,
-                center = Offset(w * 0.82f, h * 0.14f),
-                radius = rGlow,
-            ),
-        )
-        // Multiplicative DstIn feather: guarantees mathematically smooth 0.0 alpha
-        // before the bottom boundary — zero visible horizontal seam at any size.
-        drawRect(
-            brush = Brush.verticalGradient(
-                0.00f to Color.Black,
-                0.32f to Color.Black.copy(alpha = 0.88f),
-                0.58f to Color.Black.copy(alpha = 0.46f),
-                0.78f to Color.Black.copy(alpha = 0.14f),
-                0.91f to Color.Black.copy(alpha = 0.02f),
-                0.98f to Color.Transparent,
-                1.00f to Color.Transparent,
-            ),
-            blendMode = BlendMode.DstIn,
-        )
-    }
 
 /**
- * Cubic-eased vertical legibility scrim for artwork cards, heroes, and headers.
- * Eliminates the harsh mid-card horizontal band produced by naive 2-stop fades.
+ * Legacy signature kept for source compatibility; returns a solid flat fill
+ * so callers migrating to tonal surfaces never paint gradients.
  */
 fun musicoScrimBrush(
     color: Color,
     maxAlpha: Float = 0.86f,
     startFraction: Float = 0.24f,
-): Brush {
-    val s0 = startFraction.coerceIn(0f, 0.70f)
-    val span = (1f - s0).coerceAtLeast(0.01f)
-    val peak = maxAlpha.coerceIn(0f, 1f)
-    return Brush.verticalGradient(
-        0.00f to Color.Transparent,
-        s0 to Color.Transparent,
-        (s0 + span * 0.25f) to color.copy(alpha = peak * 0.08f),
-        (s0 + span * 0.52f) to color.copy(alpha = peak * 0.34f),
-        (s0 + span * 0.78f) to color.copy(alpha = peak * 0.72f),
-        1.00f to color.copy(alpha = peak),
-    )
-}
+): Brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = maxAlpha.coerceIn(0f, 1f)))
 
 @Composable
 fun AmbientTopWash(
@@ -227,17 +154,8 @@ fun AmbientTopWash(
     height: Dp = 380.dp,
     intensity: Float = 0.24f,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .musicoWash(
-                primary = atmosphere.orbPrimary,
-                secondary = atmosphere.orbSecondary,
-                glow = atmosphere.glow,
-                intensity = intensity,
-            ),
-    )
+    // Intentionally empty: Pixel Material 3 Expressive screens sit on crisp
+    // solid tonal surfaces with zero ambient glow washes or gradients.
 }
 
 // ── Artwork ────────────────────────────────────────────────────────────────
@@ -274,15 +192,7 @@ private fun ArtworkPlaceholder(cornerRadius: Dp, icon: ImageVector) {
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(cornerRadius.coerceAtLeast(0.dp)))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.surfaceVariant,
-                        MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ),
-                ),
-            )
-            .shimmer(),
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

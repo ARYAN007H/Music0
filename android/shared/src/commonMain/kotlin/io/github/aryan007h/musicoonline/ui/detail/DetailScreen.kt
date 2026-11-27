@@ -246,44 +246,42 @@ private fun DetailBody(
                             scaleY = heroScale
                         },
                 ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.45f)
-                            .clip(MusicoShapes.hero),
+                    Surface(
+                        shape = MusicoShapes.hero,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Artwork(
-                            url = heroArt,
-                            contentDescription = entry.title,
-                            modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 28.dp,
-                        )
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(musicoScrimBrush(Color(0xFF0A0A12), maxAlpha = 0.86f, startFraction = 0.22f)),
-                        )
-                        Column(
-                            Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(20.dp),
-                        ) {
-                            if (subtitle.isNotBlank()) {
-                                Text(
-                                    subtitle.uppercase(),
-                                    style = Musico.type.overline,
-                                    color = Musico.extras.mint,
-                                    maxLines = 2,
-                                )
-                                Spacer(Modifier.height(4.dp))
-                            }
-                            Text(
-                                entry.title,
-                                style = Musico.type.headline,
-                                color = Color.White,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
+                        Column(Modifier.fillMaxWidth()) {
+                            Artwork(
+                                url = heroArt,
+                                contentDescription = entry.title,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1.75f),
+                                cornerRadius = 0.dp,
                             )
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                            ) {
+                                if (subtitle.isNotBlank()) {
+                                    Text(
+                                        subtitle.uppercase(),
+                                        style = Musico.type.overline,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 2,
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                }
+                                Text(
+                                    entry.title,
+                                    style = Musico.type.headline,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }

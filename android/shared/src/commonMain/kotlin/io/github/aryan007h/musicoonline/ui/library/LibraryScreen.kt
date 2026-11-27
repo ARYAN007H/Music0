@@ -44,7 +44,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
@@ -58,7 +57,6 @@ import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.SmartMix
 import io.github.aryan007h.musicoonline.core.UserPlaylist
 import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
-import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
 import io.github.aryan007h.musicoonline.ui.components.DesktopScrollableChipRow
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
@@ -66,9 +64,9 @@ import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.ShelfScrollButtons
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.components.desktopHorizontalScroll
-import io.github.aryan007h.musicoonline.ui.components.musicoScrimBrush
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import kotlinx.coroutines.launch
+import io.github.aryan007h.musicoonline.ui.LibrarySection
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -78,15 +76,6 @@ import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
 import io.github.aryan007h.musicoonline.ui.theme.staggerIn
-
-private enum class LibraryFilter(val label: String) {
-    ALL("All"),
-    PLAYLISTS("Playlists"),
-    LIKED("Liked"),
-    DOWNLOADS("Downloads"),
-    ALBUMS("Albums"),
-    ARTISTS("Artists"),
-}
 
 /**
  * Full on-device Library Hub (shared across Android & Desktop):
@@ -121,17 +110,14 @@ fun LibraryScreen(
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onLikeToggle: (OnlineTrack) -> Unit,
     onTrackLongClick: (OnlineTrack) -> Unit = {},
+    selectedSection: LibrarySection = LibrarySection.ALL,
+    onSelectSection: (LibrarySection) -> Unit = {},
 ) {
-    var filter by remember { mutableStateOf(LibraryFilter.ALL) }
+    var localFilter by remember(selectedSection) { mutableStateOf(selectedSection) }
+    val filter = localFilter
     var showCreateDialog by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
-        AmbientTopWash(
-            atmosphere = atmosphere,
-            height = 280.dp,
-            intensity = 0.22f,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
 
         LazyColumn(
             modifier = Modifier
@@ -189,13 +175,17 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     edgeFadeColor = MaterialTheme.colorScheme.background,
                 ) {
-                    LibraryFilter.entries.forEach { f ->
+                    LibrarySection.entries.forEach { f ->
                         val selected = filter == f
                         Surface(
                             shape = MusicoShapes.chip,
-                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainer,
+                            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                             modifier = Modifier.pressable(
-                                onClick = { hapticTick(); filter = f },
+                                onClick = {
+                                    hapticTick()
+                                    localFilter = f
+                                    onSelectSection(f)
+                                },
                                 pressedScale = 0.92f,
                             ),
                         ) {
@@ -203,7 +193,7 @@ fun LibraryScreen(
                                 f.label,
                                 fontSize = 13.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onBackground,
+                                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.padding(horizontal = 15.dp, vertical = 8.dp),
                             )
                         }
@@ -211,7 +201,7 @@ fun LibraryScreen(
                 }
             }
 
-            if (filter == LibraryFilter.ALL || filter == LibraryFilter.LIKED || filter == LibraryFilter.DOWNLOADS) {
+            if (filter == LibrarySection.ALL || filter == LibrarySection.LIKED || filter == LibrarySection.DOWNLOADS) {
                 item(key = "pinned-heroes") {
                     Row(
                         Modifier
@@ -219,12 +209,13 @@ fun LibraryScreen(
                             .padding(horizontal = 20.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        if (filter != LibraryFilter.DOWNLOADS) {
+                        if (filter != LibrarySection.DOWNLOADS) {
                             PinnedHeroTile(
                                 title = "Liked Songs",
                                 meta = formatSongCount(likedIds.size),
                                 icon = Icons.Filled.Favorite,
-                                gradient = listOf(Color(0xFF3B2A80), Color(0xFF7C5CFF), Color(0xFF53F2C4)),
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 canPlay = likedTracks.isNotEmpty(),
                                 onOpen = { onOpenCollection(LibraryCollectionRef.LikedSongs) },
                                 onQuickPlay = { onPlayTracks(likedTracks, 0) },
@@ -233,12 +224,13 @@ fun LibraryScreen(
                                     .staggerIn(index = 0),
                             )
                         }
-                        if (filter != LibraryFilter.LIKED) {
+                        if (filter != LibrarySection.LIKED) {
                             PinnedHeroTile(
                                 title = "Downloads",
                                 meta = formatDownloadsSummary(downloads.size, downloadsTotalBytes),
                                 icon = Icons.Filled.DownloadDone,
-                                gradient = listOf(Color(0xFF0E4B44), Color(0xFF1A8F7D), Color(0xFF53F2C4)),
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                                 canPlay = downloads.isNotEmpty(),
                                 onOpen = { onOpenCollection(LibraryCollectionRef.OfflineDownloads) },
                                 onQuickPlay = { onPlayTracks(downloads.map { it.track }, 0) },
@@ -251,7 +243,7 @@ fun LibraryScreen(
                 }
             }
 
-            if (filter == LibraryFilter.ALL && smartMixes.isNotEmpty()) {
+            if (filter == LibrarySection.ALL && smartMixes.isNotEmpty()) {
                 item(key = "smart-mixes-section") {
                     val mixState = rememberLazyListState()
                     val mixScope = rememberCoroutineScope()
@@ -304,7 +296,7 @@ fun LibraryScreen(
                 }
             }
 
-            if (filter == LibraryFilter.ALL || filter == LibraryFilter.PLAYLISTS) {
+            if (filter == LibrarySection.ALL || filter == LibrarySection.PLAYLISTS) {
                 item(key = "playlists-header") {
                     SectionLabel("Your playlists")
                 }
@@ -416,7 +408,7 @@ fun LibraryScreen(
                 }
             }
 
-            if (filter == LibraryFilter.LIKED && likedTracks.isNotEmpty()) {
+            if (filter == LibrarySection.LIKED && likedTracks.isNotEmpty()) {
                 item(key = "liked-list-header") { SectionLabel("Liked tracks") }
                 itemsIndexed(likedTracks, key = { i, t -> "lk-${t.videoId}-$i" }) { _, track ->
                     Box(Modifier.padding(horizontal = 14.dp)) {
@@ -434,7 +426,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            if (filter == LibraryFilter.DOWNLOADS) {
+            if (filter == LibrarySection.DOWNLOADS) {
                 if (downloads.isNotEmpty()) {
                     item(key = "dl-list-header") { SectionLabel("On this device") }
                     val dlTracks = downloads.map { it.track }
@@ -467,7 +459,7 @@ fun LibraryScreen(
                 }
             }
 
-            if ((filter == LibraryFilter.ALL && savedAlbums.isNotEmpty()) || filter == LibraryFilter.ALBUMS) {
+            if ((filter == LibrarySection.ALL && savedAlbums.isNotEmpty()) || filter == LibrarySection.ALBUMS) {
                 if (savedAlbums.isEmpty()) {
                     item(key = "albums-header") { SectionLabel("Saved albums") }
                     item(key = "albums-empty") {
@@ -532,7 +524,7 @@ fun LibraryScreen(
                 }
             }
 
-            if ((filter == LibraryFilter.ALL && savedArtists.isNotEmpty()) || filter == LibraryFilter.ARTISTS) {
+            if ((filter == LibrarySection.ALL && savedArtists.isNotEmpty()) || filter == LibrarySection.ARTISTS) {
                 if (savedArtists.isEmpty()) {
                     item(key = "artists-header") { SectionLabel("Followed artists") }
                     item(key = "artists-empty") {
@@ -597,10 +589,10 @@ fun LibraryScreen(
                 }
             }
 
-            if (filter == LibraryFilter.ALL) {
+            if (filter == LibrarySection.ALL || filter == LibrarySection.RECENT) {
                 if (recentlyPlayed.isNotEmpty()) {
                     item(key = "recents-header") { SectionLabel("Recently played") }
-                    itemsIndexed(recentlyPlayed.take(16), key = { i, t -> "rec-${t.videoId}-$i" }) { _, track ->
+                    itemsIndexed(recentlyPlayed.take(if (filter == LibrarySection.RECENT) 40 else 16), key = { i, t -> "rec-${t.videoId}-$i" }) { _, track ->
                         Box(Modifier.padding(horizontal = 14.dp)) {
                             TrackRow(
                                 track = track,
@@ -616,8 +608,16 @@ fun LibraryScreen(
                             )
                         }
                     }
+                } else if (filter == LibrarySection.RECENT) {
+                    item(key = "recents-empty") {
+                        EmptyState(
+                            icon = Icons.Filled.History,
+                            title = "Nothing played yet",
+                            subtitle = "Songs you listen to will appear here for instant replay",
+                        )
+                    }
                 }
-                if (queue.isNotEmpty()) {
+                if (filter == LibrarySection.ALL && queue.isNotEmpty()) {
                     item(key = "queue-header") { SectionLabel("Session queue") }
                     itemsIndexed(queue, key = { i, t -> "q-${t.videoId}-$i" }) { i, track ->
                         Box(Modifier.padding(horizontal = 14.dp)) {
@@ -636,7 +636,7 @@ fun LibraryScreen(
                         }
                     }
                 }
-                if (recentlyPlayed.isEmpty() && queue.isEmpty() && playlists.isEmpty() && likedTracks.isEmpty() && downloads.isEmpty()) {
+                if (filter == LibrarySection.ALL && recentlyPlayed.isEmpty() && queue.isEmpty() && playlists.isEmpty() && likedTracks.isEmpty() && downloads.isEmpty()) {
                     item(key = "lib-all-empty") {
                         EmptyState(
                             icon = Icons.Filled.History,
@@ -664,7 +664,8 @@ private fun PinnedHeroTile(
     title: String,
     meta: String,
     icon: ImageVector,
-    gradient: List<Color>,
+    containerColor: Color,
+    contentColor: Color,
     canPlay: Boolean,
     onOpen: () -> Unit,
     onQuickPlay: () -> Unit,
@@ -674,7 +675,7 @@ private fun PinnedHeroTile(
         modifier
             .height(142.dp)
             .clip(MusicoShapes.card)
-            .background(Brush.linearGradient(gradient))
+            .background(containerColor)
             .pressable(onClick = onOpen, pressedScale = 0.96f)
             .padding(16.dp),
     ) {
@@ -682,7 +683,7 @@ private fun PinnedHeroTile(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = Color.White,
+                tint = contentColor,
                 modifier = Modifier
                     .size(26.dp)
                     .breathing(max = 1.07f),
@@ -693,7 +694,7 @@ private fun PinnedHeroTile(
                 style = Musico.type.title,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
+                color = contentColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -701,7 +702,7 @@ private fun PinnedHeroTile(
             Text(
                 meta,
                 style = Musico.type.tabularCaption,
-                color = Color.White.copy(alpha = 0.84f),
+                color = contentColor.copy(alpha = 0.82f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -709,10 +710,10 @@ private fun PinnedHeroTile(
         if (canPlay) {
             Surface(
                 shape = CircleShape,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(34.dp)
+                    .size(36.dp)
                     .pressable(
                         onClick = { hapticThud(); onQuickPlay() },
                         pressedScale = 0.86f,
@@ -722,7 +723,7 @@ private fun PinnedHeroTile(
                     Icon(
                         Icons.Filled.PlayArrow,
                         contentDescription = "Play $title",
-                        tint = Color(0xFF18142E),
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(20.dp),
                     )
                 }
@@ -736,62 +737,40 @@ private fun SmartMixCard(
     mix: SmartMix,
     onClick: () -> Unit,
 ) {
-    val (start, end) = when (mix.accent) {
-        "coral" -> Color(0xFF8B2E4E) to Color(0xFFFF6B8B)
-        "mint" -> Color(0xFF0E4B44) to Color(0xFF39D9B4)
-        "support" -> Color(0xFF2B3568) to Color(0xFF6B7CFF)
-        else -> Musico.extras.primary to Musico.extras.support
-    }
-    Column(
-        Modifier
-            .width(156.dp)
-            .pressable(onClick = onClick, pressedScale = 0.95f),
+    Surface(
+        shape = MusicoShapes.card,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier
+            .width(164.dp)
+            .pressable(onClick = onClick, pressedScale = 0.96f),
     ) {
-        Box(
-            Modifier
-                .size(156.dp)
-                .clip(MusicoShapes.card),
-        ) {
+        Column {
             PlaylistMosaicArtwork(
                 thumbnails = mix.tracks.map { it.thumbnail },
-                modifier = Modifier.fillMaxSize(),
-                cornerRadius = 24.dp,
-                accentStart = start,
-                accentEnd = end,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(148.dp),
+                cornerRadius = 0.dp,
             )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(musicoScrimBrush(Color(0xFF0A0A14), maxAlpha = 0.86f, startFraction = 0.26f)),
-            )
-            Column(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp),
-            ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                 Text(
                     mix.title,
                     style = Musico.type.title,
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    formatTrackCount(mix.tracks.size),
-                    style = Musico.type.tabularCaption,
-                    color = Musico.extras.mint,
+                    "${formatTrackCount(mix.tracks.size)} · ${mix.subtitle}",
+                    style = Musico.type.caption,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            mix.subtitle,
-            style = Musico.type.caption,
-            color = Musico.extras.inkDim,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 

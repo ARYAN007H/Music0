@@ -113,43 +113,39 @@ fun RadioScreen(
 
 @Composable
 private fun RadioCard(style: ShelfItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val seed = abs(style.title.hashCode())
-    val hueShift = (seed % 100) / 100f
-    val wash = blend(Musico.extras.primary, Musico.extras.support, hueShift)
+    val seed = abs(style.title.hashCode()) % 4
+    val (bg, fg) = when (seed) {
+        0 -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        1 -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        2 -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurface
+    }
 
     Box(
         modifier
             .fillMaxWidth()
             .aspectRatio(1.25f)
             .clip(MusicoShapes.tile)
+            .background(bg)
             .pressable(onClick = onClick, pressedScale = 0.94f),
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(wash.copy(alpha = 0.58f), Musico.extras.bg2),
-                    ),
-                ),
-        )
         Text(
             style.title,
             style = Musico.type.titleLarge,
-            color = Color.White,
+            color = fg,
             textAlign = TextAlign.Start,
             modifier = Modifier
-                .align(Alignment.Center)
+                .align(Alignment.CenterStart)
                 .padding(horizontal = 16.dp),
         )
         if (style.subtitle.isNotBlank()) {
             Text(
                 style.subtitle,
                 style = Musico.type.caption,
-                color = Color.White.copy(alpha = 0.72f),
+                color = fg.copy(alpha = 0.78f),
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(12.dp),
+                    .padding(14.dp),
                 maxLines = 1,
             )
         }

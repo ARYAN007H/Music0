@@ -283,3 +283,86 @@ export function isProgressiveStreamPlayable(
   }
   return bufferedBytes >= thresholdBytes;
 }
+
+export interface AudioStreamCandidate {
+  url: string;
+  mimeType?: string;
+  bitrate?: number;
+}
+
+export function hasThrottleNParam(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes('?n=') || lower.includes('&n=');
+}
+
+/**
+ * Picks the best direct playable audio stream:
+ * 1) Non-n-param audio/mp4 <= bitrateCap (highest bitrate)
+ * 2) Non-n-param audio/webm (Opus) <= bitrateCap
+ * 3) Any audio/mp4 or audio/webm <= 512kbps (closest to cap)
+ * 4) Falls back to n-param streams using the same priority instead of dropping the track.
+ */
+export function selectBestAudioStream(
+  candidates: AudioStreamCandidate[],
+  bitrateCap = 192_000
+): AudioStreamCandidate | null {
+  const httpsOnly = candidates.filter((c) => c.url.startsWith('https://'));
+  const pickFrom = (pool: AudioStreamCandidate[]): AudioStreamCandidate | null => {
+    const m4a = pool
+      .filter((c) => c.mimeType?.toLowerCase().startsWith('audio/mp4'))
+      .filter((c) => (c.bitrate ?? 0) > 0 && (c.bitrate ?? 0) <= bitrateCap)
+      .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+    if (m4a.length > 0) return m4a[0];
+
+    const webm = pool
+      .filter((c) => c.mimeType?.toLowerCase().startsWith('audio/webm'))
+      .filter((c) => (c.bitrate ?? 0) > 0 && (c.bitrate ?? 0) <= bitrateCap)
+      .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0));
+    if (webm.length > 0) return webm[0];
+
+    const fallback = pool
+      .filter((c) => {
+        const mime = c.mimeType?.toLowerCase() ?? '';
+        return mime.startsWith('audio/mp4') || mime.startsWith('audio/webm');
+      })
+      .filter((c) => (c.bitrate ?? 128_000) <= 512_000)
+      .sort((a, b) => Math.abs((a.bitrate ?? 128_000) - bitrateCap) - Math.abs((b.bitrate ?? 128_000) - bitrateCap));
+    return fallback[0] ?? null;
+  };
+
+  const direct = httpsOnly.filter((c) => !hasThrottleNParam(c.url));
+  return pickFrom(direct) ?? pickFrom(httpsOnly);
+}
+
+/**
+ * Tracks InnerTube client profile health: per-video rejections never demote
+ * a client, and only `threshold` consecutive transport/HTTP failures trigger a
+ * short cooldown (default 90s).
+ */
+export class InnerTubeClientHealthTracker {
+  private state = new Map<string, { consecutiveFailures: number; demotedUntilMs: number }>();
+  private readonly threshold: number;
+  private readonly cooldownMs: number;
+
+  constructor(threshold = 3, cooldownMs = 90_000) {
+    this.threshold = threshold;
+    this.cooldownMs = cooldownMs;
+  }
+
+  recordTransportFailure(profileId: string, nowMs = Date.now()): void {
+    const prev = this.state.get(profileId) ?? { consecutiveFailures: 0, demotedUntilMs: 0 };
+    const nextFailures = prev.consecutiveFailures + 1;
+    const demotedUntilMs = nextFailures >= this.threshold ? nowMs + this.cooldownMs : prev.demotedUntilMs;
+    this.state.set(profileId, { consecutiveFailures: nextFailures, demotedUntilMs });
+  }
+
+  recordSuccess(profileId: string): void {
+    this.state.delete(profileId);
+  }
+
+  isDemoted(profileId: string, nowMs = Date.now()): boolean {
+    const entry = this.state.get(profileId);
+    return Boolean(entry && entry.demotedUntilMs > nowMs);
+  }
+}
+

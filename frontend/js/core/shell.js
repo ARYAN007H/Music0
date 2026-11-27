@@ -23,28 +23,32 @@ function useStoreValue(key, fallback) {
 
 const NAV_GROUPS = [
   {
-    label: null,
+    label: 'Discover',
     items: [
       { id: 'nav-home', view: 'browse', label: 'Home', icon: 'home' },
-      { id: 'nav-search', view: 'search', label: 'Search', icon: 'search' },
+      { id: 'nav-made', view: 'made', label: 'Made for You', icon: 'sparkle' },
+      { id: 'nav-genres', view: 'genres', label: 'Moods & Genres', icon: 'compass' },
       { id: 'nav-radio', view: 'radio', label: 'Radio', icon: 'radio' },
+      { id: 'nav-search', view: 'search', label: 'Search', icon: 'search' },
     ],
   },
   {
-    label: 'Library',
+    label: 'Your Library',
     items: [
-      { id: 'nav-recent', view: 'library', label: 'Recently Added', icon: 'clock', tab: 'recent' },
+      { id: 'nav-recent', view: 'library', label: 'Recently Played', icon: 'clock', tab: 'recent' },
       { id: 'nav-artists', view: 'library', label: 'Artists', icon: 'artist', tab: 'artists' },
       { id: 'nav-albums', view: 'library', label: 'Albums', icon: 'albums', tab: 'albums' },
       { id: 'nav-songs', view: 'library', label: 'Songs', icon: 'note', tab: 'songs' },
-      { id: 'nav-made', view: 'made', label: 'Made for You', icon: 'sparkle' },
+      { id: 'nav-favorites', view: 'favorites', label: 'Liked Songs', icon: 'heart' },
+      { id: 'nav-queue', view: 'queue', label: 'Up Next', icon: 'queue' },
+      { id: 'nav-insights', view: 'insights', label: 'Listening Stats', icon: 'chart' },
     ],
   },
   {
     label: 'Playlists',
     items: [
       { id: 'nav-playlists', view: 'playlists', label: 'All Playlists', icon: 'list' },
-      { id: 'nav-favorites', view: 'favorites', label: 'Favorites', icon: 'star' },
+      { id: 'nav-settings', view: 'settings', label: 'Settings', icon: 'gear' },
     ],
   },
 ];
@@ -52,12 +56,16 @@ const NAV_GROUPS = [
 const ICONS = {
   home: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>`,
   search: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`,
+  compass: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polygon points="15.5 8.5 13.5 13.5 8.5 15.5 10.5 10.5 15.5 8.5"/></svg>`,
   radio: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 010 8.49M7.76 16.24a6 6 0 010-8.49M19.07 4.93a10 10 0 010 14.14M4.93 19.07a10 10 0 010-14.14"/></svg>`,
   clock: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
   artist: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>`,
   albums: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M6 7V5a2 2 0 012-2h8a2 2 0 012 2v2"/><circle cx="12" cy="14" r="3"/></svg>`,
   note: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
   sparkle: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z"/><path d="M19 15l.9 2.6L22.5 18.5l-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z"/></svg>`,
+  heart: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>`,
+  queue: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h14M3 12h14M3 18h10"/><path d="M19 14v6M22 17l-3-3-3 3"/></svg>`,
+  chart: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20v-4"/></svg>`,
   list: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>`,
   star: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   gear: html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`,
@@ -102,16 +110,19 @@ function Sidebar() {
 
   return html`
     <div class="side-brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-      </svg>
+      <div class="m3-brand-badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+        </svg>
+      </div>
       <div class="brand-text">
-        <div class="brand-name">Music</div>
+        <div class="brand-name">Music0</div>
+        <div class="brand-sub">Fast stream engine</div>
       </div>
     </div>
     <div class="side-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-      <input type="search" id="sidebar-search-input" placeholder="Search" aria-label="Search"
+      <input type="search" id="sidebar-search-input" placeholder="Search songs, artists…" aria-label="Search"
              onInput=${onSearchInput} onFocus=${onSearchFocus} />
     </div>
     <nav class="side-nav" aria-label="Main">
@@ -125,7 +136,7 @@ function Sidebar() {
         </div>
       `)}
     </nav>
-    <div class="side-footer">Your music. Everywhere.</div>`;
+    <div class="side-footer">Music0 v1.0.1 · Material 3 Expressive</div>`;
 }
 
 // ─── WindowChrome (macOS traffic-light space / Windows drawn controls) ────────
@@ -301,8 +312,9 @@ function TransportBar() {
         <button class="lcd-btn" title="Previous" aria-label="Previous track" onClick=${() => transport().prev?.()}>
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></svg>
         </button>
-        <button class="lcd-btn lcd-play" title=${pb.isPlaying ? 'Pause' : 'Play'}
+        <button class="lcd-btn lcd-play ${pb.isPlaying ? 'is-playing' : ''}" title=${pb.isPlaying ? 'Pause' : 'Play'}
                 aria-label=${pb.isPlaying ? 'Pause' : 'Play'}
+                data-playing=${pb.isPlaying ? 'true' : 'false'}
                 onClick=${() => transport().toggle?.()}>
           ${pb.isPlaying
             ? html`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>`
@@ -318,17 +330,17 @@ function TransportBar() {
       </div>
       <div class="lcd-seek-row">
         <span class="lcd-time">${fmtTime(pb.position)}</span>
-        <input type="range" class="lcd-seek" min="0" max="1000" step="1"
-               value=${Math.round(frac * 1000)}
-               aria-label="Seek" aria-valuemin="0" aria-valuemax="100"
-               aria-valuenow=${Math.round(frac * 100)}
-               disabled=${!pb.hasSong || undefined}
-               onInput=${(e) => setScrub(Number(e.target.value))}
-               onChange=${(e) => {
-                 setScrub(null);
-                 const secs = (Number(e.target.value) / 1000) * (pb.duration || 0);
-                 transport().seek?.(secs);
-               }} />
+        <${M3WavySeekBar}
+          frac=${frac}
+          isPlaying=${!!pb.isPlaying}
+          disabled=${!pb.hasSong}
+          onInput=${(val) => setScrub(val)}
+          onCommit=${(val) => {
+            setScrub(null);
+            const secs = (val / 1000) * (pb.duration || 0);
+            transport().seek?.(secs);
+          }}
+        />
         <span class="lcd-time">-${fmtTime(Math.max(0, (pb.duration || 0) - pb.position))}</span>
       </div>
     </div>
@@ -679,6 +691,58 @@ async function loadHomeExtra() {
   }
 }
 
+const HOME_MOOD_FILTERS = ['All', 'Made for You', 'Chill', 'Energize', 'Focus', 'Workout'];
+
+function M3WavySeekBar({ frac, isPlaying, disabled, onInput, onCommit }) {
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    if (!isPlaying || disabled) return undefined;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      setPhase((p) => (p + dt * 5.2) % (Math.PI * 2));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isPlaying, disabled]);
+
+  const pct = Math.max(0, Math.min(1, frac || 0));
+  const W = 240;
+  const midY = 8;
+  const activeEnd = Math.max(2, pct * W);
+  const amp = isPlaying && !disabled ? 3.2 : 0;
+
+  let activeD = `M 2 ${midY}`;
+  if (amp > 0.1 && activeEnd > 6) {
+    const step = 4;
+    for (let x = 2; x <= activeEnd; x += step) {
+      const y = midY + Math.sin(x * 0.28 + phase) * amp;
+      activeD += ` L ${x.toFixed(1)} ${y.toFixed(2)}`;
+    }
+  } else {
+    activeD = `M 2 ${midY} L ${activeEnd.toFixed(1)} ${midY}`;
+  }
+
+  return html`
+    <div class="m3-wavy-seek ${isPlaying ? 'is-playing' : ''}" data-testid="m3-wavy-seek">
+      <svg class="m3-wavy-svg" viewBox="0 0 ${W} 16" preserveAspectRatio="none" aria-hidden="true">
+        <line class="m3-seek-track-inactive" x1=${Math.min(W - 2, activeEnd + 6)} y1=${midY} x2=${W - 2} y2=${midY} />
+        <path class="m3-seek-track-active" d=${activeD} />
+      </svg>
+      <div class="m3-seek-thumb" style=${{ left: `${(pct * 100).toFixed(2)}%` }} aria-hidden="true" />
+      <input type="range" class="lcd-seek" min="0" max="1000" step="1"
+             value=${Math.round(pct * 1000)}
+             aria-label="Seek" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow=${Math.round(pct * 100)}
+             disabled=${disabled || undefined}
+             onInput=${(e) => onInput(Number(e.target.value))}
+             onChange=${(e) => onCommit(Number(e.target.value))} />
+    </div>`;
+}
+
 function HomeFeed() {
   const feed = useStoreValue('homeFeed', null);
   const loading = useStoreValue('homeFeedLoading', false);
@@ -687,9 +751,10 @@ function HomeFeed() {
   const extraLoading = useStoreValue('homeExtraLoading', false);
   const history = useStoreValue('history', []);
   const recShelf = useStoreValue('recShelf', null);
+  const likedIds = useStoreValue('likedIds', []);
+  const [activeMood, setActiveMood] = useState('All');
   const sentinelRef = useRef(null);
-  // #63: the recommender surfaces itself with a reason header when a like
-  // can anchor it; null (no likes / empty library) hides the shelf entirely.
+
   useEffect(() => {
     window.Bridge?.invoke?.('recommended_for_home')
       .then((r) => Store.set('recShelf', r || null));
@@ -697,8 +762,6 @@ function HomeFeed() {
 
   useEffect(() => { loadHomeFeed(); }, []);
 
-  // Grow the page when the sentinel nears the viewport (the view pane clips
-  // to the window, so viewport-intersection == end-of-feed).
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !feed?.shelves?.length) return undefined;
@@ -716,8 +779,6 @@ function HomeFeed() {
     </div>`;
   }
   if (!feed?.shelves?.length) {
-    // #65: skeleton shelves while the first feed loads (search has had
-    // these since C3; Home was the last bare spinner).
     if (loading) {
       return html`<div class="home-skeleton" aria-hidden="true">
         ${[0, 1, 2].map((i) => html`
@@ -729,24 +790,30 @@ function HomeFeed() {
     }
     return html`<div class="home-status"></div>`;
   }
-  const sh0 = feed.shelves[0] || { items: [] };
-  const sh1 = feed.shelves[1] || { items: [] };
-  // #76: rotate the hero through the first shelf instead of pinning
-  // item[0] forever — the same wide poster sat on Home across visits.
-  // Hourly slot: changes between visits, never mid-session flicker.
+
+  const allShelves = useMemo(() => {
+    const base = [...(feed.shelves || []), ...(extra?.sections || [])];
+    if (activeMood === 'All') return base;
+    const needle = activeMood.toLowerCase();
+    const matched = base.filter((sh) =>
+      (sh.title || '').toLowerCase().includes(needle) ||
+      (sh.items || []).some((it) =>
+        (it.title || '').toLowerCase().includes(needle) ||
+        (it.subtitle || '').toLowerCase().includes(needle)
+      )
+    );
+    return matched.length ? matched : base;
+  }, [feed, extra, activeMood]);
+
+  const sh0 = allShelves[0] || { items: [] };
+  const sh1 = allShelves[1] || { items: [] };
   const heroSlot = sh0.items.length > 2
     ? Math.floor(Date.now() / 3600000) % sh0.items.length
     : 0;
   const heroA = sh0.items[heroSlot];
   const heroB = sh0.items.length > 1 ? sh0.items[(heroSlot + 1) % sh0.items.length] : undefined;
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
-
-  // First-run onboarding (#58): AM/Spotify never open on a dead screen — the
-  // vibe chips ARE the intent signal.  The row hides once the user has any
-  // history or has picked once (durable flag — restarts must not nag).
-  const vibeBusy = useStoreValue('vibeBusy', false);
-  const onboarding = !onboardedFlag() && !(history?.length);
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   const playItem = (item) => {
     if (item.video_id) {
@@ -761,48 +828,190 @@ function HomeFeed() {
     }
   };
 
+  const quickPicks = useMemo(() => {
+    const picks = [
+      {
+        key: 'qp-liked',
+        title: 'Liked Songs',
+        sub: `${(likedIds || []).length || 0} saved`,
+        tone: 'primary',
+        icon: ICONS.heart,
+        onClick: () => window.MusicoRouter?.navigate('favorites'),
+      },
+      {
+        key: 'qp-made',
+        title: 'Made for You',
+        sub: 'Personal daily mixes',
+        tone: 'secondary',
+        icon: ICONS.sparkle,
+        onClick: () => window.MusicoRouter?.navigate('made'),
+      },
+      {
+        key: 'qp-radio',
+        title: 'Quick Radio',
+        sub: 'Instant mood stations',
+        tone: 'tertiary',
+        icon: ICONS.radio,
+        onClick: () => window.MusicoRouter?.navigate('radio'),
+      },
+    ];
+    for (const h of (history || []).slice(0, 3)) {
+      picks.push({
+        key: `qp-h-${h.id}`,
+        title: h.title,
+        sub: h.artist || 'Recently played',
+        thumb: h.thumb,
+        onClick: () => window.App?.playSong?.(h),
+      });
+    }
+    const fallbackItems = [...(sh0.items || []), ...(sh1.items || [])];
+    for (const it of fallbackItems) {
+      if (picks.length >= 6) break;
+      if (picks.some((p) => p.title === it.title)) continue;
+      picks.push({
+        key: `qp-it-${it.video_id || it.browse_id || it.title}`,
+        title: it.title,
+        sub: it.subtitle || 'Quick pick',
+        thumb: it.thumbnail,
+        onClick: () => playItem(it),
+      });
+    }
+    return picks.slice(0, 6);
+  }, [likedIds, history, sh0, sh1]);
+
+  const featuredArtists = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (const sh of (feed.shelves || [])) {
+      for (const it of (sh.items || [])) {
+        const name = (it.kind === 'artist' ? it.title : (it.subtitle || '').split('•')[0].split(',')[0].trim());
+        if (!name || name.length < 2 || seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        list.push({
+          name,
+          thumb: it.thumbnail || null,
+          item: it,
+        });
+        if (list.length >= 8) return list;
+      }
+    }
+    return list;
+  }, [feed]);
+
   return html`
     <div class="home-feed">
-      ${onboarding ? html`
-      <section class="vibe-pick" aria-label="Pick your vibe">
-        <h2 class="shelf-title">Pick your vibe</h2>
-        <div class="vibe-chips">
-          ${['Pop', 'Hip-Hop', 'Bollywood'].map((g) => html`
-            <button class="vibe-chip" key=${g} disabled=${vibeBusy} onClick=${() => startVibe(g)}>${g}</button>
+      <div class="m3-home-head">
+        <div>
+          <div class="m3-greeting-kicker">${greeting}</div>
+          <h1 class="m3-greeting-title">Jump back in</h1>
+        </div>
+        <div class="m3-mood-chips" role="tablist" aria-label="Filter home by mood">
+          ${HOME_MOOD_FILTERS.map((mood) => html`
+            <button
+              type="button"
+              key=${mood}
+              role="tab"
+              aria-selected=${activeMood === mood}
+              class="m3-mood-chip ${activeMood === mood ? 'active' : ''}"
+              onClick=${() => setActiveMood(mood)}
+            >${mood}</button>
           `)}
         </div>
-      </section>` : null}
+      </div>
+
+      <section class="m3-quick-grid" aria-label="Quick picks">
+        ${quickPicks.map((qp) => html`
+          <button type="button" class="m3-quick-tile" key=${qp.key} onClick=${qp.onClick}>
+            <div class="m3-quick-art ${qp.tone ? 'tone-' + qp.tone : ''}"
+                 style=${qp.thumb ? { backgroundImage: `url("${qp.thumb}")` } : undefined}
+                 aria-hidden="true">
+              ${!qp.thumb ? (qp.icon || ICONS.note) : null}
+            </div>
+            <div class="m3-quick-meta">
+              <div class="m3-quick-title">${qp.title}</div>
+              <div class="m3-quick-sub">${qp.sub}</div>
+            </div>
+          </button>
+        `)}
+      </section>
+
       ${heroA ? html`
-      <div class="am-hero-row">
-        <div class="am-hero" role="button" tabindex="0" aria-label="Play ${heroA.title}"
+      <div class="m3-hero-row">
+        <div class="m3-hero-card" role="button" tabindex="0" aria-label="Play ${heroA.title}"
              onClick=${() => playItem(heroA)}
-             onKeyDown=${(e) => { if (e.key === 'Enter') playItem(heroA); }}>
-          <div class="am-hero-art" style=${{ background: heroA.thumbnail ? `url("${heroA.thumbnail}") center/cover no-repeat` : 'var(--surface-raised)' }} />
-          <div class="am-hero-overlay">
-            <div class="am-hero-kicker">${(sh0.title || 'Featured').toUpperCase()}</div>
-            <div class="am-hero-title">${heroA.title}</div>
-            <div class="am-hero-sub">${heroA.subtitle || 'Made for your Wednesday.'}</div>
-            <button class="am-hero-play" tabindex="-1" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
-              Play
-            </button>
+             onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playItem(heroA); } }}>
+          <div class="m3-hero-cover"
+               style=${heroA.thumbnail ? { backgroundImage: `url("${heroA.thumbnail}")` } : undefined}
+               aria-hidden="true">
+            ${!heroA.thumbnail ? ICONS.note : null}
+          </div>
+          <div class="m3-hero-body">
+            <div>
+              <div class="m3-hero-badge">${(sh0.title || 'Featured').toUpperCase()}</div>
+              <div class="m3-hero-title">${heroA.title}</div>
+              <div class="m3-hero-sub">${heroA.subtitle || 'Curated for your listening session'}</div>
+            </div>
+            <div class="m3-hero-actions">
+              <button type="button" class="m3-primary-btn"
+                      onClick=${(e) => { e.stopPropagation(); playItem(heroA); }}>
+                <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="8,5 20,12 8,19"/></svg>
+                Play now
+              </button>
+            </div>
           </div>
         </div>
         ${heroB ? html`
-        <div class="am-hero am-hero-side" role="button" tabindex="0" aria-label="Open ${heroB.title}"
+        <div class="m3-hero-card m3-hero-secondary" role="button" tabindex="0" aria-label="Play ${heroB.title}"
              onClick=${() => playItem(heroB)}
-             onKeyDown=${(e) => { if (e.key === 'Enter') playItem(heroB); }}>
-          <div class="am-hero-art" style=${{ background: heroB.thumbnail ? `url("${heroB.thumbnail}") center/cover no-repeat` : 'var(--surface-raised)' }} />
-          <div class="am-hero-overlay">
-            <div class="am-hero-kicker">YOUR NEXT OBSESSION</div>
-            <div class="am-hero-title am-hero-title-sm">${heroB.title}</div>
-            <div class="am-hero-sub">${heroB.subtitle || ''}</div>
+             onKeyDown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playItem(heroB); } }}>
+          <div class="m3-hero-cover"
+               style=${heroB.thumbnail ? { backgroundImage: `url("${heroB.thumbnail}")` } : undefined}
+               aria-hidden="true">
+            ${!heroB.thumbnail ? ICONS.sparkle : null}
+          </div>
+          <div class="m3-hero-body">
+            <div>
+              <div class="m3-hero-badge">UP NEXT PICK</div>
+              <div class="m3-hero-title">${heroB.title}</div>
+              <div class="m3-hero-sub">${heroB.subtitle || 'Fresh rotation'}</div>
+            </div>
           </div>
         </div>` : null}
       </div>` : null}
 
+      ${featuredArtists.length ? html`
+      <section class="shelf" aria-label="Favorite artists">
+        <div class="shelf-head">
+          <h2 class="shelf-title">Artists for you</h2>
+          <button type="button" class="shelf-seeall"
+                  onClick=${() => { Store.set('libTab', 'artists'); window.MusicoRouter?.navigate('library'); }}>
+            All artists
+          </button>
+        </div>
+        <div class="m3-artists-row">
+          ${featuredArtists.map((art) => html`
+            <button type="button" class="m3-artist-card" key=${art.name}
+                    onClick=${() => {
+                      const inp = document.getElementById('browse-input');
+                      if (inp) {
+                        inp.value = art.name;
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                      window.MusicoRouter?.navigate('search');
+                    }}>
+              <div class="m3-artist-avatar"
+                   style=${art.thumb ? { backgroundImage: `url("${art.thumb}")` } : undefined}
+                   aria-hidden="true">
+                ${!art.thumb ? art.name.charAt(0).toUpperCase() : null}
+              </div>
+              <span class="m3-artist-name">${art.name}</span>
+            </button>
+          `)}
+        </div>
+      </section>` : null}
+
       ${sh1.items?.length ? html`
-        <${Shelf} shelf=${{ title: sh1.title || 'Made for you', items: sh1.items }} seeAll=${/^made for/i.test(sh1.title || '')} />` : null}
+        <${Shelf} shelf=${{ title: sh1.title || 'Made for you', items: sh1.items }} seeAll=${true} />` : null}
 
       ${recShelf ? html`
         <section class="shelf" aria-label=${recShelf.header}>
@@ -830,7 +1039,7 @@ function HomeFeed() {
           <div class="recent-grid">
             ${history.slice(0, 6).map((h) => html`
               <div class="recent-row" key=${h.id}>
-                <div class="recent-art" style=${{ background: h.thumb ? `url("${h.thumb}") center/cover no-repeat, rgba(255,255,255,0.06)` : 'rgba(255,255,255,0.06)' }} aria-hidden="true" />
+                <div class="recent-art" style=${{ background: h.thumb ? `url("${h.thumb}") center/cover no-repeat` : 'var(--m3-primary-container)' }} aria-hidden="true" />
                 <div class="lib-meta">
                   <div class="lib-title">${h.title}</div>
                   <div class="lib-sub">${h.artist || ''}</div>
@@ -843,20 +1052,13 @@ function HomeFeed() {
           </div>
         </section>` : null}
 
-      ${feed.shelves.slice(2).map((s, i) => html`<${Shelf} key=${s.title + i} shelf=${s} />`)}
-
-      ${(extra?.sections || []).map((sec, i) => html`
-        <${Shelf} key=${'x' + sec.title + i} shelf=${{ title: sec.title, items: sec.items }} />`)}
-
-      <div class="am-greeting">${greeting} Find your next favorite.</div>
+      ${allShelves.slice(2).map((s, i) => html`<${Shelf} key=${s.title + i} shelf=${s} />`)}
 
       ${!(extra?.done) && feed.shelves.length
         ? html`<div class="home-sentinel" ref=${sentinelRef}>
-            <div class="home-status">${extraLoading ? 'Loading more for you…' : ''}</div>
+            <div class="home-status">${extraLoading ? 'Loading more mixes…' : ''}</div>
           </div>`
-        : html`<div class="home-status" style="padding: var(--space-24) 0 0;">
-            That's the curation for now — Browse has 50 more moods.
-          </div>`}
+        : null}
     </div>`;
 }
 

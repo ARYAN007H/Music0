@@ -45,18 +45,18 @@ use serde::Deserialize;
 /// Spent BEFORE the yt-dlp budgets begin (see module header).
 pub(crate) const FAST_PATH_BUDGET: Duration = Duration::from_secs(10);
 /// Total budget for one metadata request (InnerTube `/player` or Piped `/streams` JSON).
-/// Healthy endpoints answer in 150–600 ms; 3.5 s catches hung instances fast.
-const METADATA_TIMEOUT: Duration = Duration::from_millis(3_500);
+/// Healthy endpoints answer in 150–600 ms; 2.2 s catches hung instances fast.
+const METADATA_TIMEOUT: Duration = Duration::from_millis(2_200);
 /// Connect budget for the dedicated source client — a black-holed instance
 /// must fail fast so the pool moves on.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECT_TIMEOUT: Duration = Duration::from_millis(1_500);
 /// Per-read idle timeout for live streaming HTTP bodies (bounds hung headers
 /// and stalled chunks without cutting off long tracks on slow internet).
 const STREAM_READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// Delay before hedging backup sources when the primary source hasn't opened yet.
-const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(900);
+const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(400);
 /// Maximum backup sources launched per hedge wave.
-const STREAM_HEDGE_BATCH: usize = 2;
+const STREAM_HEDGE_BATCH: usize = 3;
 /// Upper bound on one downloaded track — a 5-minute 128 kbps m4a is ~5 MB;
 /// anything beyond this cap is not audio we asked for.
 pub(crate) const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
@@ -590,6 +590,43 @@ fn select_best_m4a_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
         .map(|s| s.url.clone())
 }
 
+/// Selects the best playable direct audio stream (`audio/mp4` preferred, then
+/// `audio/webm` Opus, then uncapped audio-only up to 512 kbps) so tracks that
+/// only expose Opus or slightly higher bitrates still play seamlessly on
+/// ExoPlayer (Android) and Symphonia (Desktop).
+fn select_best_audio_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
+    if let Some(m4a) = select_best_m4a_within(streams, cap) {
+        return Some(m4a);
+    }
+    if let Some(webm) = streams
+        .iter()
+        .filter(|s| {
+            s.mime_type
+                .as_deref()
+                .is_some_and(|m| m.starts_with("audio/webm"))
+        })
+        .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
+        .filter(|s| s.url.starts_with("https://"))
+        .max_by_key(|s| s.bitrate.unwrap_or(0))
+        .map(|s| s.url.clone())
+    {
+        return Some(webm);
+    }
+    // Last resort: accept any audio/mp4 or audio/webm stream up to 512 kbps
+    // (or missing bitrate field) rather than dropping the song entirely.
+    streams
+        .iter()
+        .filter(|s| {
+            s.mime_type
+                .as_deref()
+                .is_some_and(|m| m.starts_with("audio/mp4") || m.starts_with("audio/webm"))
+        })
+        .filter(|s| s.bitrate.unwrap_or(128_000) <= 512_000)
+        .filter(|s| s.url.starts_with("https://"))
+        .min_by_key(|s| s.bitrate.unwrap_or(128_000).abs_diff(cap))
+        .map(|s| s.url.clone())
+}
+
 /// The default-cap variant — the unit-test target for the fixture suite.
 #[cfg(test)]
 fn select_best_m4a(streams: &[PipedAudio]) -> Option<String> {
@@ -621,10 +658,10 @@ impl PipedSource {
         let parsed: PipedStreams = serde_json::from_slice(&bytes)
             .map_err(|e| format!("piped {}: metadata parse: {e}", self.host))?;
         let cap = fast_path_bitrate_cap();
-        let url = select_best_m4a_within(&parse_audio_streams(&parsed), cap)
+        let url = select_best_audio_within(&parse_audio_streams(&parsed), cap)
             .ok_or_else(|| {
                 format!(
-                    "piped {}: no usable audio/mp4 stream ≤{}k",
+                    "piped {}: no usable audio stream ≤{}k",
                     self.host,
                     cap / 1000
                 )
@@ -750,9 +787,9 @@ struct ItClientProfile {
     needs_visitor: bool,
 }
 
-/// Ordered failover catalog. Values are the public benchmark observations of
-/// November 2026; the ecosystem moves, so profiles demote on failure and the
-/// instance pools remain behind this source as failover.
+/// Ordered failover catalog. Values are the public benchmark observations;
+/// the ecosystem moves, so profiles demote only after repeated transport
+/// failures and the instance pools remain behind this source as failover.
 const IT_CLIENTS: &[ItClientProfile] = &[
     ItClientProfile {
         id: "VISIONOS_0_1",
@@ -787,6 +824,54 @@ const IT_CLIENTS: &[ItClientProfile] = &[
         needs_visitor: false,
     },
     ItClientProfile {
+        id: "IOS_20",
+        client_name: "IOS",
+        client_version: "20.10.4",
+        client_id: "5",
+        user_agent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+        os_name: Some("iPhone"),
+        os_version: Some("18.3.2.22D82"),
+        device_make: Some("Apple"),
+        device_model: Some("iPhone16,2"),
+        android_sdk_version: None,
+        platform: Some("MOBILE"),
+        ua_in_context: false,
+        music_player_endpoint: false,
+        needs_visitor: false,
+    },
+    ItClientProfile {
+        id: "ANDROID_MUSIC",
+        client_name: "ANDROID_MUSIC",
+        client_version: "8.05.51",
+        client_id: "21",
+        user_agent: "com.google.android.apps.youtube.music/8.05.51 (Linux; U; Android 14; en_US; Pixel 8 Pro Build/AP2A.240805.005) gzip",
+        os_name: Some("Android"),
+        os_version: Some("14"),
+        device_make: Some("Google"),
+        device_model: Some("Pixel 8 Pro"),
+        android_sdk_version: Some(34),
+        platform: Some("MOBILE"),
+        ua_in_context: false,
+        music_player_endpoint: true,
+        needs_visitor: false,
+    },
+    ItClientProfile {
+        id: "TV_EMBEDDED",
+        client_name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+        client_version: "2.0",
+        client_id: "85",
+        user_agent: "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
+        os_name: None,
+        os_version: None,
+        device_make: None,
+        device_model: None,
+        android_sdk_version: None,
+        platform: Some("TV"),
+        ua_in_context: false,
+        music_player_endpoint: false,
+        needs_visitor: false,
+    },
+    ItClientProfile {
         id: "WEB_REMIX",
         client_name: "WEB_REMIX",
         client_version: "1.20260707.12.00",
@@ -804,20 +889,36 @@ const IT_CLIENTS: &[ItClientProfile] = &[
     },
 ];
 
-/// A demoted profile is skipped for this long; successes clear the mark.
-const IT_DEMOTE: Duration = Duration::from_secs(10 * 60);
+/// A demoted profile is skipped for 90 s after `IT_DEMOTE_THRESHOLD`
+/// consecutive transport/HTTP failures; per-video playability errors never
+/// demote a client profile, and any success immediately rehabilitates it.
+const IT_DEMOTE: Duration = Duration::from_secs(90);
+const IT_DEMOTE_THRESHOLD: u32 = 3;
+
+#[derive(Default, Clone, Copy)]
+struct ItClientHealth {
+    consecutive_failures: u32,
+    demoted_until: Option<Instant>,
+}
+
 #[allow(clippy::incompatible_msrv)] // file-wide pattern; MSRV raises with the 1.80 bump
-static IT_HEALTH: LazyLock<std::sync::Mutex<std::collections::HashMap<&'static str, Instant>>> =
+static IT_HEALTH: LazyLock<std::sync::Mutex<std::collections::HashMap<&'static str, ItClientHealth>>> =
     LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 fn it_demoted(id: &str) -> bool {
     let Ok(map) = IT_HEALTH.lock() else { return false };
-    map.get(id).is_some_and(|until| *until > Instant::now())
+    map.get(id)
+        .and_then(|h| h.demoted_until)
+        .is_some_and(|until| until > Instant::now())
 }
 
-fn it_demote(id: &'static str) {
+fn it_record_transport_failure(id: &'static str) {
     if let Ok(mut map) = IT_HEALTH.lock() {
-        map.insert(id, Instant::now() + IT_DEMOTE);
+        let entry = map.entry(id).or_default();
+        entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
+        if entry.consecutive_failures >= IT_DEMOTE_THRESHOLD {
+            entry.demoted_until = Some(Instant::now() + IT_DEMOTE);
+        }
     }
 }
 
@@ -1069,8 +1170,14 @@ fn build_player_payload(
             c[key] = serde_json::json!(v);
         }
     }
+    let mut context = serde_json::json!({ "client": c });
+    if p.client_name == "TVHTML5_SIMPLY_EMBEDDED_PLAYER" {
+        context["thirdParty"] = serde_json::json!({
+            "embedUrl": "https://www.youtube.com/",
+        });
+    }
     let mut body = serde_json::json!({
-        "context": { "client": c },
+        "context": context,
         "videoId": video_id,
         "contentCheckOk": true,
         "racyCheckOk": true,
@@ -1139,133 +1246,194 @@ fn parse_innertube_player_streams(body: &[u8]) -> Vec<PipedAudio> {
 impl InnerTubeDirectSource {
     const NAME: &'static str = "innertube-direct";
 
-    fn open_inner(
-        &self,
+    fn try_profile(
+        p: &'static ItClientProfile,
         video_id: &str,
+        warm_visitor: Option<String>,
         deadline: Instant,
         streaming: bool,
     ) -> Result<OpenedAudioStream, String> {
         let client = SOURCE_CLIENT
             .as_ref()
             .ok_or_else(|| "source HTTP client unavailable".to_string())?;
+        if remaining(deadline).is_err() {
+            return Err(format!("{}: fast-path deadline exhausted", p.id));
+        }
+        let visitor = if p.needs_visitor {
+            warm_visitor.or_else(|| visitor_data_bounded(client, deadline, false))
+        } else {
+            warm_visitor
+        };
+        if p.needs_visitor && visitor.is_none() {
+            return Err(format!("{}: visitor data unavailable", p.id));
+        }
+        let payload = build_player_payload(p, video_id, visitor.as_deref());
+        let (endpoint, origin, referer) = if p.music_player_endpoint {
+            (
+                "https://music.youtube.com/youtubei/v1/player?prettyPrint=false",
+                "https://music.youtube.com",
+                "https://music.youtube.com/",
+            )
+        } else {
+            (
+                "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+                "https://www.youtube.com",
+                "https://www.youtube.com/",
+            )
+        };
+
+        let meta_budget = remaining(deadline)?.min(METADATA_TIMEOUT);
+        let mut req = client
+            .post(endpoint)
+            .header(reqwest::header::USER_AGENT, p.user_agent)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("X-Goog-Api-Format-Version", "1")
+            .header("X-YouTube-Client-Name", p.client_id)
+            .header("X-YouTube-Client-Version", p.client_version)
+            .header(reqwest::header::ORIGIN, origin)
+            .header("X-Origin", origin)
+            .header(reqwest::header::REFERER, referer)
+            .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+            .timeout(meta_budget);
+        if let Some(v) = &visitor {
+            req = req.header("X-Goog-Visitor-Id", v);
+        }
+        let meta = match req.json(&payload).send() {
+            Ok(r) => r,
+            Err(e) => {
+                it_record_transport_failure(p.id);
+                return Err(format!("{}: player request: {e}", p.id));
+            }
+        };
+        if !meta.status().is_success() {
+            let status = meta.status();
+            if status.as_u16() == 403 || status.as_u16() == 429 || status.is_server_error() {
+                it_record_transport_failure(p.id);
+            }
+            return Err(format!("{}: HTTP {}", p.id, status));
+        }
+        let bytes = match read_capped(meta, MAX_METADATA_BYTES) {
+            Ok(b) => b,
+            Err(e) => {
+                it_record_transport_failure(p.id);
+                return Err(format!("{}: body: {e}", p.id));
+            }
+        };
+        match playability_status(&bytes).as_deref() {
+            Some("OK") | Some("LIVE_STREAM_OFFLINE") => {}
+            other => {
+                // Per-video playability errors (age-gate, region lock, etc.)
+                // must NEVER demote a healthy client profile for other tracks.
+                return Err(format!(
+                    "{}: playability {}",
+                    p.id,
+                    other.unwrap_or("response missing playabilityStatus")
+                ));
+            }
+        }
+        let all_streams = parse_innertube_player_streams(&bytes);
+        let ready = playback_ready(all_streams.clone());
+        // Capture the track's loudness metadata for the normalization hook
+        // before anything can fail below.
+        capture_stream_loudness(&bytes, video_id);
+        let cap = fast_path_bitrate_cap();
+        let url = select_best_audio_within(&ready, cap)
+            .or_else(|| select_best_audio_within(&all_streams, cap))
+            .ok_or_else(|| {
+                format!(
+                    "{}: no direct audio stream (cipher-only formats)",
+                    p.id
+                )
+            })?;
+
+        let err_prefix = format!("{}: download", p.id);
+        match send_and_validate_audio(
+            &url,
+            Some(p.user_agent),
+            deadline,
+            streaming,
+            true,
+            format!("{}:{}", Self::NAME, p.id),
+            &err_prefix,
+        ) {
+            Ok(opened) => {
+                it_rehab(p.id);
+                remember_good_it_client(p.id);
+                log::info!("innertube-direct: {} serving {video_id}", p.id);
+                Ok(opened)
+            }
+            Err(e) => {
+                if e.contains("HTTP 403") || e.contains("HTTP 429") || e.contains("HTTP 5") {
+                    it_record_transport_failure(p.id);
+                }
+                Err(e)
+            }
+        }
+    }
+
+    fn open_inner(
+        &self,
+        video_id: &str,
+        deadline: Instant,
+        streaming: bool,
+    ) -> Result<OpenedAudioStream, String> {
         let mut last_err = String::from("innertube-direct:");
 
         let warm_visitor = cached_visitor_data();
-        let profiles = ordered_it_clients(warm_visitor.is_some(), last_good_it_client());
+        let all_profiles = ordered_it_clients(warm_visitor.is_some(), last_good_it_client());
+        let mut active: Vec<&'static ItClientProfile> = all_profiles
+            .iter()
+            .copied()
+            .filter(|p| !it_demoted(p.id))
+            .collect();
+        // If every profile happened to hit temporary cooldown, still try all
+        // profiles in catalog order instead of returning empty-handed.
+        if active.is_empty() {
+            active = all_profiles;
+        }
 
-        for p in profiles {
-            if it_demoted(p.id) {
-                last_err = format!("{}: demoted after recent failures", p.id);
-                continue;
+        // Race the top 2 eligible profiles in parallel so a stalled or
+        // cipher-only primary client never adds a full RTT before backup wins.
+        let race_count = active.len().min(2);
+        if race_count >= 2 && remaining(deadline).is_ok() {
+            let (tx, rx) = std::sync::mpsc::channel::<Result<OpenedAudioStream, String>>();
+            for &profile in &active[..race_count] {
+                let tx_c = tx.clone();
+                let vid = video_id.to_string();
+                let v_clone = warm_visitor.clone();
+                let _ = std::thread::Builder::new()
+                    .name(format!("musico-it-{}", profile.id))
+                    .spawn(move || {
+                        let res = Self::try_profile(profile, &vid, v_clone, deadline, streaming);
+                        let _ = tx_c.send(res);
+                    });
             }
+            drop(tx);
+            for _ in 0..race_count {
+                let Ok(wait) = remaining(deadline) else {
+                    return Err(format!("{last_err}; fast-path deadline exhausted"));
+                };
+                match rx.recv_timeout(wait) {
+                    Ok(Ok(opened)) => return Ok(opened),
+                    Ok(Err(e)) => last_err = format!("{last_err}; {e}"),
+                    Err(_) => break,
+                }
+            }
+        } else if let Some(&first) = active.first() {
+            match Self::try_profile(first, video_id, warm_visitor.clone(), deadline, streaming) {
+                Ok(opened) => return Ok(opened),
+                Err(e) => last_err = format!("{last_err}; {e}"),
+            }
+        }
+
+        // Walk any remaining profiles sequentially if the top-2 race didn't hit.
+        for &p in active.iter().skip(race_count.max(1)) {
             if remaining(deadline).is_err() {
                 return Err(format!("{last_err}; fast-path deadline exhausted"));
             }
-            let visitor = if p.needs_visitor {
-                warm_visitor
-                    .clone()
-                    .or_else(|| visitor_data_bounded(client, deadline, false))
-            } else {
-                warm_visitor.clone()
-            };
-            if p.needs_visitor && visitor.is_none() {
-                last_err = format!("{last_err}; {}: visitor data unavailable", p.id);
-                continue;
-            }
-            let payload = build_player_payload(p, video_id, visitor.as_deref());
-
-            let meta_budget = remaining(deadline)?.min(METADATA_TIMEOUT);
-            let mut req = client
-                .post("https://music.youtube.com/youtubei/v1/player?prettyPrint=false")
-                .header(reqwest::header::USER_AGENT, p.user_agent)
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .header("X-Goog-Api-Format-Version", "1")
-                .header("X-YouTube-Client-Name", p.client_id)
-                .header("X-YouTube-Client-Version", p.client_version)
-                .header(reqwest::header::ORIGIN, "https://music.youtube.com")
-                .header("X-Origin", "https://music.youtube.com")
-                .header(reqwest::header::REFERER, "https://music.youtube.com/")
-                .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
-                .timeout(meta_budget);
-            if let Some(v) = &visitor {
-                req = req.header("X-Goog-Visitor-Id", v);
-            }
-            let meta = match req.json(&payload).send() {
-                Ok(r) => r,
-                Err(e) => {
-                    it_demote(p.id);
-                    last_err = format!("{last_err}; {}: player request: {e}", p.id);
-                    continue;
-                }
-            };
-            if !meta.status().is_success() {
-                it_demote(p.id);
-                last_err = format!("{last_err}; {}: HTTP {}", p.id, meta.status());
-                continue;
-            }
-            let bytes = match read_capped(meta, MAX_METADATA_BYTES) {
-                Ok(b) => b,
-                Err(e) => {
-                    it_demote(p.id);
-                    last_err = format!("{last_err}; {}: body: {e}", p.id);
-                    continue;
-                }
-            };
-            match playability_status(&bytes).as_deref() {
-                Some("OK") | Some("LIVE_STREAM_OFFLINE") => {}
-                other => {
-                    it_demote(p.id);
-                    last_err = format!(
-                        "{last_err}; {}: playability {}",
-                        p.id,
-                        other.unwrap_or("response missing playabilityStatus")
-                    );
-                    continue;
-                }
-            }
-            let ready = playback_ready(parse_innertube_player_streams(&bytes));
-            // Capture the track's loudness metadata for the normalization
-            // hook before anything can fail below — the player response is
-            // the only place YouTube reports it.
-            capture_stream_loudness(&bytes, video_id);
-            let cap = fast_path_bitrate_cap();
-            let url = match select_best_m4a_within(&ready, cap) {
-                Some(u) => u,
-                None => {
-                    it_demote(p.id);
-                    last_err = format!(
-                        "{last_err}; {}: no playback-ready direct audio/mp4 <={}k (cipher-only or n-param streams)",
-                        p.id,
-                        cap / 1000
-                    );
-                    continue;
-                }
-            };
-
-            let err_prefix = format!("{}: download", p.id);
-            match send_and_validate_audio(
-                &url,
-                Some(p.user_agent),
-                deadline,
-                streaming,
-                true,
-                format!("{}:{}", Self::NAME, p.id),
-                &err_prefix,
-            ) {
-                Ok(opened) => {
-                    it_rehab(p.id);
-                    remember_good_it_client(p.id);
-                    log::info!("innertube-direct: {} serving {video_id}", p.id);
-                    return Ok(opened);
-                }
-                Err(e) => {
-                    it_demote(p.id);
-                    if remaining(deadline).is_err() {
-                        return Err(e);
-                    }
-                    last_err = format!("{last_err}; {e}");
-                    continue;
-                }
+            match Self::try_profile(p, video_id, warm_visitor.clone(), deadline, streaming) {
+                Ok(opened) => return Ok(opened),
+                Err(e) => last_err = format!("{last_err}; {e}"),
             }
         }
         Err(last_err)
@@ -2347,6 +2515,56 @@ mod tests {
             t0.elapsed() < Duration::from_millis(1_050),
             "early backup error must not reset hedge timer: {:?}",
             t0.elapsed()
+        );
+    }
+
+    #[test]
+    fn select_best_audio_prefers_m4a_and_falls_back_to_opus_webm() {
+        let only_opus = vec![PipedAudio {
+            url: "https://rr1---sn.googlevideo.com/videoplayback?itag=251".into(),
+            bitrate: Some(160_000),
+            mime_type: Some("audio/webm; codecs=\"opus\"".into()),
+        }];
+        assert_eq!(
+            select_best_audio_within(&only_opus, MAX_AUDIO_BITRATE).as_deref(),
+            Some("https://rr1---sn.googlevideo.com/videoplayback?itag=251")
+        );
+        let mut mixed = only_opus.clone();
+        mixed.push(pa(
+            "https://rr1---sn.googlevideo.com/videoplayback?itag=140",
+            Some(130_000),
+        ));
+        assert_eq!(
+            select_best_audio_within(&mixed, MAX_AUDIO_BITRATE).as_deref(),
+            Some("https://rr1---sn.googlevideo.com/videoplayback?itag=140")
+        );
+    }
+
+    #[test]
+    fn it_demotion_requires_consecutive_transport_failures() {
+        let id = "TEST_PROFILE_DEMOTE";
+        it_rehab(id);
+        assert!(!it_demoted(id));
+        it_record_transport_failure(id);
+        assert!(!it_demoted(id), "single failure must not blacklist a profile");
+        it_record_transport_failure(id);
+        assert!(!it_demoted(id), "two failures below threshold must not blacklist");
+        it_record_transport_failure(id);
+        assert!(it_demoted(id), "three consecutive transport failures demote");
+        it_rehab(id);
+        assert!(!it_demoted(id), "rehab clears demotion");
+    }
+
+    #[test]
+    fn tv_embedded_payload_includes_third_party_embed_url() {
+        let tv = IT_CLIENTS
+            .iter()
+            .find(|p| p.id == "TV_EMBEDDED")
+            .expect("TV_EMBEDDED profile present");
+        let body = build_player_payload(tv, "vid12345678", None);
+        assert_eq!(
+            body["context"]["thirdParty"]["embedUrl"],
+            serde_json::json!("https://www.youtube.com/")
         );
     }
 }

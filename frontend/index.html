@@ -8,11 +8,15 @@
 <meta property="og:title" content="Musico Online"/>
 <meta property="og:description" content="High-speed multi-source music player and Spotify-grade hybrid recommendation engine with predictive prefetching."/>
 
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet"/>
+
 <!-- Apply the persisted theme BEFORE stylesheets resolve — dark-theme users
      otherwise get a white flash on every launch. -->
 <script>
   try {
-    var t = localStorage.getItem('musico-theme');
+    var t = localStorage.getItem('musico-theme') || 'dark';
     if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
     document.documentElement.setAttribute('data-skin', 'm3e');
   } catch (e) {}
@@ -63,7 +67,7 @@
 <!-- The M3 Expressive skin loads LAST: every rule is scoped under
      html[data-skin="m3e"] so the default Cupertino look is untouched, and
      attribute specificity beats the earlier layers without !important. -->
-<link rel="stylesheet" href="css/m3-expressive.css?v=0.9.4"/>
+<link rel="stylesheet" href="css/m3-expressive.css?v=1.0.1"/>
 </head>
 <body>
 
@@ -95,13 +99,8 @@
 
     <!-- ── BROWSE (home) ──────────────────────────────────────────────────── -->
     <section id="view-browse" class="view active">
-      <div class="browse">
-        <header class="browse-header">
-          <h1 class="browse-title">Home</h1>
-          <p class="browse-sub" style="display:none;">Tuned for you, searchable for everything — downloads cache locally via yt-dlp.</p>
-        </header>
-
-        <!-- Listen Now feed (Preact shell) -->
+      <div class="browse browse-home-m3e">
+        <!-- Listen Now feed (Preact shell renders greeting, mood chips, quick picks & shelves) -->
         <div id="home-root"></div>
       </div>
     </section>
