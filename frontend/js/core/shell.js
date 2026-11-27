@@ -117,7 +117,7 @@ function Sidebar() {
       </div>
       <div class="brand-text">
         <div class="brand-name">Music0</div>
-        <div class="brand-sub">Fast stream engine</div>
+        <div class="brand-sub">v1.0.1 · Fast stream</div>
       </div>
     </div>
     <div class="side-search">
@@ -136,7 +136,7 @@ function Sidebar() {
         </div>
       `)}
     </nav>
-    <div class="side-footer">Music0 v1.0.1 · Material 3 Expressive</div>`;
+    <div class="side-footer">Music0 · Material 3 Expressive</div>`;
 }
 
 // ─── WindowChrome (macOS traffic-light space / Windows drawn controls) ────────

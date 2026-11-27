@@ -551,7 +551,7 @@ struct PipedStreams {
     audio_streams: Option<Vec<serde_json::Value>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct PipedAudio {
     #[serde(default)]
     url: String,
@@ -849,7 +849,7 @@ const IT_CLIENTS: &[ItClientProfile] = &[
         os_version: Some("14"),
         device_make: Some("Google"),
         device_model: Some("Pixel 8 Pro"),
-        android_sdk_version: Some(34),
+        android_sdk_version: Some("34"),
         platform: Some("MOBILE"),
         ua_in_context: false,
         music_player_endpoint: true,
