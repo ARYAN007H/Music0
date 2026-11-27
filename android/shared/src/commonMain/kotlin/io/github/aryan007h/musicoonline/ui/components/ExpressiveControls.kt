@@ -649,11 +649,13 @@ fun <T> ExpressiveConnectedButtonGroup(
             val bs by animateDpAsState(corners.bottomStartDp.dp, MusicoMotion.spatialFast(), label = "cbBS$index")
 
             val targetBg = when {
+                isSelected && emphasized && isDark -> MaterialTheme.colorScheme.primaryContainer
                 isSelected && emphasized -> MaterialTheme.colorScheme.primary
                 isSelected -> MaterialTheme.colorScheme.secondaryContainer
                 else -> unselectedColor
             }
             val targetFg = when {
+                isSelected && emphasized && isDark -> MaterialTheme.colorScheme.onPrimaryContainer
                 isSelected && emphasized -> MaterialTheme.colorScheme.onPrimary
                 isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -678,8 +680,16 @@ fun <T> ExpressiveConnectedButtonGroup(
                 animationSpec = MusicoMotion.spatialFast(),
                 label = "cbScale$index",
             )
+            val segBorder = when {
+                isDark && isSelected && emphasized -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                isDark && !isSelected -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
+                else -> null
+            }
 
-            Box(
+            Surface(
+                shape = shape,
+                color = bg,
+                border = segBorder,
                 modifier = Modifier
                     .weight(1f)
                     .height(height)
@@ -689,7 +699,6 @@ fun <T> ExpressiveConnectedButtonGroup(
                         scaleY = safe
                     }
                     .clip(shape)
-                    .background(bg)
                     .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
                     .clickable(
                         enabled = enabled,
@@ -701,13 +710,13 @@ fun <T> ExpressiveConnectedButtonGroup(
                             onSelect(option.value)
                         }
                     },
-                contentAlignment = Alignment.Center,
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    ) {
                     option.icon?.let { vec ->
                         Icon(
                             imageVector = vec,
@@ -725,6 +734,7 @@ fun <T> ExpressiveConnectedButtonGroup(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
                 }
             }
         }
@@ -756,6 +766,7 @@ fun ExpressiveFilterChip(
     val bg by key(isDark) {
         animateColorAsState(
             targetValue = when {
+                selected && usePrimaryWhenSelected && isDark -> MaterialTheme.colorScheme.primaryContainer
                 selected && usePrimaryWhenSelected -> MaterialTheme.colorScheme.primary
                 selected -> MaterialTheme.colorScheme.secondaryContainer
                 isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
@@ -768,6 +779,7 @@ fun ExpressiveFilterChip(
     val fg by key(isDark) {
         animateColorAsState(
             targetValue = when {
+                selected && usePrimaryWhenSelected && isDark -> MaterialTheme.colorScheme.onPrimaryContainer
                 selected && usePrimaryWhenSelected -> MaterialTheme.colorScheme.onPrimary
                 selected -> MaterialTheme.colorScheme.onSecondaryContainer
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -788,10 +800,14 @@ fun ExpressiveFilterChip(
     Surface(
         shape = shape,
         color = bg,
-        border = if (!selected && !isDark) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-        } else {
-            null
+        border = when {
+            isDark && selected && usePrimaryWhenSelected ->
+                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+            isDark && !selected ->
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f))
+            !selected && !isDark ->
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+            else -> null
         },
         modifier = modifier
             .height(36.dp)
@@ -850,12 +866,17 @@ fun ExpressiveSegmentedItem(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    val isDark = Musico.extras.isDark
     val shape = remember(index, count) {
         ExpressiveSegmentedMath.verticalListCorners(index, count).toRoundedCornerShape()
     }
     Surface(
         shape = shape,
         color = containerColor,
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.34f else 0.42f),
+        ),
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)

@@ -533,6 +533,8 @@ fun MusicoApp(
                             onRemoveTrackFromPlaylist = vm::removeTrackFromPlaylist,
                             onMoveTrackInPlaylist = vm::moveTrackInPlaylist,
                             onSaveMixAsPlaylist = vm::createPlaylistAndAdd,
+                            userDownloadedIds = state.userDownloadedIds,
+                            onPromoteCachedToDownloaded = vm::promoteCachedToDownloaded,
                         )
                     }
                 }
@@ -918,6 +920,11 @@ private fun MainTabContent(
                 onTrackLongClick = onTrackLongClick,
                 selectedSection = state.librarySection,
                 onSelectSection = vm::openLibrarySection,
+                userDownloadedIds = state.userDownloadedIds,
+                homeShelves = state.personalizedShelves + state.homeShelves,
+                topArtistNames = state.listeningStats?.topArtists?.map { it.artist }.orEmpty(),
+                onToggleSaveCatalogEntry = vm::toggleSaveCatalogEntry,
+                onPromoteCachedToDownloaded = vm::promoteCachedToDownloaded,
             )
             AppTab.SEARCH -> SearchScreen(
                 atmosphere = atmosphere,
@@ -974,6 +981,7 @@ private fun DesktopNavigationRail(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = if (isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)) else null,
         modifier = Modifier
             .width(railWidth)
             .fillMaxHeight(),
@@ -1726,8 +1734,8 @@ private fun MiniPlayer(
     Surface(
         color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(26.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.45f else 0.7f)),
-        shadowElevation = if (isDark) 8.dp else 4.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.52f else 0.7f)),
+        shadowElevation = if (isDark) 10.dp else 4.dp,
         modifier = Modifier
             .padding(horizontal = 14.dp, vertical = 6.dp)
             .fillMaxWidth()
@@ -1757,68 +1765,102 @@ private fun MiniPlayer(
             }
             .pressable(onClick = onExpand, pressedScale = 0.985f),
     ) {
-        Column {
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Artwork(
-                    url = track.thumbnail,
-                    contentDescription = track.title,
-                    modifier = Modifier.size(48.dp),
-                    cornerRadius = 14.dp,
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        track.title.ifEmpty { "Untitled" },
-                        style = Musico.type.title,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.basicMarquee(),
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val showTransportSkips = maxWidth >= 400.dp
+            Column {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Artwork(
+                        url = track.thumbnail,
+                        contentDescription = track.title,
+                        modifier = Modifier.size(48.dp),
+                        cornerRadius = 14.dp,
                     )
-                    Text(
-                        when {
-                            state.resolvingId == track.videoId -> "Resolving…"
-                            state.isBuffering -> "Buffering…"
-                            else -> track.artist.ifEmpty { "Unknown artist" }
-                        },
-                        style = Musico.type.caption,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            track.title.ifEmpty { "Untitled" },
+                            style = Musico.type.title,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.basicMarquee(),
+                        )
+                        Text(
+                            when {
+                                state.resolvingId == track.videoId -> "Resolving…"
+                                state.isBuffering -> "Buffering…"
+                                else -> track.artist.ifEmpty { "Unknown artist" }
+                            },
+                            style = Musico.type.caption,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (!showTransportSkips) {
+                        if (state.resolvingId != null || state.isBuffering) {
+                            EqualizerBars(playing = false, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(16.dp))
+                        } else {
+                            EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(16.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                    } else {
+                        Spacer(Modifier.width(8.dp))
+                        ExpressiveTransportButton(
+                            icon = Icons.Filled.SkipPrevious,
+                            contentDescription = "Previous",
+                            onClick = { hapticThud(); onPrevious() },
+                            width = 38.dp,
+                            height = 38.dp,
+                            iconSize = 20.dp,
+                            restingCorner = 12.dp,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    ExpressivePlayPauseButton(
+                        isPlaying = state.isPlaying,
+                        isBuffering = state.isBuffering || state.resolvingId != null,
+                        onClick = onToggle,
+                        width = if (showTransportSkips) 52.dp else 48.dp,
+                        height = 44.dp,
                     )
+                    if (showTransportSkips) {
+                        Spacer(Modifier.width(6.dp))
+                        ExpressiveTransportButton(
+                            icon = Icons.Filled.SkipNext,
+                            contentDescription = "Next",
+                            onClick = { hapticThud(); onNext() },
+                            width = 38.dp,
+                            height = 38.dp,
+                            iconSize = 20.dp,
+                            restingCorner = 12.dp,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
                 }
-                if (state.resolvingId != null || state.isBuffering) {
-                    EqualizerBars(playing = false, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(16.dp))
+                if (state.resolvingId != null) {
+                    LinearProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp),
+                    )
                 } else {
-                    EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(16.dp))
+                    MiniPlayerLiveProgressBar(
+                        positionMsFlow = positionMsFlow,
+                        durationMs = state.durationMs,
+                        isPlaying = state.isPlaying,
+                        activeColor = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    )
                 }
-                Spacer(Modifier.width(10.dp))
-                ExpressivePlayPauseButton(
-                    isPlaying = state.isPlaying,
-                    isBuffering = state.isBuffering || state.resolvingId != null,
-                    onClick = onToggle,
-                    width = 48.dp,
-                    height = 44.dp,
-                )
-            }
-            if (state.resolvingId != null) {
-                LinearProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp),
-                )
-            } else {
-                MiniPlayerLiveProgressBar(
-                    positionMsFlow = positionMsFlow,
-                    durationMs = state.durationMs,
-                    isPlaying = state.isPlaying,
-                    activeColor = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                )
             }
         }
     }

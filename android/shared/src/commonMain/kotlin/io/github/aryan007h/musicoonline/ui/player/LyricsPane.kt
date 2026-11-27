@@ -690,8 +690,8 @@ private fun FlowingVerseCinema(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val viewportPx = with(density) { maxHeight.toPx() }
         val centerOffsetPx = -(viewportPx * 0.28f).toInt()
-        val topPad = maxHeight * 0.22f
-        val bottomPad = maxHeight * 0.42f
+        val topPad = (maxHeight * 0.22f).coerceAtLeast(48.dp)
+        val bottomPad = (maxHeight * 0.42f).coerceAtLeast(116.dp)
 
         LaunchedEffect(activeIdx, userPausedFollow, selectingForShare) {
             if (isSynced && activeIdx >= 0 && !userPausedFollow && !selectingForShare) {
@@ -887,10 +887,10 @@ private fun CinemaLyricRow(
         .clip(rowShape)
         .background(activeBgColor)
         .then(
-            if (selectingForShare) {
-                Modifier.border(1.5.dp, selectedBorderColor, rowShape)
-            } else {
-                Modifier
+            when {
+                selectingForShare -> Modifier.border(1.5.dp, selectedBorderColor, rowShape)
+                isActive && Musico.extras.isDark -> Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f), rowShape)
+                else -> Modifier
             },
         )
         .combinedClickable(onClick = onClick, onLongClick = onLongClick)

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -72,7 +73,9 @@ import io.github.aryan007h.musicoonline.core.SmartMix
 import io.github.aryan007h.musicoonline.core.UserPlaylist
 import io.github.aryan007h.musicoonline.ui.components.AmbientTopWash
 import io.github.aryan007h.musicoonline.ui.components.Artwork
+import io.github.aryan007h.musicoonline.ui.components.ConnectedButtonOption
 import io.github.aryan007h.musicoonline.ui.components.EmptyState
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveConnectedButtonGroup
 import io.github.aryan007h.musicoonline.ui.components.TrackRow
 import io.github.aryan007h.musicoonline.ui.components.musicoTopInset
 import io.github.aryan007h.musicoonline.ui.player.rememberArtworkAtmosphere
@@ -122,6 +125,8 @@ fun PlaylistDetailScreen(
     onRemoveTrackFromPlaylist: (playlistId: String, index: Int) -> Unit,
     onMoveTrackInPlaylist: (playlistId: String, from: Int, to: Int) -> Unit,
     onSaveMixAsPlaylist: (name: String, tracks: List<OnlineTrack>) -> Unit,
+    userDownloadedIds: Set<String> = emptySet(),
+    onPromoteCachedToDownloaded: (List<OnlineTrack>) -> Unit = {},
 ) {
     val playlist = (ref as? LibraryCollectionRef.Playlist)?.let { r ->
         playlists.firstOrNull { it.id == r.id }
@@ -130,23 +135,42 @@ fun PlaylistDetailScreen(
         smartMixes.firstOrNull { it.id == r.id }
     }
 
+    var downloadsTab by remember(ref) { mutableStateOf(DownloadsTab.DOWNLOADED) }
+    val partitionedDownloads = remember(downloads, userDownloadedIds) {
+        DownloadsPartition.partition(downloads, userDownloadedIds)
+    }
+    val activeDownloads = if (downloadsTab == DownloadsTab.DOWNLOADED) {
+        partitionedDownloads.userDownloaded
+    } else {
+        partitionedDownloads.cachedOnly
+    }
+    val activeDownloadsBytes = if (downloadsTab == DownloadsTab.DOWNLOADED) {
+        partitionedDownloads.userDownloadedBytes
+    } else {
+        partitionedDownloads.cachedOnlyBytes
+    }
+
     val title = when (ref) {
         is LibraryCollectionRef.Playlist -> playlist?.name ?: "Playlist"
         LibraryCollectionRef.LikedSongs -> "Liked Songs"
-        LibraryCollectionRef.OfflineDownloads -> "Offline Downloads"
+        LibraryCollectionRef.OfflineDownloads -> "Downloads"
         is LibraryCollectionRef.Mix -> smartMix?.title ?: "Smart Mix"
     }
     val subtitle = when (ref) {
         is LibraryCollectionRef.Playlist -> "Custom playlist"
         LibraryCollectionRef.LikedSongs -> "Your saved favorites"
-        LibraryCollectionRef.OfflineDownloads -> "Ready to play without signal"
+        LibraryCollectionRef.OfflineDownloads -> if (downloadsTab == DownloadsTab.DOWNLOADED) {
+            "Saved offline by you · ready without signal"
+        } else {
+            "Auto-cached from recent streams"
+        }
         is LibraryCollectionRef.Mix -> smartMix?.subtitle ?: "Auto-updating mix"
     }
-    val allTracks: List<OnlineTrack> = remember(ref, playlist, likedTracks, downloads, smartMix) {
+    val allTracks: List<OnlineTrack> = remember(ref, playlist, likedTracks, activeDownloads, smartMix) {
         when (ref) {
             is LibraryCollectionRef.Playlist -> playlist?.tracks?.map { it.toOnlineTrack() }.orEmpty()
             LibraryCollectionRef.LikedSongs -> likedTracks
-            LibraryCollectionRef.OfflineDownloads -> downloads.map { it.track }
+            LibraryCollectionRef.OfflineDownloads -> activeDownloads.map { it.track }
             is LibraryCollectionRef.Mix -> smartMix?.tracks.orEmpty()
         }
     }
@@ -179,12 +203,13 @@ fun PlaylistDetailScreen(
     val isEditablePlaylist = ref is LibraryCollectionRef.Playlist && playlist != null
     val isDownloading = downloadingTotal > 0
 
-    val metaLine = remember(allTracks, ref, downloadsTotalBytes) {
+    val metaLine = remember(allTracks, ref, activeDownloadsBytes, downloadsTotalBytes, downloadsTab) {
+        val bytes = if (ref is LibraryCollectionRef.OfflineDownloads) activeDownloadsBytes else downloadsTotalBytes
         buildList {
             add("${allTracks.size} song${if (allTracks.size == 1) "" else "s"}")
             formatDurationSummary(allTracks)?.let { add(it) }
-            if (ref is LibraryCollectionRef.OfflineDownloads && downloadsTotalBytes > 0L) {
-                add(formatBytesHuman(downloadsTotalBytes))
+            if (ref is LibraryCollectionRef.OfflineDownloads && bytes > 0L) {
+                add(formatBytesHuman(bytes))
             }
         }.joinToString(" · ")
     }
@@ -417,7 +442,32 @@ fun PlaylistDetailScreen(
                             }
                         }
 
-                        Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.height(16.dp))
+
+                        if (ref is LibraryCollectionRef.OfflineDownloads) {
+                            ExpressiveConnectedButtonGroup(
+                                options = listOf(
+                                    ConnectedButtonOption(
+                                        value = DownloadsTab.DOWNLOADED,
+                                        label = "Downloaded (${partitionedDownloads.userDownloaded.size})",
+                                        icon = Icons.Filled.DownloadDone,
+                                    ),
+                                    ConnectedButtonOption(
+                                        value = DownloadsTab.CACHED,
+                                        label = "Cached (${partitionedDownloads.cachedOnly.size})",
+                                        icon = Icons.Filled.Cached,
+                                    ),
+                                ),
+                                selected = downloadsTab,
+                                onSelect = { tab ->
+                                    hapticTick()
+                                    downloadsTab = tab
+                                },
+                                height = 44.dp,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
 
                         Row(
                             Modifier.fillMaxWidth(),
@@ -471,7 +521,21 @@ fun PlaylistDetailScreen(
                                         modifier = Modifier.weight(1f),
                                     )
                                 }
-                                LibraryCollectionRef.OfflineDownloads -> Unit
+                                LibraryCollectionRef.OfflineDownloads -> {
+                                    if (downloadsTab == DownloadsTab.CACHED && partitionedDownloads.cachedOnly.isNotEmpty()) {
+                                        CollectionActionPill(
+                                            icon = Icons.Filled.DownloadDone,
+                                            label = "Save all",
+                                            enabled = true,
+                                            onClick = {
+                                                hapticThud()
+                                                onPromoteCachedToDownloaded(partitionedDownloads.cachedOnly.map { it.track })
+                                                downloadsTab = DownloadsTab.DOWNLOADED
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -532,17 +596,78 @@ fun PlaylistDetailScreen(
 
                 if (filteredTracks.isEmpty()) {
                     item(key = "collection-empty") {
-                        EmptyState(
-                            icon = if (ref is LibraryCollectionRef.OfflineDownloads) Icons.Filled.Download else Icons.Filled.PlaylistAdd,
-                            title = if (filterQuery.isNotBlank()) "No matching songs" else "No songs yet",
-                            subtitle = when {
-                                filterQuery.isNotBlank() -> "Try a different filter term"
-                                isEditablePlaylist -> "Tap Add songs above or long-press any track anywhere in the app"
-                                ref is LibraryCollectionRef.LikedSongs -> "Tap the heart on any song to build your favorites"
-                                ref is LibraryCollectionRef.OfflineDownloads -> "Save tracks or playlists offline to listen anywhere"
-                                else -> "Listen to a few tracks and this mix will fill automatically"
-                            },
-                        )
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            EmptyState(
+                                icon = when {
+                                    ref is LibraryCollectionRef.OfflineDownloads && downloadsTab == DownloadsTab.CACHED -> Icons.Filled.Cached
+                                    ref is LibraryCollectionRef.OfflineDownloads -> Icons.Filled.Download
+                                    else -> Icons.Filled.PlaylistAdd
+                                },
+                                title = when {
+                                    filterQuery.isNotBlank() -> "No matching songs"
+                                    ref is LibraryCollectionRef.OfflineDownloads && downloadsTab == DownloadsTab.DOWNLOADED -> "No downloaded songs yet"
+                                    ref is LibraryCollectionRef.OfflineDownloads && downloadsTab == DownloadsTab.CACHED -> "No cached songs yet"
+                                    else -> "No songs yet"
+                                },
+                                subtitle = when {
+                                    filterQuery.isNotBlank() -> "Try a different filter term"
+                                    isEditablePlaylist -> "Tap Add songs above or long-press any track anywhere in the app"
+                                    ref is LibraryCollectionRef.LikedSongs -> "Tap the heart on any song to build your favorites"
+                                    ref is LibraryCollectionRef.OfflineDownloads && downloadsTab == DownloadsTab.DOWNLOADED ->
+                                        "Tap Offline on any album, playlist, or song to keep it in your downloads"
+                                    ref is LibraryCollectionRef.OfflineDownloads && downloadsTab == DownloadsTab.CACHED ->
+                                        "Songs you stream are automatically cached here for instant replay"
+                                    else -> "Listen to a few tracks and this mix will fill automatically"
+                                },
+                            )
+                            if (
+                                ref is LibraryCollectionRef.OfflineDownloads &&
+                                downloadsTab == DownloadsTab.DOWNLOADED &&
+                                filterQuery.isBlank() &&
+                                partitionedDownloads.cachedOnly.isNotEmpty()
+                            ) {
+                                Surface(
+                                    shape = MusicoShapes.chip,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    border = if (Musico.extras.isDark) {
+                                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                    } else {
+                                        null
+                                    },
+                                    modifier = Modifier
+                                        .padding(bottom = 16.dp)
+                                        .pressable(
+                                            onClick = {
+                                                hapticTick()
+                                                downloadsTab = DownloadsTab.CACHED
+                                            },
+                                            pressedScale = 0.94f,
+                                        ),
+                                ) {
+                                    Row(
+                                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Cached,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Text(
+                                            "View ${partitionedDownloads.cachedOnly.size} cached song${if (partitionedDownloads.cachedOnly.size == 1) "" else "s"}",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else if (reorderMode && isEditablePlaylist && playlist != null) {
                     itemsIndexed(
@@ -673,7 +798,7 @@ private fun EditablePlaylistTrackRow(
     Surface(
         color = if (isDark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
         shape = RoundedCornerShape(18.dp),
-        border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)) else null,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.34f else 0.45f)),
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
@@ -869,8 +994,8 @@ private fun CollectionActionPill(
             isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
             else -> MaterialTheme.colorScheme.surfaceContainerLowest
         },
-        border = if (!filled && !isDark) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        border = if (!filled) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.40f else 0.55f))
         } else {
             null
         },

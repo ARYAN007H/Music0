@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -176,7 +177,7 @@ fun main() = application {
         },
     ) {
         LaunchedEffect(Unit) {
-            window.minimumSize = Dimension(520, 560)
+            window.minimumSize = Dimension(420, 500)
         }
 
         var toastMessage by remember { mutableStateOf<String?>(null) }
@@ -255,7 +256,8 @@ fun main() = application {
             ) {
                 Surface(
                     shape = RoundedCornerShape(999.dp),
-                    color = if (isDarkTheme) Color(0xFF242135).copy(alpha = 0.96f) else Color(0xFF1C1A24).copy(alpha = 0.94f),
+                    color = if (isDarkTheme) Color(0xFF1F1D30).copy(alpha = 0.96f) else Color(0xFF1C1A24).copy(alpha = 0.94f),
+                    border = if (isDarkTheme) BorderStroke(1.dp, Color(0xFF4A4469).copy(alpha = 0.7f)) else null,
                     shadowElevation = 12.dp,
                 ) {
                     Text(

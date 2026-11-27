@@ -12,6 +12,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -204,7 +205,9 @@ fun NowPlayingScreen(
     )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        if (maxWidth >= 840.dp) {
+        val isWidescreen = maxWidth >= 840.dp && maxHeight >= 520.dp
+        val isShortWindow = maxHeight < 640.dp
+        if (isWidescreen) {
             WidescreenSplitNowPlaying(
                 activeTrack = activeTrack,
                 isPlaying = isPlaying,
@@ -216,6 +219,7 @@ fun NowPlayingScreen(
                 liked = liked,
                 repeatAll = repeatAll,
                 initialShowQueue = initialPage == 2,
+                isShortWindow = isShortWindow,
                 onCollapse = onCollapse,
                 onTogglePlay = onTogglePlay,
                 onNext = onNext,
@@ -240,6 +244,7 @@ fun NowPlayingScreen(
                 liked = liked,
                 repeatAll = repeatAll,
                 initialPage = initialPage,
+                isShortWindow = isShortWindow,
                 pureCinema = pureCinema,
                 onPureCinemaChange = { pureCinema = it },
                 onCollapse = onCollapse,
@@ -291,6 +296,7 @@ private fun WidescreenSplitNowPlaying(
     liked: Boolean,
     repeatAll: Boolean,
     initialShowQueue: Boolean,
+    isShortWindow: Boolean,
     onCollapse: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
@@ -310,7 +316,7 @@ private fun WidescreenSplitNowPlaying(
             .fillMaxSize()
             .musicoTopInset()
             .navigationBarsPadding()
-            .padding(horizontal = 36.dp, vertical = 20.dp),
+            .padding(horizontal = 36.dp, vertical = if (isShortWindow) 12.dp else 20.dp),
     ) {
         // Minimal M3 Expressive top bar
         Row(
@@ -344,7 +350,7 @@ private fun WidescreenSplitNowPlaying(
             )
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(if (isShortWindow) 8.dp else 14.dp))
 
         Row(
             Modifier
@@ -353,94 +359,102 @@ private fun WidescreenSplitNowPlaying(
             horizontalArrangement = Arrangement.spacedBy(44.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Left Stage: Expressive Artwork + Title + Inline Wavy Seek + M3E Transport Cluster + Pill Row
-            Column(
+            // Left Stage: Height-aware Expressive Artwork + Title + Inline Wavy Seek + M3E Transport Cluster + Pill Row
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(0.46f)
                     .widthIn(max = 440.dp)
                     .fillMaxHeight(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+                contentAlignment = Alignment.Center,
             ) {
-                LivingBreathingArtwork(
-                    track = activeTrack,
-                    isPlaying = isPlaying,
-                    isBuffering = isBuffering,
-                    atmosphere = atmosphere,
-                    onTogglePlay = onTogglePlay,
-                    modifier = Modifier
-                        .fillMaxWidth(0.76f)
-                        .aspectRatio(1f),
-                )
-                Spacer(Modifier.height(22.dp))
+                val deckBudget = if (isShortWindow) 270.dp else 326.dp
+                val artSide = minOf(maxWidth * 0.78f, (maxHeight - deckBudget).coerceAtLeast(124.dp), 330.dp)
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth(0.96f)
-                        .padding(horizontal = 4.dp),
-                    horizontalAlignment = Alignment.Start,
-                ) {
-                    Text(
-                        activeTrack.title.ifEmpty { "Untitled" },
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = Musico.type.headline.copy(fontSize = 24.sp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .basicMarquee(),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        activeTrack.artist.ifEmpty { activeTrack.album }.ifEmpty { "Unknown artist" },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = Musico.type.body,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                ExpressiveInlineSeekBar(
-                    positionMsFlow = positionMsFlow,
-                    durationMs = durationMs,
-                    isPlaying = isPlaying,
-                    onSeek = onSeek,
                     modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(16.dp))
-                ExpressiveTransportCluster(
-                    isPlaying = isPlaying,
-                    isBuffering = isBuffering,
-                    onPrevious = onPrevious,
-                    onTogglePlay = onTogglePlay,
-                    onNext = onNext,
-                )
-                Spacer(Modifier.height(14.dp))
-                ExpressiveSecondaryActionRow(
-                    liked = liked,
-                    repeatAll = repeatAll,
-                    onRepeatToggle = onRepeatToggle,
-                    onLikeToggle = onLikeToggle,
-                    onAddToPlaylist = { onAddToPlaylist(activeTrack) },
-                    modifier = Modifier.fillMaxWidth(0.90f),
-                )
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(0.90f),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    ContextualBottomChip(
-                        icon = Icons.Filled.AutoAwesome,
-                        label = "Backdrop",
-                        active = false,
-                        onClick = onCycleBackdrop,
+                    LivingBreathingArtwork(
+                        track = activeTrack,
+                        isPlaying = isPlaying,
+                        isBuffering = isBuffering,
+                        atmosphere = atmosphere,
+                        onTogglePlay = onTogglePlay,
+                        modifier = Modifier.size(artSide),
                     )
-                    ContextualBottomChip(
-                        icon = if (rightTabQueue) Icons.Filled.Lyrics else Icons.Filled.QueueMusic,
-                        label = if (rightTabQueue) "Lyrics" else "Queue",
-                        active = true,
-                        onClick = { rightTabQueue = !rightTabQueue },
+                    Spacer(Modifier.height(if (isShortWindow) 12.dp else 20.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.96f)
+                            .padding(horizontal = 4.dp),
+                        horizontalAlignment = Alignment.Start,
+                    ) {
+                        Text(
+                            activeTrack.title.ifEmpty { "Untitled" },
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = Musico.type.headline.copy(fontSize = if (isShortWindow) 20.sp else 24.sp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .basicMarquee(),
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            activeTrack.artist.ifEmpty { activeTrack.album }.ifEmpty { "Unknown artist" },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = Musico.type.body,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Spacer(Modifier.height(if (isShortWindow) 10.dp else 16.dp))
+                    ExpressiveInlineSeekBar(
+                        positionMsFlow = positionMsFlow,
+                        durationMs = durationMs,
+                        isPlaying = isPlaying,
+                        onSeek = onSeek,
+                        compact = isShortWindow,
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(Modifier.height(if (isShortWindow) 10.dp else 16.dp))
+                    ExpressiveTransportCluster(
+                        isPlaying = isPlaying,
+                        isBuffering = isBuffering,
+                        onPrevious = onPrevious,
+                        onTogglePlay = onTogglePlay,
+                        onNext = onNext,
+                        compact = isShortWindow,
+                    )
+                    Spacer(Modifier.height(if (isShortWindow) 10.dp else 14.dp))
+                    ExpressiveSecondaryActionRow(
+                        liked = liked,
+                        repeatAll = repeatAll,
+                        onRepeatToggle = onRepeatToggle,
+                        onLikeToggle = onLikeToggle,
+                        onAddToPlaylist = { onAddToPlaylist(activeTrack) },
+                        compact = isShortWindow,
+                        modifier = Modifier.fillMaxWidth(0.90f),
+                    )
+                    Spacer(Modifier.height(if (isShortWindow) 10.dp else 14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(0.90f),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ContextualBottomChip(
+                            icon = Icons.Filled.AutoAwesome,
+                            label = "Backdrop",
+                            active = false,
+                            onClick = onCycleBackdrop,
+                        )
+                        ContextualBottomChip(
+                            icon = if (rightTabQueue) Icons.Filled.Lyrics else Icons.Filled.QueueMusic,
+                            label = if (rightTabQueue) "Lyrics" else "Queue",
+                            active = true,
+                            onClick = { rightTabQueue = !rightTabQueue },
+                        )
+                    }
                 }
             }
 
@@ -481,6 +495,7 @@ private fun CompactPagerNowPlaying(
     liked: Boolean,
     repeatAll: Boolean,
     initialPage: Int,
+    isShortWindow: Boolean,
     pureCinema: Boolean,
     onPureCinemaChange: (Boolean) -> Unit,
     onCollapse: () -> Unit,
@@ -582,8 +597,13 @@ private fun CompactPagerNowPlaying(
                         } else {
                             MaterialTheme.colorScheme.surfaceContainerLowest
                         },
+                        border = if (Musico.extras.isDark) {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f))
+                        } else {
+                            null
+                        },
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(if (isShortWindow) 36.dp else 40.dp)
                             .pressable(onClick = onCollapse, pressedScale = 0.90f),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -591,7 +611,7 @@ private fun CompactPagerNowPlaying(
                                 Icons.Filled.ExpandMore,
                                 contentDescription = "Collapse player",
                                 tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp),
+                                modifier = Modifier.size(if (isShortWindow) 22.dp else 24.dp),
                             )
                         }
                     }
@@ -665,7 +685,14 @@ private fun CompactPagerNowPlaying(
                 .desktopHorizontalPagerScroll(pagerState),
         ) { page ->
             when (page) {
-                0 -> ArtworkPage(activeTrack, isPlaying, isBuffering, atmosphere, onTogglePlay)
+                0 -> ArtworkPage(
+                    track = activeTrack,
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    atmosphere = atmosphere,
+                    isShortWindow = isShortWindow,
+                    onTogglePlay = onTogglePlay,
+                )
                 1 -> lyricsContent()
                 2 -> queueContent()
             }
@@ -676,10 +703,11 @@ private fun CompactPagerNowPlaying(
             enter = fadeIn(tween(MusicoMotion.MED)),
             exit = fadeOut(tween(MusicoMotion.FAST)),
         ) {
+            val deckSpacer = if (isShortWindow) 8.dp else 14.dp
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 22.dp, vertical = 10.dp),
+                    .padding(horizontal = if (isShortWindow) 18.dp else 22.dp, vertical = if (isShortWindow) 6.dp else 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 // 1. Inline-timestamped M3 Expressive Wavy Seekbar (120 FPS draw-phase)
@@ -688,10 +716,11 @@ private fun CompactPagerNowPlaying(
                     durationMs = durationMs,
                     isPlaying = isPlaying,
                     onSeek = onSeek,
+                    compact = isShortWindow,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(deckSpacer))
 
                 // 2. M3 Expressive Mixed-Geometry Transport Cluster (Squircle Prev · Wide Morphing Play/Pause · Squircle Next)
                 ExpressiveTransportCluster(
@@ -700,9 +729,10 @@ private fun CompactPagerNowPlaying(
                     onPrevious = onPrevious,
                     onTogglePlay = onTogglePlay,
                     onNext = onNext,
+                    compact = isShortWindow,
                 )
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(deckSpacer))
 
                 // 3. Elevated Secondary Pill Action Row (Repeat circle · Like stadium pill · Playlist stadium pill)
                 ExpressiveSecondaryActionRow(
@@ -711,10 +741,11 @@ private fun CompactPagerNowPlaying(
                     onRepeatToggle = onRepeatToggle,
                     onLikeToggle = onLikeToggle,
                     onAddToPlaylist = { onAddToPlaylist(activeTrack) },
+                    compact = isShortWindow,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(deckSpacer))
 
                 // 4. Bottom Contextual Tonal Chips (Backdrop · Lyrics · Queue)
                 Row(
@@ -765,18 +796,19 @@ private fun ExpressiveTransportCluster(
     onPrevious: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
+    compact: Boolean = false,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ExpressiveTransportButton(
             icon = Icons.Filled.SkipPrevious,
             contentDescription = "Previous",
             onClick = onPrevious,
-            width = 80.dp,
-            height = 70.dp,
-            iconSize = 32.dp,
+            width = if (compact) 68.dp else 80.dp,
+            height = if (compact) 56.dp else 70.dp,
+            iconSize = if (compact) 26.dp else 32.dp,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
@@ -784,8 +816,8 @@ private fun ExpressiveTransportCluster(
             isPlaying = isPlaying,
             isBuffering = isBuffering,
             onClick = onTogglePlay,
-            width = 104.dp,
-            height = 74.dp,
+            width = if (compact) 88.dp else 104.dp,
+            height = if (compact) 60.dp else 74.dp,
             containerColorPaused = MaterialTheme.colorScheme.primary,
             containerColorPlaying = MaterialTheme.colorScheme.primary,
             contentColorPaused = MaterialTheme.colorScheme.onPrimary,
@@ -795,9 +827,9 @@ private fun ExpressiveTransportCluster(
             icon = Icons.Filled.SkipNext,
             contentDescription = "Next",
             onClick = onNext,
-            width = 80.dp,
-            height = 70.dp,
-            iconSize = 32.dp,
+            width = if (compact) 68.dp else 80.dp,
+            height = if (compact) 56.dp else 70.dp,
+            iconSize = if (compact) 26.dp else 32.dp,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         )
@@ -811,8 +843,10 @@ private fun ExpressiveSecondaryActionRow(
     onRepeatToggle: () -> Unit,
     onLikeToggle: () -> Unit,
     onAddToPlaylist: () -> Unit,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val pillHeight = if (compact) 42.dp else 48.dp
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -823,8 +857,8 @@ private fun ExpressiveSecondaryActionRow(
             contentDescription = if (repeatAll) "Repeat on" else "Repeat off",
             onClick = onRepeatToggle,
             active = repeatAll,
-            height = 48.dp,
-            modifier = Modifier.width(50.dp),
+            height = pillHeight,
+            modifier = Modifier.width(if (compact) 44.dp else 50.dp),
         )
         ExpressiveActionPill(
             icon = if (liked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
@@ -832,7 +866,7 @@ private fun ExpressiveSecondaryActionRow(
             label = if (liked) "Liked" else "Like",
             onClick = onLikeToggle,
             active = liked,
-            height = 48.dp,
+            height = pillHeight,
             containerColor = if (liked) {
                 MaterialTheme.colorScheme.tertiaryContainer
             } else if (Musico.extras.isDark) {
@@ -853,7 +887,7 @@ private fun ExpressiveSecondaryActionRow(
             label = "Save",
             onClick = onAddToPlaylist,
             active = false,
-            height = 48.dp,
+            height = pillHeight,
             modifier = Modifier.weight(1f),
         )
     }
@@ -866,6 +900,7 @@ private fun ContextualBottomChip(
     active: Boolean,
     onClick: () -> Unit,
 ) {
+    val isDark = Musico.extras.isDark
     val bg by animateColorAsState(
         targetValue = if (active) {
             MaterialTheme.colorScheme.secondaryContainer
@@ -892,6 +927,15 @@ private fun ContextualBottomChip(
     Surface(
         shape = RoundedCornerShape(safeCornerDp(corner).coerceAtLeast(8.dp)),
         color = bg,
+        border = if (isDark) {
+            BorderStroke(
+                1.dp,
+                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f),
+            )
+        } else {
+            null
+        },
         modifier = Modifier
             .pointerHoverIcon(PointerIcon.Hand)
             .pressable(onClick = { hapticTick(); onClick() }, pressedScale = 0.94f),
@@ -923,6 +967,7 @@ private fun ExpressiveInlineSeekBar(
     durationMs: Long,
     isPlaying: Boolean,
     onSeek: (Long) -> Unit,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     ExpressiveLiveWavySeekBar(
@@ -932,16 +977,16 @@ private fun ExpressiveInlineSeekBar(
         enabled = durationMs > 0L,
         onSeekMs = onSeek,
         showInlineTimestamps = true,
-        timestampFontSize = 12.5.sp,
-        timestampMinWidth = 40.dp,
+        timestampFontSize = if (compact) 11.5.sp else 12.5.sp,
+        timestampMinWidth = if (compact) 36.dp else 40.dp,
         activeColor = MaterialTheme.colorScheme.primary,
         inactiveColor = MaterialTheme.colorScheme.outlineVariant,
         thumbColor = MaterialTheme.colorScheme.primary,
-        trackHeight = 6.dp,
-        waveAmplitude = 4.4.dp,
+        trackHeight = if (compact) 5.dp else 6.dp,
+        waveAmplitude = if (compact) 3.6.dp else 4.4.dp,
         waveLength = 26.dp,
-        thumbHeight = 28.dp,
-        barHeight = 38.dp,
+        thumbHeight = if (compact) 24.dp else 28.dp,
+        barHeight = if (compact) 32.dp else 38.dp,
         modifier = modifier,
     )
 }
@@ -1028,52 +1073,120 @@ private fun ArtworkPage(
     isPlaying: Boolean,
     isBuffering: Boolean,
     atmosphere: ArtworkAtmosphere,
+    isShortWindow: Boolean,
     onTogglePlay: () -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 4.dp),
+            .padding(horizontal = if (isShortWindow) 20.dp else 28.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            LivingBreathingArtwork(
-                track = track,
-                isPlaying = isPlaying,
-                isBuffering = isBuffering,
-                atmosphere = atmosphere,
-                onTogglePlay = onTogglePlay,
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .widthIn(max = 360.dp)
-                    .aspectRatio(1f),
+        // When desktop window is shrunk small or height is tight, switch to a bespoke
+        // horizontal Mini-Studio row so artwork, title, and artist stay crisp and never clip.
+        val useMiniStudioRow = isShortWindow || maxHeight < 290.dp
+        if (useMiniStudioRow) {
+            val artSize = minOf(
+                (maxHeight - 14.dp).coerceAtLeast(84.dp),
+                maxWidth * 0.42f,
+                168.dp,
             )
-            Spacer(Modifier.height(18.dp))
-            AnimatedContent(
-                targetState = track,
-                transitionSpec = {
-                    (fadeIn(tween(MusicoMotion.MED, easing = MusicoMotion.decelerate)) +
-                        slideInVertically(MusicoMotion.spatialDefault()) { it / 3 }) togetherWith fadeOut(tween(MusicoMotion.FAST))
-                },
-                label = "npTitleMorph",
-            ) { current ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                LivingBreathingArtwork(
+                    track = track,
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    atmosphere = atmosphere,
+                    onTogglePlay = onTogglePlay,
+                    modifier = Modifier.size(artSize),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    AnimatedContent(
+                        targetState = track,
+                        transitionSpec = {
+                            (fadeIn(tween(MusicoMotion.MED, easing = MusicoMotion.decelerate)) +
+                                slideInVertically(MusicoMotion.spatialDefault()) { it / 3 }) togetherWith fadeOut(tween(MusicoMotion.FAST))
+                        },
+                        label = "npMiniTitleMorph",
+                    ) { current ->
+                        Text(
+                            current.title.ifEmpty { "Untitled" },
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = Musico.type.headline.copy(fontSize = 20.sp),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Start,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        track.artist.ifEmpty { track.album }.ifEmpty { "Unknown artist" },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = Musico.type.body,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (track.album.isNotBlank() && !track.album.equals(track.artist, ignoreCase = true)) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            track.album,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                            style = Musico.type.caption,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        } else {
+            val artSize = minOf(
+                maxWidth * 0.90f,
+                (maxHeight - 108.dp).coerceAtLeast(136.dp),
+                356.dp,
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                LivingBreathingArtwork(
+                    track = track,
+                    isPlaying = isPlaying,
+                    isBuffering = isBuffering,
+                    atmosphere = atmosphere,
+                    onTogglePlay = onTogglePlay,
+                    modifier = Modifier.size(artSize),
+                )
+                Spacer(Modifier.height(18.dp))
+                AnimatedContent(
+                    targetState = track,
+                    transitionSpec = {
+                        (fadeIn(tween(MusicoMotion.MED, easing = MusicoMotion.decelerate)) +
+                            slideInVertically(MusicoMotion.spatialDefault()) { it / 3 }) togetherWith fadeOut(tween(MusicoMotion.FAST))
+                    },
+                    label = "npTitleMorph",
+                ) { current ->
+                    Text(
+                        current.title.ifEmpty { "Untitled" },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = Musico.type.headline.copy(fontSize = 23.sp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
                 Text(
-                    current.title.ifEmpty { "Untitled" },
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = Musico.type.headline.copy(fontSize = 23.sp),
-                    maxLines = 2,
+                    track.artist.ifEmpty { track.album }.ifEmpty { "Unknown artist" },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = Musico.type.body,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                track.artist.ifEmpty { track.album }.ifEmpty { "Unknown artist" },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = Musico.type.body,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

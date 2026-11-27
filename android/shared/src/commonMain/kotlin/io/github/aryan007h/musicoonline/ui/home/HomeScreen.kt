@@ -2,6 +2,7 @@ package io.github.aryan007h.musicoonline.ui.home
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -9,6 +10,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -59,9 +61,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -70,6 +74,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -439,6 +444,47 @@ object HomeFeaturedCurator {
         }
     }
 
+    /**
+     * Deterministically refreshes shelf order and non-ranked item rotations for the active
+     * `sessionSeed`, so tapping "Refresh picks" or reopening the app freshens the entire Home feed.
+     */
+    fun orderShelvesForSession(shelves: List<Shelf>, sessionSeed: Long): List<Shelf> {
+        if (shelves.isEmpty()) return emptyList()
+        val rotatedItems = shelves.map { shelf ->
+            val titleLower = shelf.title.lowercase()
+            val isRankedChart = titleLower.contains("chart") || titleLower.contains("top ") || titleLower.contains("trending")
+            if (isRankedChart || shelf.items.size <= 2) {
+                shelf
+            } else {
+                val shift = ((mixHash(sessionSeed, "shelf-items:${shelf.title}") ushr 1) % shelf.items.size.toLong()).toInt()
+                val nextItems = buildList(shelf.items.size) {
+                    for (i in shelf.items.indices) {
+                        add(shelf.items[(shift + i) % shelf.items.size])
+                    }
+                }
+                shelf.copy(items = nextItems)
+            }
+        }
+        if (rotatedItems.size <= 1) return rotatedItems
+        val (personal, general) = rotatedItems.partition { shelf ->
+            val lower = shelf.title.lowercase()
+            PERSONALIZED_SHELF_HINTS.any { lower.contains(it) }
+        }
+        val rotatedPersonal = rotateBySeed(personal, sessionSeed, "personal-shelves")
+        val rotatedGeneral = rotateBySeed(general, sessionSeed, "general-shelves")
+        return rotatedPersonal + rotatedGeneral
+    }
+
+    fun <T> rotateBySeed(items: List<T>, sessionSeed: Long, salt: String): List<T> {
+        if (items.size <= 1) return items
+        val shift = ((mixHash(sessionSeed, salt) ushr 1) % items.size.toLong()).toInt()
+        return buildList(items.size) {
+            for (i in items.indices) {
+                add(items[(shift + i) % items.size])
+            }
+        }
+    }
+
     private fun normalizeToken(raw: String): String? {
         val cleaned = raw.trim().lowercase()
         return cleaned.takeIf { it.length >= 3 }
@@ -516,13 +562,14 @@ private fun HomeFeed(
         HomeMoodFilter.filterShelves(shelves, selectedMood)
     }
     val nonEmptyShelves = remember(shelves) { shelves.filter { it.items.isNotEmpty() } }
-    val filteredShelves = remember(matchedShelves, nonEmptyShelves, selectedMood) {
-        when {
+    val filteredShelves = remember(matchedShelves, nonEmptyShelves, selectedMood, homeSessionSeed) {
+        val base = when {
             selectedMood == "All" -> nonEmptyShelves
             matchedShelves.isNotEmpty() -> matchedShelves
             selectedMood == "Made for You" -> nonEmptyShelves.take(3)
             else -> emptyList()
         }
+        HomeFeaturedCurator.orderShelvesForSession(base, homeSessionSeed)
     }
 
     val preferredTokens = remember(topArtistNames, savedArtists, likedTracks) {
@@ -561,14 +608,35 @@ private fun HomeFeed(
         HomeShelfGroups(grids.getOrNull(0), grids.getOrNull(1), filteredShelves.filterNot { used.contains(it) })
     }
 
-    val quickPicks = remember(likedCount, downloadsCount, playlists, smartMixes, recentlyPlayed) {
-        buildList<QuickPickEntry> {
+    val quickPicks = remember(likedCount, downloadsCount, playlists, smartMixes, recentlyPlayed, filteredShelves, homeSessionSeed) {
+        val pinned = buildList<QuickPickEntry> {
             if (likedCount > 0) add(QuickPickEntry.Liked(likedCount))
             if (downloadsCount > 0) add(QuickPickEntry.Downloads(downloadsCount))
-            playlists.take(2).forEach { add(QuickPickEntry.PlaylistPick(it)) }
-            smartMixes.take(2).forEach { add(QuickPickEntry.MixPick(it)) }
-            recentlyPlayed.take(6).forEach { add(QuickPickEntry.TrackPick(it)) }
-        }.take(6)
+        }
+        val dynamicPool = buildList<QuickPickEntry> {
+            val rotatedPlaylists = HomeFeaturedCurator.rotateBySeed(playlists, homeSessionSeed, "qp-pl")
+            val rotatedMixes = HomeFeaturedCurator.rotateBySeed(smartMixes, homeSessionSeed, "qp-mix")
+            val shelfTracks = filteredShelves
+                .flatMap { it.items }
+                .mapNotNull { item ->
+                    item.videoId?.let { vid ->
+                        OnlineTrack(
+                            videoId = vid,
+                            title = item.title,
+                            artist = item.subtitle,
+                            durationSecs = item.durationSecs,
+                            thumbnail = item.thumbnail,
+                        )
+                    }
+                }
+            val mergedTracks = (recentlyPlayed + shelfTracks).distinctBy { it.videoId }
+            val rotatedTracks = HomeFeaturedCurator.rotateBySeed(mergedTracks, homeSessionSeed, "qp-tracks")
+
+            rotatedMixes.take(2).forEach { add(QuickPickEntry.MixPick(it)) }
+            rotatedPlaylists.take(2).forEach { add(QuickPickEntry.PlaylistPick(it)) }
+            rotatedTracks.take(6).forEach { add(QuickPickEntry.TrackPick(it)) }
+        }
+        (pinned + dynamicPool).take(6)
     }
 
     val greeting = remember {
@@ -580,12 +648,19 @@ private fun HomeFeed(
         }
     }
 
+    var refreshSpinCount by remember { mutableIntStateOf(0) }
+    val refreshRotation by animateFloatAsState(
+        targetValue = refreshSpinCount * 360f,
+        animationSpec = tween(durationMillis = 520, easing = MusicoMotion.emphasized),
+        label = "refreshPicksSpin",
+    )
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 164.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // ── Dynamic Greeting Header + Refresh Spotlight Pill ─────────────
+        // ── Dynamic Greeting Header + Refresh Picks Pill ─────────────────
         item(key = "home-greeting") {
             Row(
                 Modifier
@@ -613,17 +688,23 @@ private fun HomeFeed(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (curatedHeroItems.size > 1) {
+                if (filteredShelves.isNotEmpty() || quickPicks.isNotEmpty()) {
                     Spacer(Modifier.width(12.dp))
                     Surface(
                         shape = RoundedCornerShape(999.dp),
                         color = MaterialTheme.colorScheme.secondaryContainer,
+                        border = if (Musico.extras.isDark) {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                        } else {
+                            null
+                        },
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
                             .pointerHoverIcon(PointerIcon.Hand)
                             .pressable(
                                 onClick = {
                                     hapticTick()
+                                    refreshSpinCount += 1
                                     onRefreshSpotlight()
                                 },
                                 pressedScale = 0.93f,
@@ -636,9 +717,11 @@ private fun HomeFeed(
                         ) {
                             Icon(
                                 Icons.Filled.Refresh,
-                                contentDescription = "Refresh spotlight picks",
+                                contentDescription = "Refresh Home picks",
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .graphicsLayer { rotationZ = refreshRotation },
                             )
                             Text(
                                 "Refresh picks",
@@ -769,7 +852,10 @@ private fun HomeFeed(
                             is QuickPickEntry.Downloads -> onOpenCollection(LibraryCollectionRef.OfflineDownloads)
                             is QuickPickEntry.PlaylistPick -> onOpenCollection(LibraryCollectionRef.Playlist(entry.playlist.id))
                             is QuickPickEntry.MixPick -> onOpenCollection(LibraryCollectionRef.Mix(entry.mix.id))
-                            is QuickPickEntry.TrackPick -> onOpenTrack(entry.track, recentlyPlayed)
+                            is QuickPickEntry.TrackPick -> {
+                                val queue = (listOf(entry.track) + recentlyPlayed).distinctBy { it.videoId }
+                                onOpenTrack(entry.track, queue)
+                            }
                         }
                     },
                 )
@@ -1031,8 +1117,8 @@ private fun QuickPickCard(
             isDark -> MaterialTheme.colorScheme.surfaceContainerHigh
             else -> MaterialTheme.colorScheme.surfaceContainerLowest
         },
-        border = if (!isDark && !isCurrent) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+        border = if (!isCurrent) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.34f else 0.45f))
         } else {
             null
         },
@@ -1154,7 +1240,7 @@ private fun HomeSmartMixCard(mix: SmartMix, onClick: () -> Unit) {
     Surface(
         shape = MusicoShapes.card,
         color = if (isDark) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
-        border = if (!isDark) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)) else null,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.34f else 0.45f)),
         modifier = Modifier
             .width(164.dp)
             .pressable(onClick = onClick, pressedScale = 0.95f),
@@ -1203,36 +1289,55 @@ private fun HeroCarousel(
     val scope = rememberCoroutineScope()
 
     var pointerHovered by remember { mutableStateOf(false) }
-    val userScrolling by remember { derivedStateOf { pagerState.isScrollInProgress } }
-    val timerPaused = pointerHovered || userScrolling
+    val userDragging by pagerState.interactionSource.collectIsDraggedAsState()
+    val latestHovered by rememberUpdatedState(pointerHovered)
+    val latestDragging by rememberUpdatedState(userDragging)
 
     // Draw-phase 120 FPS auto-slide timer state (zero recompositions while counting!)
     val slideProgressState = remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(pagerState.currentPage, items.size) {
+    // Single uninterrupted auto-slide loop keyed ONLY on items so programmatic
+    // animateScrollToPage NEVER cancels itself when isScrollInProgress or currentPage changes.
+    LaunchedEffect(items) {
         slideProgressState.floatValue = 0f
-    }
-
-    LaunchedEffect(pagerState.currentPage, timerPaused, items.size) {
-        if (items.size <= 1 || timerPaused) return@LaunchedEffect
-        val totalNanos = HomeFeaturedCurator.HERO_AUTO_SLIDE_MS * 1_000_000L
-        var elapsedNanos = (slideProgressState.floatValue.coerceIn(0f, 1f) * totalNanos).toLong()
-        var lastNanos = 0L
-        while (elapsedNanos < totalNanos) {
-            withFrameNanos { now ->
-                if (lastNanos != 0L) {
-                    elapsedNanos += (now - lastNanos).coerceIn(0L, 100_000_000L)
-                }
-                lastNanos = now
-                slideProgressState.floatValue = (elapsedNanos.toFloat() / totalNanos.toFloat()).coerceIn(0f, 1f)
-            }
+        if (items.isNotEmpty() && pagerState.currentPage >= items.size) {
+            pagerState.scrollToPage(0)
         }
-        val nextPage = (pagerState.currentPage + 1) % items.size
-        slideProgressState.floatValue = 0f
-        pagerState.animateScrollToPage(
-            page = nextPage,
-            animationSpec = tween(durationMillis = 560, easing = MusicoMotion.emphasized),
-        )
+        if (items.size <= 1) return@LaunchedEffect
+        val totalNanos = HomeFeaturedCurator.HERO_AUTO_SLIDE_MS * 1_000_000L
+        var trackedPage = pagerState.currentPage
+        var elapsedNanos = 0L
+        var lastNanos = 0L
+        while (true) {
+            while (elapsedNanos < totalNanos) {
+                withFrameNanos { now ->
+                    val current = pagerState.currentPage
+                    if (current != trackedPage) {
+                        trackedPage = current
+                        elapsedNanos = 0L
+                        lastNanos = now
+                        slideProgressState.floatValue = 0f
+                    } else if (latestHovered || latestDragging) {
+                        lastNanos = now
+                    } else {
+                        if (lastNanos != 0L) {
+                            elapsedNanos += (now - lastNanos).coerceIn(0L, 100_000_000L)
+                        }
+                        lastNanos = now
+                        slideProgressState.floatValue = (elapsedNanos.toFloat() / totalNanos.toFloat()).coerceIn(0f, 1f)
+                    }
+                }
+            }
+            val nextPage = (pagerState.currentPage + 1) % items.size
+            elapsedNanos = 0L
+            lastNanos = 0L
+            slideProgressState.floatValue = 0f
+            pagerState.animateScrollToPage(
+                page = nextPage,
+                animationSpec = tween(durationMillis = 580, easing = MusicoMotion.emphasized),
+            )
+            trackedPage = pagerState.currentPage
+        }
     }
 
     Column(
@@ -1479,16 +1584,33 @@ private fun HeroCard(
         } else {
             MaterialTheme.colorScheme.surfaceContainerLowest
         }
-        val decorativeTint = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.08f else 0.06f)
+        val heroGradient = if (isDark) {
+            Brush.linearGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f),
+                    MaterialTheme.colorScheme.surfaceContainerHigh,
+                    MaterialTheme.colorScheme.surfaceContainer,
+                ),
+            )
+        } else {
+            Brush.linearGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f),
+                    MaterialTheme.colorScheme.surfaceContainerLowest,
+                    MaterialTheme.colorScheme.surfaceContainerLowest,
+                ),
+            )
+        }
+        val decorativeTint = MaterialTheme.colorScheme.primary.copy(alpha = if (isDark) 0.12f else 0.06f)
 
         Surface(
             shape = RoundedCornerShape(if (compact) 26.dp else 32.dp),
             color = cardColor,
             border = BorderStroke(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.42f else 0.60f),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.50f else 0.60f),
             ),
-            shadowElevation = if (isDark) 0.dp else 3.dp,
+            shadowElevation = if (isDark) 4.dp else 3.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
@@ -1500,7 +1622,7 @@ private fun HeroCard(
                 )
                 .pressable(onClick = onClick, pressedScale = 0.98f),
         ) {
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().background(heroGradient)) {
                 // Subtle M3 Expressive geometric SoftBurst12 backdrop accent
                 if (!compact) {
                     Box(

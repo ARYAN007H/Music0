@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.CatalogEntry
 import io.github.aryan007h.musicoonline.core.CoreException
+import io.github.aryan007h.musicoonline.core.DownloadedTrack
+import io.github.aryan007h.musicoonline.core.ItemKind
 import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.PlaylistImportResult
@@ -11,6 +13,7 @@ import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
 import io.github.aryan007h.musicoonline.core.ResolvedTrack
 import io.github.aryan007h.musicoonline.core.Shelf
 import io.github.aryan007h.musicoonline.core.ShelfItem
+import io.github.aryan007h.musicoonline.core.SmartMix
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformPrefs
 import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
 import io.github.aryan007h.musicoonline.platform.mapFiveBandsToTenDb
@@ -28,6 +31,8 @@ import io.github.aryan007h.musicoonline.ui.home.HomeFeaturedCurator
 import io.github.aryan007h.musicoonline.ui.home.HomeLayoutMetrics
 import io.github.aryan007h.musicoonline.ui.home.HomeMoodFilter
 import io.github.aryan007h.musicoonline.ui.resolveLanguageGenreStyle
+import io.github.aryan007h.musicoonline.ui.library.DownloadsPartition
+import io.github.aryan007h.musicoonline.ui.library.LibraryRecommendationCurator
 import io.github.aryan007h.musicoonline.ui.library.formatDownloadsSummary
 import io.github.aryan007h.musicoonline.ui.library.formatSongCount
 import io.github.aryan007h.musicoonline.ui.library.formatTrackCount
@@ -644,5 +649,135 @@ class SharedCoreTests {
         // Distinct app launch seeds refresh the spotlight ordering.
         assertNotEquals(launchA.map { it.videoId }, launchB.map { it.videoId })
         assertEquals("FOR YOUR TASTE", HomeFeaturedCurator.badgeLabel(favShelf.items.first(), setOf("the weeknd")))
+    }
+
+    @Test
+    fun homeShelfOrderingRefreshesEntireFeedWhilePreservingRankedCharts() {
+        val chartShelf = Shelf(
+            title = "Top Charts Global",
+            items = listOf(
+                ShelfItem(title = "Rank 1", videoId = "c1"),
+                ShelfItem(title = "Rank 2", videoId = "c2"),
+                ShelfItem(title = "Rank 3", videoId = "c3"),
+                ShelfItem(title = "Rank 4", videoId = "c4"),
+            ),
+        )
+        val picksShelf = Shelf(
+            title = "Quick picks for you",
+            items = (1..8).map { i -> ShelfItem(title = "Pick $i", videoId = "p$i") },
+        )
+        val moodShelf = Shelf(
+            title = "Fresh Indie",
+            items = (1..8).map { i -> ShelfItem(title = "Indie $i", videoId = "i$i") },
+        )
+        val chillShelf = Shelf(
+            title = "Late Night Chill",
+            items = (1..8).map { i -> ShelfItem(title = "Chill $i", videoId = "ch$i") },
+        )
+        val input = listOf(chartShelf, picksShelf, moodShelf, chillShelf)
+
+        val orderedA = HomeFeaturedCurator.orderShelvesForSession(input, sessionSeed = 111L)
+        val orderedB = HomeFeaturedCurator.orderShelvesForSession(input, sessionSeed = 9_999_999L)
+
+        // Ranked charts keep exact 1..4 order across refreshes.
+        val chartA = orderedA.first { it.title == "Top Charts Global" }
+        val chartB = orderedB.first { it.title == "Top Charts Global" }
+        assertEquals(listOf("c1", "c2", "c3", "c4"), chartA.items.map { it.videoId })
+        assertEquals(listOf("c1", "c2", "c3", "c4"), chartB.items.map { it.videoId })
+
+        // Personalized shelves stay ahead of general shelves.
+        assertEquals("Quick picks for you", orderedA.first().title)
+
+        // Across distinct refresh seeds, non-ranked shelf item ordering or general shelf order refreshes.
+        val sigA = orderedA.map { it.title to it.items.map { item -> item.videoId } }
+        val sigB = orderedB.map { it.title to it.items.map { item -> item.videoId } }
+        assertNotEquals(sigA, sigB)
+    }
+
+    @Test
+    fun downloadsPartitionSplitsUserDownloadedFromAutoCachedTracks() {
+        val dl1 = DownloadedTrack(
+            track = OnlineTrack(videoId = "v1", title = "Saved Offline", artist = "Artist A"),
+            sizeBytes = 4_000_000L,
+        )
+        val dl2 = DownloadedTrack(
+            track = OnlineTrack(videoId = "v2", title = "Stream Cached", artist = "Artist B"),
+            sizeBytes = 2_500_000L,
+        )
+        val dl3 = DownloadedTrack(
+            track = OnlineTrack(videoId = "v3", title = "Also Downloaded", artist = "Artist C"),
+            sizeBytes = 3_500_000L,
+        )
+
+        val res = DownloadsPartition.partition(
+            downloads = listOf(dl1, dl2, dl3),
+            userDownloadedIds = setOf("v1", "v3"),
+        )
+        assertEquals(listOf("v1", "v3"), res.userDownloaded.map { it.track.videoId })
+        assertEquals(listOf("v2"), res.cachedOnly.map { it.track.videoId })
+        assertEquals(7_500_000L, res.userDownloadedBytes)
+        assertEquals(2_500_000L, res.cachedOnlyBytes)
+    }
+
+    @Test
+    fun libraryRecommendationCuratorSurfacesRecommendedArtistsAndAlbumsExcludingSaved() {
+        val savedArtists = listOf(CatalogEntry(id = "UC_SAVED", kind = "artist", title = "The Weeknd", browseId = "UC_SAVED"))
+        val savedAlbums = listOf(CatalogEntry(id = "MPRE_SAVED", kind = "album", title = "After Hours", browseId = "MPRE_SAVED"))
+
+        val shelves = listOf(
+            Shelf(
+                title = "Recommended Artists",
+                items = listOf(
+                    ShelfItem(title = "The Weeknd", kind = ItemKind.ARTIST, browseId = "UC_SAVED"),
+                    ShelfItem(title = "Daft Punk", kind = ItemKind.ARTIST, browseId = "UC_DAFT", thumbnail = "https://img/daft"),
+                ),
+            ),
+            Shelf(
+                title = "New Albums & Releases",
+                items = listOf(
+                    ShelfItem(title = "After Hours", kind = ItemKind.ALBUM, browseId = "MPRE_SAVED"),
+                    ShelfItem(title = "Random Access Memories", kind = ItemKind.ALBUM, subtitle = "Daft Punk", browseId = "MPRE_RAM"),
+                ),
+            ),
+        )
+        val liked = listOf(
+            OnlineTrack(videoId = "t1", title = "Starboy", artist = "The Weeknd feat. Daft Punk", album = "Starboy"),
+            OnlineTrack(videoId = "t2", title = "Midnight City", artist = "M83", album = "Hurry Up, We're Dreaming"),
+        )
+        val mixes = listOf(
+            SmartMix(
+                id = "mix1",
+                title = "Daily Mix",
+                tracks = listOf(OnlineTrack(videoId = "t3", title = "Breathe", artist = "Tame Impala", album = "Currents")),
+            ),
+        )
+
+        val recArtists = LibraryRecommendationCurator.recommendArtists(
+            savedArtists = savedArtists,
+            homeShelves = shelves,
+            topArtistNames = listOf("The Weeknd", "Frank Ocean"),
+            likedTracks = liked,
+            recentlyPlayed = emptyList(),
+            smartMixes = mixes,
+        )
+        assertTrue(recArtists.none { it.title.equals("The Weeknd", ignoreCase = true) })
+        assertEquals("Daft Punk", recArtists.first().title)
+        assertEquals("UC_DAFT", recArtists.first().browseId)
+        assertTrue(recArtists.any { it.title == "Frank Ocean" })
+        assertTrue(recArtists.any { it.title == "M83" })
+        assertTrue(recArtists.any { it.title == "Tame Impala" })
+
+        val recAlbums = LibraryRecommendationCurator.recommendAlbums(
+            savedAlbums = savedAlbums,
+            homeShelves = shelves,
+            likedTracks = liked,
+            recentlyPlayed = emptyList(),
+            smartMixes = mixes,
+        )
+        assertTrue(recAlbums.none { it.title.equals("After Hours", ignoreCase = true) })
+        assertEquals("Random Access Memories", recAlbums.first().title)
+        assertEquals("MPRE_RAM", recAlbums.first().browseId)
+        assertTrue(recAlbums.any { it.title == "Starboy" })
+        assertTrue(recAlbums.any { it.title == "Currents" })
     }
 }
