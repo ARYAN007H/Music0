@@ -4,17 +4,19 @@ All notable changes to Music0 (Musico Online) are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and since
 `v0.9.0` the project uses standard
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) without an
-`-online` prerelease suffix (`v1.0.0`, `v1.0.1`, …).
+`-online` prerelease suffix (`v1.0.0`, `v1.0.1`, `v1.0.2`, …).
 
 The app version lives in five places and must stay in sync:
 `musico_core/Cargo.toml`, `android/app/build.gradle.kts`,
 `android/desktopApp/build.gradle.kts`,
 `android/shared/src/desktopMain/.../DesktopPlatform.kt`, and
 `flatpak/io.github.aryan007h.Music0.metainfo.xml`. Release tags are
-`v<version>` (for example `v1.0.1`). Any tag containing a hyphen is published
+`v<version>` (for example `v1.0.2`). Any tag containing a hyphen is published
 as a GitHub prerelease.
 
 ## [Unreleased]
+
+## [1.0.2] - 2026-11-28
 
 ### Removed / Retired
 
@@ -578,7 +580,8 @@ online companion app and its release pipeline.
 - **Release pipeline** — tag-driven Linux and macOS builds with checksums and
   GitHub Releases.
 
-[Unreleased]: https://github.com/ARYAN007H/Music0/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ARYAN007H/Music0/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/ARYAN007H/Music0/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ARYAN007H/Music0/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ARYAN007H/Music0/compare/v0.9.5...v1.0.0
 [0.9.5]: https://github.com/ARYAN007H/Music0/compare/v0.9.4...v0.9.5

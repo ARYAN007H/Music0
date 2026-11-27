@@ -62,7 +62,7 @@ for contributors, reviewers, and anyone debugging the runtime.
 ├── CONTRIBUTING.md        Setup, workflow, standards (root)
 ├── SECURITY.md            Threat model and reporting (root)
 ├── CHANGELOG.md           Release history (root)
-├── ROADMAP.md             Post-v1.0.1 roadmap (root)
+├── ROADMAP.md             Post-v1.0.2 roadmap (root)
 ├── docs/
 │   ├── README.md          This index
 │   ├── development.md

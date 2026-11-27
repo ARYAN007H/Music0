@@ -77,6 +77,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.2" date="2026-11-28">
+      <description>
+        <p>Android libc++_shared.so native crash fix with fail-closed llvm-readelf release check, tuned progressive playback and JioSaavn matching with strict stream-URL host validation, Material 3 Expressive Light and Dark themes with battery-aware refresh gating, and retirement of legacy web preview code.</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-11-26">
       <description>
         <p>Near-instant progressive playback improvements, Linux AppImage and Flatpak bundles with offline yt-dlp-ejs and Deno, Dial-Zero brand kit, download verification guide, and repository cleanup.</p>

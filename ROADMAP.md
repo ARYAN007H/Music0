@@ -1,8 +1,8 @@
-# Roadmap (Post-v1.0.1)
+# Roadmap (Post-v1.0.2)
 
-Music0 reached **`v1.0.1`** with a unified **Compose Multiplatform** UI (`:shared`, `:app`, `:desktopApp`), pure-Rust JNI core (`musico_core`), progressive `16 KiB` loopback HTTP/1.1 streaming (`stream_server.rs` + `LoopbackHttpMediaSource`), parallel JioSaavn-vs-Direct resolution, zero-OAuth playlist import, 8-signal local recommender + Smart Mixes, word-synced Lyrics Studio, and Linux AppImage/Flatpak packaging (`yt-dlp` + `yt-dlp-ejs` + `deno`). Tauri (`src-tauri/`) was retired in `v1.0.0`.
+Music0 reached **`v1.0.2`** with a unified **Compose Multiplatform** UI (`:shared`, `:app`, `:desktopApp`), pure-Rust JNI core (`musico_core`), progressive `16 KiB` loopback HTTP/1.1 streaming (`stream_server.rs` + `LoopbackHttpMediaSource`), parallel JioSaavn-vs-Direct resolution, zero-OAuth playlist import, 8-signal local recommender + Smart Mixes, word-synced Lyrics Studio, and Linux AppImage/Flatpak packaging (`yt-dlp` + `yt-dlp-ejs` + `deno`). Tauri (`src-tauri/`) was retired in `v1.0.0`.
 
-This document tracks what comes **after `v1.0.1`**.
+This document tracks what comes **after `v1.0.2`**.
 
 ---
 

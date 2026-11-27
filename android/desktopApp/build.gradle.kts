@@ -18,11 +18,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.swing)
 }
 
-val musicoVersionName: String = (project.findProperty("musicoVersionName") as String?) ?: "1.0.1"
+val musicoVersionName: String = (project.findProperty("musicoVersionName") as String?) ?: "1.0.2"
 val musicoPackageVersion: String = musicoVersionName
     .removePrefix("v")
     .substringBefore('-')
-    .ifBlank { "1.0.1" }
+    .ifBlank { "1.0.2" }
 
 compose.desktop {
     application {

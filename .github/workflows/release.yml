@@ -70,7 +70,7 @@ jobs:
           VER="${GITHUB_REF_NAME#v}"
           VER="${VER%%-*}"
           if [[ ! "$VER" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
-            VER="1.0.1"
+            VER="1.0.2"
           fi
           echo "MUSICO_PKG_VERSION=$VER" >> "$GITHUB_ENV"
 
@@ -151,7 +151,7 @@ jobs:
           VER="${GITHUB_REF_NAME#v}"
           VER="${VER%%-*}"
           if [[ ! "$VER" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
-            VER="1.0.1"
+            VER="1.0.2"
           fi
           echo "MUSICO_PKG_VERSION=$VER" >> "$GITHUB_ENV"
 
@@ -244,7 +244,7 @@ jobs:
           VER="${GITHUB_REF_NAME#v}"
           VER="${VER%%-*}"
           if [[ ! "$VER" =~ ^[1-9][0-9]*\.[0-9]+\.[0-9]+$ ]]; then
-            VER="1.0.1"
+            VER="1.0.2"
           fi
           echo "MUSICO_PKG_VERSION=$VER" >> "$GITHUB_ENV"
 
@@ -373,12 +373,12 @@ jobs:
             echo "MUSICO_VERSION_NAME=${VER}-cmp" >> "$GITHUB_ENV"
             echo "MUSICO_VERSION_CODE=$((MAJOR * 1000000 + MINOR * 10000 + PATCH * 100))" >> "$GITHUB_ENV"
           else
-            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-1.0.1-cmp}" >> "$GITHUB_ENV"
-            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-1000100}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_NAME=${MUSICO_VERSION_NAME:-1.0.2-cmp}" >> "$GITHUB_ENV"
+            echo "MUSICO_VERSION_CODE=${MUSICO_VERSION_CODE:-1000200}" >> "$GITHUB_ENV"
           fi
 
       - name: Assemble release APK
-        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-1000100}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-1.0.1-cmp}" --console=plain
+        run: gradle :app:assembleRelease "-PmusicoVersionCode=${MUSICO_VERSION_CODE:-1000200}" "-PmusicoVersionName=${MUSICO_VERSION_NAME:-1.0.2-cmp}" --console=plain
         working-directory: android
         env:
           ANDROID_KEYSTORE_FILE: /tmp/musico.keystore

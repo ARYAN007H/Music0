@@ -105,7 +105,7 @@ object DesktopPlatformHost {
 class DesktopPlatformUpdater : PlatformUpdater {
     private val json = Json { ignoreUnknownKeys = true }
 
-    override fun currentVersion(): String = "1.0.1-cmp"
+    override fun currentVersion(): String = "1.0.2-cmp"
 
     override suspend fun check(): UpdateInfo = withContext(Dispatchers.IO) {
         val reply = MusicoCore.call("app.update.check")

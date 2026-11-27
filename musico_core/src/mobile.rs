@@ -346,7 +346,7 @@ fn init_core(files: &str, cache: &str) {
 }
 
 /// Single source of truth for reported app version across About, Desktop Rail,
-/// `ping`, and `app.update.check` (matches Android `versionName = "1.0.1-cmp"`).
+/// `ping`, and `app.update.check` (matches Android `versionName = "1.0.2-cmp"`).
 fn app_display_version() -> &'static str {
     match option_env!("MUSICO_VERSION_OVERRIDE") {
         Some(v) if !v.trim().is_empty() => v.trim(),

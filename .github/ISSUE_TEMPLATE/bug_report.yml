@@ -31,7 +31,7 @@ body:
     attributes:
       label: Version and commit
       description: "Output of: grep '^version' musico_core/Cargo.toml && git rev-parse --short HEAD"
-      placeholder: "1.0.1 / a1b2c3d"
+      placeholder: "1.0.2 / a1b2c3d"
     validations:
       required: true
 

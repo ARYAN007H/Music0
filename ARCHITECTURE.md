@@ -1,6 +1,6 @@
 # Architecture
 
-> **Status:** describes Music0 **v1.0.1+** (`1.0.1-cmp`, Compose Multiplatform + pure-Rust `musico_core`).
+> **Status:** describes Music0 **v1.0.2+** (`1.0.2-cmp`, Compose Multiplatform + pure-Rust `musico_core`).
 > **Scope:** the unified Android and Desktop (Linux, macOS, Windows) Compose Multiplatform application.
 
 Music0 is a streaming-capable, local-first music player built on **Kotlin Compose Multiplatform (CMP)** and a **three-crate Rust core** (`musico_core`, `musico_playback`, `musico_recommender`). Tauri (`src-tauri/`) was retired in `v1.0.0` ([ADR-0005](docs/adr/0005-compose-multiplatform-and-jni-core.md)); there is no WebView in any shipped artifact.

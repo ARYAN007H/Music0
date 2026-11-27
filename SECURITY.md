@@ -6,11 +6,11 @@ Music0 is a streaming-capable, local-first Android and Desktop music player. It 
 
 | Version | Supported |
 |---|---|
-| **1.0.x** (`v1.0.1`, latest) | ✅ Security fixes |
+| **1.0.x** (`v1.0.2`, latest) | ✅ Security fixes |
 | **0.9.x** | ⚠️ Critical fixes at the maintainer's discretion |
 | **< 0.9** | ❌ Please upgrade |
 
-Reports against the latest release (`v1.0.1`) and `main` are the most useful.
+Reports against the latest release (`v1.0.2`) and `main` are the most useful.
 
 ## Reporting a vulnerability
 
@@ -27,7 +27,7 @@ request, or discussion.
 
 Please include:
 
-- affected version (`v1.0.1`, commit hash, or `main`);
+- affected version (`v1.0.2`, commit hash, or `main`);
 - operating system and install method (Android APK, Flatpak, AppImage, deb, rpm, tar.gz, dmg, msi, zip, or source build);
 - a description of the impact and the attacker's starting position;
 - reproduction steps or a minimal proof of concept;
