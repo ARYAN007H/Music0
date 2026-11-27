@@ -9,9 +9,10 @@ for contributors, reviewers, and anyone debugging the runtime.
 | If you are… | Read |
 |---|---|
 | New to the repository | [CONTRIBUTING.md](../CONTRIBUTING.md) → [development.md](development.md) → [testing.md](testing.md) |
-| Reviewing a change | [ARCHITECTURE.md](../ARCHITECTURE.md) → [online-stack.md](online-stack.md) → [data-storage.md](data-storage.md) |
-| Working on the web preview UI | [frontend.md](frontend.md) → [testing.md](testing.md#4-browser-suites) |
+| Reviewing a change | [ARCHITECTURE.md](../ARCHITECTURE.md) → [ipc.md](ipc.md) → [online-stack.md](online-stack.md) → [data-storage.md](data-storage.md) |
+| Working on the web preview UI | [frontend.md](frontend.md) → [testing.md](testing.md#5-browser-suites-web-preview-only) |
 | Working on catalog/streaming | [online-stack.md](online-stack.md) → [data-storage.md](data-storage.md) |
+| Verifying downloads or packaging | [verify-downloads.md](verify-downloads.md) → [flatpak.md](flatpak.md) |
 | Cutting a release | [release.md](release.md) → [CHANGELOG.md](../CHANGELOG.md) |
 | Reporting a bug | [troubleshooting.md](troubleshooting.md) → [SECURITY.md](../SECURITY.md) for vulnerabilities |
 | Looking for the plan | [ROADMAP.md](../ROADMAP.md) |
@@ -20,43 +21,39 @@ for contributors, reviewers, and anyone debugging the runtime.
 
 | Document | What it covers |
 |---|---|
-| [ARCHITECTURE.md](../ARCHITECTURE.md) | System overview, design principles, process/thread model, crate boundaries, core flows, failure model, performance budgets |
-| [development.md](development.md) | Prerequisites, Compose Multiplatform, web preview, and Android development, environment variables, logs, common tasks, platform notes |
-| [testing.md](testing.md) | Test layers, hermetic Rust tests, Compose Multiplatform checks, live tests, TypeScript tests, browser suites, contrast gate, CI policy |
-| [frontend.md](frontend.md) | Web preview UI: no-build frontend, script order, Bridge, store/router, Preact shell, CSS layers, cache busting, PWA, accessibility |
-| [online-stack.md](online-stack.md) | InnerTube, JioSaavn, Piped/Invidious, yt-dlp, stream ladder, search/catalog caches, radio, lyrics, offline behavior |
-| [data-storage.md](data-storage.md) | XDG paths, sled trees, settings schema, cache layout, pruning, migrations, backup/reset |
-| [ipc.md](ipc.md) | Web-preview `bridge.js` / legacy v0.7.0 command and event reference (production Compose Multiplatform uses `musico_core/src/mobile.rs`) |
-| [release.md](release.md) | Versioning, tag scheme, release workflow, artifacts, signing limitations, local builds, rollback |
-| [troubleshooting.md](troubleshooting.md) | Symptom-driven fixes for startup, playback, catalog, storage, platform, and test-environment problems |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | System overview, CMP + JNI design, threads, crate boundaries, core flows, CI/packaging |
+| [development.md](development.md) | Prerequisites, Compose Multiplatform, web preview, and Android development, env vars, logs, common tasks |
+| [testing.md](testing.md) | Test layers, hermetic Rust tests, Compose Multiplatform checks, 19 live tests, TS tests, browser suites, contrast gate |
+| [ipc.md](ipc.md) | Production JNI bridge (`musico_core/src/mobile.rs`, 48 commands) + web-preview `bridge.js` appendix |
+| [frontend.md](frontend.md) | Compose Multiplatform UI summary + unreleased web/PWA preview (`frontend/` + `server.ts`) |
+| [online-stack.md](online-stack.md) | InnerTube, JioSaavn, `InnerTubeDirectSource`, Piped/Invidious, loopback `stream_server.rs`, `playlist_import.rs`, `yt-dlp`, LRCLIB |
+| [data-storage.md](data-storage.md) | Desktop/Android paths, `settings.json`, `ui_prefs.json`, sled trees (`mobile:*`), stream/cover caches, reset |
+| [release.md](release.md) | Versioning, tag scheme, `release.yml`, `desktop-core-so.yml`, artifacts, signing/secrets, local builds, rollback |
+| [flatpak.md](flatpak.md) | Linux AppImage & Flatpak packaging (`io.github.aryan007h.Music0`), sandbox paths, bundled `yt-dlp` + `deno` |
+| [verify-downloads.md](verify-downloads.md) | `SHA256SUMS.txt` verification, VirusTotal, Android APK signing fingerprint, Play Protect guidance |
+| [troubleshooting.md](troubleshooting.md) | Symptom-driven fixes for startup, audio, CMP Desktop/Android, online resolvers, storage, CI, and packaging |
+| [brand/BRAND_GUIDELINES.md](brand/BRAND_GUIDELINES.md) | TE Dial-Zero spec for icon/mark/banner + Material 3 Expressive rules for all in-app UI |
 | [adr/README.md](adr/README.md) | Architecture decision record index and template |
 
 ## Architecture decision records
 
-| ADR | Decision |
-|---|---|
-| [0001](adr/0001-tauri-2-no-build-frontend.md) | Tauri 2 with a static, no-build frontend |
-| [0002](adr/0002-separate-app-identity.md) | A separate `musico-online` app identity and data namespace |
-| [0003](adr/0003-tiered-stream-resolution.md) | Tiered stream resolution: cache → direct sources → yt-dlp |
-| [0004](adr/0004-local-first-recommender.md) | A local-first recommender with no cloud profile |
+| ADR | Decision | Status |
+|---|---|---|
+| [0001](adr/0001-tauri-2-no-build-frontend.md) | Tauri 2 with a static, no-build frontend | Superseded by [ADR-0005](adr/0005-compose-multiplatform-and-jni-core.md) |
+| [0002](adr/0002-separate-app-identity.md) | A separate `musico-online` app identity and data namespace | Accepted (amended) |
+| [0003](adr/0003-tiered-stream-resolution.md) | Tiered stream resolution: cache → direct sources → yt-dlp | Accepted (amended by [ADR-0006](adr/0006-loopback-progressive-streaming.md)) |
+| [0004](adr/0004-local-first-recommender.md) | A local-first recommender with no cloud profile | Accepted (amended) |
+| [0005](adr/0005-compose-multiplatform-and-jni-core.md) | Compose Multiplatform UI over a pure-Rust JNI core | Accepted |
+| [0006](adr/0006-loopback-progressive-streaming.md) | Progressive playback via a loopback HTTP/1.1 range server | Accepted |
 
 ## Documentation conventions
 
-- **Verify against code.** Commands, paths, event names, and counts in these
-  documents are checked against the source tree at the release they describe.
-  If the code changes, update the doc in the same pull request.
-- **Use exact paths.** Prefer `musico_core/src/online/stream.rs` over "the
-  online module". Paths are part of the contract.
-- **Separate the runtimes.** The Compose Multiplatform app (`android/` +
-  `musico_core/`) and the web/PWA preview (`frontend/` + `server.ts` +
-  `src/engine/`) are separate runtimes. Say which one a statement applies to.
-- **Keep commands copy-pasteable.** Every shell block assumes the repository
-  root unless it says otherwise. Use `PORT=…` only where the runtime reads it.
-- **Record irreversible choices as ADRs.** A decision that would be expensive
-  to reverse (a platform, a storage format, an identity, a resolution ladder)
-  gets an ADR rather than a paragraph in a guide.
-- **No secrets and no private data.** Examples use placeholder paths, ids, and
-  keys. Never paste a real token, cookie, or machine-specific path.
+- **Verify against code.** Commands, paths, event names, and counts in these documents are checked against the source tree at the release they describe.
+- **Use exact paths.** Prefer `musico_core/src/online/stream.rs` over "the online module".
+- **Separate the runtimes.** The Compose Multiplatform app (`android/` + `musico_core/`) and the web/PWA preview (`frontend/` + `server.ts` + `src/engine/`) are separate runtimes. Say which one a statement applies to.
+- **Keep commands copy-pasteable.** Every shell block assumes the repository root unless it says otherwise.
+- **Record irreversible choices as ADRs.** Durable architectural choices get an ADR in `docs/adr/`.
+- **No secrets and no private data.** Never paste real tokens, cookies, or personal machine paths.
 
 ## Where things live
 
@@ -66,37 +63,40 @@ for contributors, reviewers, and anyone debugging the runtime.
 ├── CONTRIBUTING.md        Setup, workflow, standards (root)
 ├── SECURITY.md            Threat model and reporting (root)
 ├── CHANGELOG.md           Release history (root)
-├── ROADMAP.md             Plan of record (root)
+├── ROADMAP.md             Post-v1.0.1 roadmap (root)
 ├── docs/
 │   ├── README.md          This index
 │   ├── development.md
 │   ├── testing.md
+│   ├── ipc.md
 │   ├── frontend.md
 │   ├── online-stack.md
 │   ├── data-storage.md
-│   ├── ipc.md
 │   ├── release.md
+│   ├── flatpak.md
+│   ├── verify-downloads.md
 │   ├── troubleshooting.md
-│   └── adr/
+│   ├── brand/             BRAND_GUIDELINES.md, palette.json, SVGs, banner.png
+│   ├── screenshots/       12 current CMP UI screenshots
+│   └── adr/               ADRs 0001–0006
 ├── android/               Compose Multiplatform app (:shared, :app, :desktopApp)
-├── musico_core/           Pure-Rust JNI core (`mobile.rs`), online stack, lyrics, config, identity
-├── musico_playback/       Audio engine crate (Rust)
-├── musico_recommender/    Recommender crate (Rust)
-├── frontend/              No-build UI + PWA assets
+├── musico_core/           Pure-Rust JNI core (mobile.rs, cover.rs, lyrics.rs, config.rs, identity.rs, online/)
+├── musico_playback/       Audio engine crate (Rust, including http_source.rs, resampler.rs, eq.rs)
+├── musico_recommender/    Recommender crate (Rust, 19 modules)
+├── flatpak/               Linux desktop entry, AppStream metainfo, Flatpak manifest
+├── frontend/              Standalone web/PWA preview UI
 ├── src/engine/            TypeScript engine for the web preview
-├── scripts/               Browser suites + contrast gate
+├── scripts/               package_appimage.sh, package_flatpak.sh, gen_test_tone.sh, browser suites, contrast gate
 └── .github/               CI/release workflows + issue/PR templates
 ```
 
 ## Keeping docs current
 
-A documentation change is part of the feature, not a follow-up. The
-[definition of done](../CONTRIBUTING.md#definition-of-done) requires it. Use
-this checklist when behavior changes:
+A documentation change is part of the feature, not a follow-up. The [definition of done](../CONTRIBUTING.md#definition-of-done) requires it:
 
 - [ ] Root README still describes the feature truthfully.
 - [ ] `ARCHITECTURE.md` updated if a boundary, thread, or flow changed.
-- [ ] The relevant deep dive updated (paths, commands, events, env vars).
+- [ ] The relevant deep dive updated (paths, JNI commands, env vars).
 - [ ] `CHANGELOG.md` has a user-visible entry.
 - [ ] Cross-links resolve; no link points at a deleted section.
 - [ ] Counts (tests, commands, trees, files) were re-checked, not copied.

@@ -1,15 +1,17 @@
 # Architecture decision records
 
 An ADR records a decision that is expensive to reverse, the context that forced
-it, and the consequences the project accepts. These are the four decisions that
-shape the current codebase most strongly.
+it, and the consequences the project accepts. These records shape the current
+codebase most strongly.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [0001](0001-tauri-2-no-build-frontend.md) | Tauri 2 with a no-build, static frontend | Accepted |
-| [0002](0002-separate-app-identity.md) | A separate `musico-online` app identity | Accepted |
-| [0003](0003-tiered-stream-resolution.md) | Tiered, local-first stream resolution | Accepted |
-| [0004](0004-local-first-recommender.md) | A local-only recommender in its own crate | Accepted |
+| [0001](0001-tauri-2-no-build-frontend.md) | Tauri 2 with a no-build, static frontend | Superseded by [ADR-0005](0005-compose-multiplatform-and-jni-core.md) |
+| [0002](0002-separate-app-identity.md) | A separate `musico-online` app identity | Accepted (amended for CMP packaging) |
+| [0003](0003-tiered-stream-resolution.md) | Tiered, local-first stream resolution | Accepted (amended by [ADR-0006](0006-loopback-progressive-streaming.md)) |
+| [0004](0004-local-first-recommender.md) | A local-only recommender in its own crate | Accepted (amended for `musico_core`) |
+| [0005](0005-compose-multiplatform-and-jni-core.md) | Compose Multiplatform UI over a pure-Rust JNI core | Accepted |
+| [0006](0006-loopback-progressive-streaming.md) | Progressive playback via a loopback HTTP/1.1 range server | Accepted |
 
 ## Format
 
@@ -37,9 +39,9 @@ one superseded; do not rewrite history in place.
 
 Add an ADR when a change:
 
-- constrains future code (schema, IPC contract, storage format);
+- constrains future code (schema, JNI contract, storage format);
 - chooses one of several plausible architectures;
-- deliberately accepts a limitation (unsigned builds, no sync, heuristic
+- deliberately accepts a limitation (unsigned desktop builds, no sync, heuristic
   matching);
 - would be costly to undo after a release.
 

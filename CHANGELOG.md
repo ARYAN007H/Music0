@@ -1,16 +1,18 @@
 # Changelog
 
-All notable changes to Musico Online are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html) with an `-online`
-prerelease suffix.
+All notable changes to Music0 (Musico Online) are documented here. The format
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and since
+`v0.9.0` the project uses standard
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html) without an
+`-online` prerelease suffix (`v1.0.0`, `v1.0.1`, …).
 
-The app version lives in five places and must stay in sync:
+The app version lives in six places and must stay in sync:
 `musico_core/Cargo.toml`, `android/app/build.gradle.kts`,
 `android/desktopApp/build.gradle.kts`,
-`android/shared/src/desktopMain/.../DesktopPlatform.kt`, and `package.json`.
-Release tags are `v<version>` (for example `v1.0.0`). Any tag containing a
-hyphen is published as a GitHub prerelease.
+`android/shared/src/desktopMain/.../DesktopPlatform.kt`, `package.json`, and
+`flatpak/io.github.aryan007h.Music0.metainfo.xml`. Release tags are
+`v<version>` (for example `v1.0.1`). Any tag containing a hyphen is published
+as a GitHub prerelease.
 
 ## [Unreleased]
 
@@ -46,8 +48,10 @@ hyphen is published as a GitHub prerelease.
 
 - **Near-instant progressive playback on Desktop & Android (PR #133):**
   - Added SSRF-safe `LoopbackHttpMediaSource` range-streaming from `.part`
-    files in `musico_playback` with 64 KiB PCM prefill, CPAL prewarm, and
-    Media3 `DefaultLoadControl` tuning (500 ms startup / 1.5 s rebuffer).
+    files in `musico_playback` with `16 KiB` loopback startup gate
+    (`INITIAL_READY_BYTES` lowered from `32 KiB`), 64 KiB PCM prefill, CPAL
+    prewarm, and Media3 `DefaultLoadControl` tuning (500 ms startup / 1.5 s
+    rebuffer).
   - Implemented hedged stream failover, `reqwest 0.12.28` streaming client
     stall protection (`saavn.rs`, `sources.rs`), generation-race / early-EOF /
     loopback stall cancellation fixes (`http_source.rs`, `lib.rs`), progressive
@@ -143,7 +147,7 @@ retired.
   shelf fallback, gated the Home banner so it only appears when no shelves can
   be built, and added Retry & Dismiss controls.
 - **Version consistency:** synchronized reported versions across About,
-  `app.update.check`, Desktop rail, and package manifests (`0.9.6-cmp` / `0.9.6`).
+  `app.update.check`, Desktop rail, and package manifests (`1.0.0-cmp` / `1.0.0`).
 - **Stability & edge-to-edge fixes:** clamped dynamic spring corners/scales to
   prevent negative-corner crashes, unified top cutouts via `musicoTopInset()`,
   fixed the Settings stream-cache slider drag/snap behavior, stopped Desktop
@@ -152,8 +156,6 @@ retired.
   silent track swapping when a user-tapped track fails to resolve.
 
 ## [0.9.5] - 2026-11-12
-
-### Fixed (Android native)
 
 ### Changed (Android native)
 
@@ -545,7 +547,15 @@ online companion app and its release pipeline.
 - **Release pipeline** — tag-driven Linux and macOS builds with checksums and
   GitHub Releases.
 
-[Unreleased]: https://github.com/ARYAN007H/Music0/compare/v0.8.1-online...HEAD
+[Unreleased]: https://github.com/ARYAN007H/Music0/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ARYAN007H/Music0/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/ARYAN007H/Music0/compare/v0.9.5...v1.0.0
+[0.9.5]: https://github.com/ARYAN007H/Music0/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/ARYAN007H/Music0/compare/v0.9.3...v0.9.4
+[0.9.3]: https://github.com/ARYAN007H/Music0/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/ARYAN007H/Music0/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/ARYAN007H/Music0/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/ARYAN007H/Music0/compare/v0.8.1-online...v0.9.0
 [0.8.1-online]: https://github.com/ARYAN007H/Music0/compare/v0.8.0-online...v0.8.1-online
 [0.8.0-online]: https://github.com/ARYAN007H/Music0/compare/v0.7.0-online...v0.8.0-online
 [0.7.0-online]: https://github.com/ARYAN007H/Music0/compare/v0.6.1-online...v0.7.0-online

@@ -1,6 +1,6 @@
 # 0002. A separate `musico-online` app identity
 
-- Status: Accepted
+- Status: Accepted (amended for Compose Multiplatform packaging)
 - Recorded: 2026-11-05
 - Deciders: maintainers
 
@@ -64,7 +64,7 @@ Positive:
 - Uninstalling one app does not delete the other's data.
 - The MPRIS name is unambiguous when both players are installed.
 - A clean reset is a single directory removal, documented in
-  [data-storage.md](../data-storage.md#9-reset).
+  [data-storage.md](../data-storage.md#6-resetting-local-state).
 
 Negative:
 
@@ -91,9 +91,18 @@ Negative:
 
 ## References
 
-- `src-tauri/src/identity.rs`
-- `src-tauri/src/config.rs` (`settings_path`)
-- `src-tauri/src/lib.rs` (`init_recommender`, log path)
-- `src-tauri/src/scanner.rs` (`cover_path`, `cache_file`)
-- `src-tauri/src/online/stream.rs` (`cache_dir`)
+- `musico_core/src/identity.rs` (moved from `src-tauri/src/identity.rs` in `v1.0.0`)
+- `musico_core/src/config.rs` (`settings_path`)
+- `musico_core/src/mobile.rs` (`init_core`, `recommender`)
+- `musico_core/src/cover.rs` (`cover_path`)
+- `musico_core/src/online/stream.rs` (`cache_dir`)
+- `android/shared/src/desktopMain/kotlin/io/github/aryan007h/musicoonline/platform/DesktopPlatform.kt`
 - [docs/data-storage.md](../data-storage.md)
+
+## Amendments (v1.0.0–v1.0.1)
+
+- `src-tauri/` was retired in `v1.0.0`; `identity.rs` and `config.rs` now live in `musico_core/src/`, and `db/.stable-ids` migration was removed alongside the local folder scanner.
+- Packaging identifiers split cleanly from the `musico-online` storage namespace:
+  - Flatpak / Linux desktop ID: `io.github.aryan007h.Music0` (`flatpak/io.github.aryan007h.Music0.yml`), display name `Music0`.
+  - Android `applicationId` and macOS `bundleID`: `io.github.aryan007h.musicoonline`.
+- Because `DesktopPlatformHost` / `MainActivity` resolve app-private/XDG `musico-online` directories before calling `MusicoCore.init()` and `mobile.rs` exports `XDG_*` to those paths while `identity.rs` joins `DATA_SUBDIR` again, Rust currently stores `db/`, `settings.json`, `online/`, and `covers/` in a nested `musico-online/musico-online/` subdirectory (see [docs/data-storage.md](../data-storage.md)).

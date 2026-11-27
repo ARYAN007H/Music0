@@ -45,7 +45,7 @@ Be direct about code, generous about people.
 | **Platforms** | macOS/Windows/Linux/Android builds & packaging | `.github/workflows/`, `android/app/`, `android/desktopApp/` |
 
 Deliberate non-goals: accounts, cloud sync, social feeds, DRM content, and
-lyrics licensing. See `ROADMAP.md §0`.
+lyrics licensing. See [ROADMAP.md §4](ROADMAP.md#4-deliberate-non-goals).
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ lyrics licensing. See `ROADMAP.md §0`.
 |---|---|---|
 | **Rust** | 1.78+ (edition 2021) | Workspace `rust-version` |
 | **Cargo** | Stable | Build/test Rust crates |
-| **Java & Gradle** | JDK 17+, Gradle 8.10.2 | Compose Multiplatform Android & Desktop |
+| **Java & Gradle** | JDK 17+, Gradle 8.10.2 (system `gradle`) | Compose Multiplatform Android & Desktop (`android/` has no wrapper) |
 | **Node.js** | 20+ | Web preview, TypeScript tests, browser suites |
 | **yt-dlp** | Current | Fallback stream resolver on Desktop (optional for browsing) |
 | **Playwright + Google Chrome** | Current | Web-preview browser assertion suites (optional) |
@@ -141,8 +141,10 @@ musico_recommender/  Offline taste engine + sled persistence
 frontend/            Web/PWA preview UI (classic scripts + Preact/htm core)
 src/engine/          TypeScript engine for the web/PWA runtime
 server.ts            Express web preview + demo RPC
-scripts/             Browser suites, contrast gate, test-tone generator
+flatpak/            Linux desktop entry, AppStream metainfo, and Flatpak manifest
+scripts/             AppImage/Flatpak packaging scripts, browser suites, contrast gate, test-tone generator
 docs/                Deep dives (start at docs/README.md)
+.github/             CI/release workflows, issue and PR templates
 ```
 
 Architecture, data flow, and extension points:
@@ -176,7 +178,7 @@ refactor/<short-slug>    behavior-preserving change
 docs/<short-slug>        documentation only
 test/<short-slug>        tests only
 ci/<short-slug>          workflow/build changes
-release/vX.Y.Z-online    release preparation
+release/vX.Y.Z           release preparation
 ```
 
 Example: `feat/queue-drag-reorder`.
@@ -191,7 +193,7 @@ Example: `feat/queue-drag-reorder`.
 - `musico_core/src/online/parse.rs` is the only response-shape-sensitive file;
   keep parsing changes there.
 - Frontend asset changes must bump the `?v=` query strings in
-  `frontend/index.html` (see [docs/frontend.md](docs/frontend.md#6-cache-busting)).
+  `frontend/index.html` (see [docs/frontend.md](docs/frontend.md#6-cache-busting-web-preview)).
 
 ### 4. Open a pull request
 
@@ -242,7 +244,7 @@ refactor(online): split stream resolution into sources.rs
 docs(architecture): document the stream resolution ladder
 test(queue): cover reorder bounds
 ci(release): gate publishing to tags
-chore(release): v0.7.0-online
+chore(release): bump version to v1.0.1
 ```
 
 Rules:
@@ -257,13 +259,13 @@ Rules:
 A PR is ready to merge when all of these are true:
 
 - [ ] The change does what the linked issue/PR says, and nothing unrelated.
-- [ ] `cargo test --workspace --exclude musico_playback` passes.
-- [ ] New behavior has a hermetic test (Rust unit/integration, TS, or browser).
-- [ ] `npm run build` (TypeScript typecheck) passes if `src/engine/` or
-      `server.ts` changed.
-- [ ] Frontend changes were exercised in a browser (desktop or web preview);
-      visible work has screenshots in the PR.
+- [ ] `cargo test --workspace --exclude musico_playback` and `cargo build --release -p musico_core --lib` pass.
+- [ ] `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain` passes when `android/` or JNI contracts change.
+- [ ] New behavior has a hermetic test (Rust unit/integration, Kotlin `SharedCoreTests`, TS, or browser).
+- [ ] `npm test` and `npm run build` pass if `src/engine/` or `server.ts` changed.
+- [ ] Compose Multiplatform changes were exercised on Desktop and/or Android (or web preview changes in a browser); visible work has screenshots in the PR.
 - [ ] `?v=` asset versions were bumped if `frontend/` changed.
+- [ ] Version sync checked across all 6 manifests if releasing ([docs/release.md](docs/release.md#1-versioning)).
 - [ ] Network/disk work is off the UI thread and bounded.
 - [ ] Error paths return a user-visible message; no new `unwrap()` on runtime
       data.
@@ -309,8 +311,7 @@ node scripts/contrast_gate.mjs 8145
 ```
 
 **Browser suites serialize on port 8143.** Do not run two at once, and kill the
-server after the run. If you are working with other agents, take the suite
-lock in `agentchat.md` first.
+server after the run.
 
 ### When to add which test
 
@@ -318,8 +319,9 @@ lock in `agentchat.md` first.
 |---|---|
 | Pure Rust logic, parser, cache policy | `#[cfg(test)]` unit test beside the code, no network |
 | Cache/prune/download behavior | Hermetic test using `MUSICO_CACHE_DIR` tempdir |
-| IPC command contract | Rust test of the underlying function + browser assertion |
-| Frontend view/navigation | `scripts/browser_*_test.mjs` |
+| JNI `dispatch()` command (`mobile.rs`) | Rust test in `musico_core/src/mobile.rs` + Kotlin test in `SharedCoreTests.kt` |
+| Compose Multiplatform UI / ViewModel | `gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest` |
+| Web preview view/navigation | `scripts/browser_*_test.mjs` |
 | Web/PWA engine behavior | `src/engine/*.test.ts` (`node:test`) |
 | Real catalog/shape verification | `#[ignore]` `live_*` test, run manually |
 
@@ -349,7 +351,13 @@ lock in `agentchat.md` first.
   build compiling. macOS CI type-checks the macOS-only blocks; Windows CI does
   the same for Windows.
 
-### Frontend
+### Compose Multiplatform (Kotlin)
+
+- **Material 3 Expressive only:** Build new screens, sheets, and controls from `Theme.kt` (`MusicoSpacing`, `MusicoShapes`, `MusicoTypography`, 5-rung tonal surfaces), `Palettes.kt`, and `components/Common.kt` (see [docs/brand/BRAND_GUIDELINES.md](docs/brand/BRAND_GUIDELINES.md)).
+- **Safe dynamic geometry:** Clamp animated corners (`coerceAtLeast(0.dp)`) and scales (`safePositiveScale`) so springs never overshoot negative.
+- **Keep JNI off the UI thread:** All `MusicoCore.call()` / `callElement()` calls run on `Dispatchers.IO`; use `Modifier.musicoWash(...)` for top/scrim washes and preserve state across the `840.dp` breakpoint.
+
+### Web preview (`frontend/`)
 
 - **No bundler, no transpiler.** Ship browser-native ES modules. Preact + htm
   are vendored in `frontend/vendor/htm-preact.js`.
@@ -384,7 +392,7 @@ Documentation is part of the product:
 - **Behavior change** → update the relevant `docs/` page and `CHANGELOG.md`.
 - **Architecture change** → update `ARCHITECTURE.md` and, if it is a durable
   decision, add an ADR in `docs/adr/`.
-- **New command/event** → update `docs/ipc.md`.
+- **New JNI command or bridge change** → update `docs/ipc.md`.
 - **New env var** → update `ARCHITECTURE.md` and `docs/data-storage.md`.
 - **New setup step** → update `CONTRIBUTING.md` and `docs/development.md`.
 
@@ -393,19 +401,11 @@ commands, file paths, and failure modes over vague prose.
 
 ## Multi-agent development
 
-Part of this repository is built by multiple AI agents working in parallel.
-If you are an agent (or a human working alongside them):
+Part of this repository uses parallel AI-assisted development alongside human
+contributions:
 
-1. Read [`agentchat.md`](agentchat.md) before touching code.
-2. Register a unique name, claim **one** task, and work only in your assigned
-   worktree.
-3. Take the suite lock before running browser tests; release it afterwards.
-4. Log meaningful progress (claim, files, blockers, DONE + verification).
-5. Respect the 25-entry log retention rule.
-6. Agent PRs go through the same independent review gate as human PRs.
-
-Human contributors do not need to use the hub, but it is the best place to see
-what is currently in flight.
+1. Read [`agentchat.md`](agentchat.md) for active product decisions and recent task context.
+2. Keep changes scoped to a dedicated branch and follow the standard PR + CI + independent review workflow.
 
 ## Getting help
 

@@ -7,9 +7,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Musico Online is deliberately local-first. Accounts, cloud sync,
+        Music0 (Musico Online) is deliberately local-first. Accounts, cloud sync,
         social feeds, DRM content, and lyrics licensing are out of scope
-        (see `ROADMAP.md §0`). Proposals that fit the existing model are much
+        (see `ROADMAP.md §4`). Proposals that fit the existing model are much
         more likely to land.
 
   - type: checkboxes
@@ -34,7 +34,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: What should the app do? Include IPC, storage, or resolver implications if you know them.
+      description: What should the app do? Include JNI, storage, or resolver implications if you know them.
     validations:
       required: true
 
