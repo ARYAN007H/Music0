@@ -2,7 +2,7 @@
 
 **Music0** (`ARYAN007H/Music0`) splits its visual system cleanly into two scopes:
 1. **Brand Identity (Icon, Logo Mark & Banner):** **TE Dial-Zero** — flat tactile hardware minimalism.
-2. **In-App UI Elements (from `v1.0.1` onward):** **Material 3 Expressive only** — adaptive dark tonal surfaces, expressive rounded geometry, and spring-driven motion.
+2. **In-App UI Elements (from `v1.0.1` onward):** **Material 3 Expressive only** — adaptive Light and Dark tonal surfaces, expressive rounded geometry, and spring-driven motion.
 
 ---
 

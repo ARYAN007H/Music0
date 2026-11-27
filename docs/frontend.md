@@ -1,6 +1,6 @@
 # Frontend & UI Layer
 
-Music0's UI for both **Android** and **Desktop** (Linux, macOS, Windows) is built in **Kotlin Compose Multiplatform** (`android/shared/`). Tauri and WebViews were retired in `v1.0.0` ([ADR-0005](adr/0005-compose-multiplatform-and-jni-core.md)), and the legacy `frontend/` + `server.ts` web/PWA preview was retired post-`v1.0.1`.
+Music0's UI for both **Android** and **Desktop** (Linux, macOS, Windows) is built in **Kotlin Compose Multiplatform** (`android/shared/`). Tauri and WebViews were retired in `v1.0.0` ([ADR-0005](adr/0005-compose-multiplatform-and-jni-core.md)), and the legacy web/PWA preview was retired post-`v1.0.1`.
 
 ---
 
@@ -10,7 +10,7 @@ All shipped Android (`:app`) and Desktop (`:desktopApp`) interfaces live under `
 
 - **Shell & adaptive layout (`ui/MusicoApp.kt`):** Uses an `840.dp` width breakpoint:
   - **Compact (`< 840.dp`):** Bottom capsule navigation bar + swipeable mini-player.
-  - **Expanded (`≥ 840.dp`):** Sidebar navigation rail (`224.dp`–`256.dp`) + `76.dp` floating squircle player dock + split-stage Now Playing.
+  - **Expanded (`≥ 840.dp`):** Sidebar navigation rail (`224.dp`–`256.dp`) + `98.dp` floating player dock + split-stage Now Playing.
 - **State management (`ui/MusicViewModel.kt`):** Holds unidirectional `StateFlow` state, calls Rust over JNI via [`MusicoCore.kt`](../android/shared/src/commonMain/kotlin/io/github/aryan007h/musicoonline/core/MusicoCore.kt) on `Dispatchers.IO`, and persists UI preferences in `PlatformPrefs`. See [docs/ipc.md](ipc.md).
 - **Primary tabs (`AppTab`):** `HomeScreen`, `RadioScreen`, `LibraryScreen`, `SearchScreen`.
 - **Overlays & sheets (`AppOverlay`):** `NowPlayingScreen` (`LyricsPane`, `Backdrops`), `SettingsScreen`, `ProfileScreen`, `DetailScreen`, `PlaylistDetailScreen`, `EqScreen`, `OnboardingScreen`, `PlaylistSheets`.
