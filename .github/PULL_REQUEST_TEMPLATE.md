@@ -18,10 +18,12 @@ Closes #
 
 <!--
 A short, reviewable list. Call out:
-- new or changed IPC commands/events;
+- new or changed JNI commands (`musico_core/src/mobile.rs`);
+- Compose Multiplatform UI/ViewModel changes (`android/shared/`);
 - persisted data or schema changes;
 - resolver, cache, or settings behavior;
-- frontend asset version bumps.
+- version bumps across the 6 synced manifests (if releasing);
+- web-preview `frontend/` asset version bumps (if touched).
 -->
 
 -
@@ -32,14 +34,16 @@ A short, reviewable list. Call out:
 
 ```sh
 cargo test --workspace --exclude musico_playback
-npm run build
-npm test
+cargo build --release -p musico_core --lib
+gradle -p android :app:compileDebugKotlin :desktopApp:compileKotlin :shared:desktopTest --console=plain
+npm test && npm run build
 ```
 
-- [ ] Rust suite passes (or the excluded/failed tests are explained).
+- [ ] Rust suite & `musico_core` release `cdylib` build pass (or excluded/failed tests are explained).
+- [ ] Compose Multiplatform Android/Desktop compile and `:shared:desktopTest` pass.
 - [ ] New behavior has a hermetic test.
-- [ ] `npm run build` / `npm test` pass if `src/engine/` or `server.ts` changed.
-- [ ] Frontend change exercised in a browser or the Tauri webview.
+- [ ] `npm test` / `npm run build` pass if `src/engine/` or `server.ts` changed.
+- [ ] Compose Multiplatform change exercised on Desktop/Android (or web-preview change exercised in a browser).
 
 ## Screenshots / recordings
 
@@ -53,7 +57,7 @@ npm test
 - [ ] macOS
 - [ ] Windows
 - [ ] Android
-- [ ] Web preview (`server.ts`) only
+- [ ] Web preview (`server.ts` / `frontend/`) only
 - [ ] No platform-specific code
 
 ## Risk and follow-ups
@@ -70,6 +74,6 @@ disk work, and anything intentionally left out of scope.
 - [ ] Network/disk work is off the UI thread and bounded.
 - [ ] Error paths return a user-visible message; no new `unwrap()` on runtime data.
 - [ ] Security-sensitive input (URLs, ids, filenames, downloaded bytes) is validated at the boundary.
-- [ ] Docs are updated when behavior, setup, IPC, or architecture changes.
+- [ ] Docs are updated when behavior, setup, JNI contract, or architecture changes.
 - [ ] `CHANGELOG.md` has an entry for user-visible changes.
 - [ ] I have read [CONTRIBUTING.md](https://github.com/ARYAN007H/Music0/blob/main/CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](https://github.com/ARYAN007H/Music0/blob/main/CODE_OF_CONDUCT.md).

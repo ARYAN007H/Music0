@@ -1,6 +1,6 @@
 # 0004. A local-only recommender in its own crate
 
-- Status: Accepted
+- Status: Accepted (amended for `musico_core`)
 - Recorded: 2026-11-05
 - Deciders: maintainers
 
@@ -120,6 +120,13 @@ Negative:
 - `musico_recommender/src/recommender.rs`
 - `musico_recommender/src/lib.rs` (`MusicRecommender::new`)
 - `musico_recommender/src/library.rs`, `user_playlists.rs`, `batch.rs`
-- `src-tauri/src/state.rs` (`init_recommender`, `AppState`)
+- `musico_core/src/mobile.rs` (`RECOMMENDER`, `start_indexer_worker`, `rec.*` / `library.*` / `playlist.*` dispatch)
 - [docs/data-storage.md](../data-storage.md)
 - [ARCHITECTURE.md](../../ARCHITECTURE.md)
+
+## Amendments (v0.9.6–v1.0.1)
+
+- `src-tauri/` was retired in `v1.0.0`; `MusicRecommender` is now owned by `RECOMMENDER: OnceLock<Mutex<MusicRecommender>>` inside `musico_core/src/mobile.rs`.
+- `scanner.rs` and `db/.stable-ids` were removed with Tauri; background acoustic indexing now runs in `musico-mobile-indexer` (`mobile.rs`) on cached online tracks.
+- `mobile.rs` opens 4 additional sled trees (`mobile:track_meta`, `mobile:vid_to_song`, `mobile:song_to_vid`, `mobile:enrich_attempted`) and adds online catalog re-ranking (`rec.rerank_candidates`) and Smart Mixes (`rec.smart_mixes`).
+- `SignalWeights` defines 8 weighted slots (`similarity`, `affinity`, `profile`, `session`, `artist`, `cluster`, `context`, `discovery`) plus `exploration`.

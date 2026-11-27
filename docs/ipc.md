@@ -1,474 +1,150 @@
-# IPC reference
+# JNI & IPC Reference
 
-> **Note (v1.0.0 Compose Multiplatform):** This v0.7.0 Tauri command and event
-> catalog is retained for the [web preview bridge](../frontend/js/bridge.js)
-> mock contract. The production Android and Desktop Compose Multiplatform app
-> communicates with Rust through the JNI JSON `dispatch()` router in
-> `musico_core/src/mobile.rs`.
+The production **Android** and **Desktop** Compose Multiplatform apps communicate with the pure-Rust core (`musico_core` → `libmusico_online_lib`) exclusively through the JNI dispatcher in [`musico_core/src/mobile.rs`](../musico_core/src/mobile.rs), mirrored by [`MusicoCore.kt`](../android/shared/src/commonMain/kotlin/io/github/aryan007h/musicoonline/core/MusicoCore.kt).
 
-The webview talks to Rust through Tauri's `invoke`/`emit` bridge. This
-document is the command and event catalog for **v0.7.0**. The registry is
-`src-tauri/src/lib.rs` (`tauri::generate_handler!`); handlers live in
-`src-tauri/src/commands.rs`.
+> **Web Preview Note:** The legacy `frontend/` + `server.ts` browser demo still uses [`frontend/js/bridge.js`](../frontend/js/bridge.js) (`Bridge.invoke()` over HTTP `/api/invoke/:cmd`). That mock layer is not part of any Desktop or Android build; see [Appendix A](#appendix-a-web-preview-bridge) below.
 
-There are **86 registered commands** and **9 Rust-emitted event channels**.
-`prefetch-updated` exists only in the browser mock (`frontend/js/bridge.js`)
-and is not emitted by the Rust backend.
+---
 
-## 1. Conventions
+## 1. JNI Transport & Envelope
 
-### Names and arguments
+`musico_core/src/mobile.rs` exports exactly two `extern "system"` JNI functions on package `io.github.aryan007h.musicoonline.core.MusicoCore`:
 
-- Command names are `snake_case` and must be registered exactly once.
-- Rust parameters are `snake_case`; Tauri exposes them to JS as
-  **`camelCase`**. `song_id` becomes `songId`, `duration_secs` becomes
-  `durationSecs`, `browse_id` becomes `browseId`.
-- Optional Rust `Option<T>` parameters may be omitted or passed as `null`.
-- Struct arguments are plain objects. `SongMeta` and `OnlineTrack` are sent
-  back **verbatim**; do not drop fields such as `source` or the backend loses
-  the ability to dispatch resolution.
+1. **`initNative(filesDir: String, cacheDir: String)`**
+   - Must be called once before any `invoke` call.
+   - Creates `filesDir` and `cacheDir`, exports `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` = `filesDir` and `XDG_CACHE_HOME` = `cacheDir`, initializes logging (`android_logger` tag `"musico-native"` on Android; `env_logger` to stderr on Desktop), applies the persisted `online_cache_mb` cap, warms `MusicRecommender`, `stream_server`, `sources`/`saavn` HTTP clients, and (on Desktop) `PlaybackEngine`.
+2. **`invoke(cmd: String, argsJson: String): String`**
+   - Panic-safe (`catch_unwind`); never lets a Rust panic cross JNI.
+   - Always runs on Kotlin `Dispatchers.IO` via `MusicoCore.call(cmd, args)` / `MusicoCore.callElement(cmd, args)`.
+   - Reply JSON envelope:
+     ```json
+     { "ok": true, "data": { ... } }
+     { "ok": false, "error": "human-readable message" }
+     ```
+   - There are **no Rust-to-UI push events** in CMP. Long-running progress (`library.playlist.import`) and Desktop playback state (`player.state`) are polled from Kotlin (`150 ms` loop in `DesktopPlayback.kt`).
 
-```js
-const page = await Bridge.invoke('online_search', { query: 'Believer', videos: false });
-await Bridge.invoke('set_song_like', { songId: 'yt:abc123', liked: true });
-```
+### `OnlineTrack` JSON shape (camelCase / snake_case tolerant)
 
-### Results and failures
+Commands taking a `track` (`track.resolve`, `playlist.add_track`, `library.likes.set`, `rec.on_song_changed`, `rec.rerank_candidates`) accept both `camelCase` and `snake_case` keys via `online_track_from_args`:
 
-`frontend/js/bridge.js` wraps invoke in all three Tauri shapes and **catches
-rejections, logs them, and resolves `null`**. Consequences:
+- `videoId` / `video_id` (required, 1–64 chars, `[A-Za-z0-9_-]`)
+- `title`, `artist`, `album`, `source` (`""` | `"yt"` | `"saavn"`)
+- `durationSecs` / `duration_secs` (optional `u32`)
+- `thumbnail` (optional `string`)
+- `artistBrowseId` / `artist_browse_id` (optional `string`)
 
-- `null` means "failed or unavailable", not "empty success".
-- `Result<(), String>` commands are effectively fire-and-forget from the UI:
-  `Ok(())` also serializes as `null`. Commands whose success the UI must
-  distinguish return `bool`, a count, or an object; this is why
-  `library_add`, `playlist_rename`, `set_offline`, and friends return values.
-- A rejected promise never reaches UI code unless the command returns an
-  event or a value. Check the webview console for the logged error.
-- Rust error strings are user-facing. They are written as complete sentences
-  where the user can act on them (for example the offline message).
+---
 
-### Blocking work
+## 2. Production JNI Command Catalog (48 Commands)
 
-Commands that touch the network or disk are `async` and move the blocking part
-to `tauri::async_runtime::spawn_blocking`. Synchronous commands only read
-in-memory state (library, queue, settings, cache counters) or perform a
-bounded filesystem read.
+### Core, Settings & Updates (4)
 
-## 2. Shared types
-
-### `SongMeta`
-
-Sent for every local/queued song and accepted by `play_song`, `add_to_queue`,
-`play_next`.
-
-```ts
-{
-  id: string;            // stable path hash for local, "yt:<id>" / "saavn:<id>" for online
-  title: string;
-  artist: string;
-  album: string;
-  duration_secs: number;
-  file_path: string;
-}
-```
-
-### `OnlineTrack`
-
-Returned by search/browse/radio and accepted back by every online play,
-enqueue, radio, and download command.
-
-```ts
-{
-  video_id: string;
-  title: string;
-  artist: string;
-  album?: string;
-  duration_secs?: number | null;
-  thumbnail?: string | null;
-  cached?: boolean;
-  source?: string;              // "" or "yt" = YouTube; "saavn" = JioSaavn
-  artist_browse_id?: string | null;
-}
-```
-
-The stable id is `source ? `${source}:${video_id}` : `yt:${video_id}``.
-The backend constructs tracks in search, catalog, radio, and Saavn paths; the
-frontend must preserve the object it receives.
-
-### Catalog pages
-
-```ts
-SearchResultPage {
-  tracks: OnlineTrack[];
-  next_continuation?: string | null;
-}
-
-BrowsePage {
-  title?: string;
-  shelves: Shelf[];             // { title: string; items: ShelfItem[] }
-  next_continuation?: string | null;
-  header?: HeaderMeta | null;   // detail-page hero
-}
-
-ShelfItem {
-  kind: "song" | "video" | "album" | "artist" | "playlist" | "unknown";
-  title: string;
-  subtitle?: string;
-  thumbnail?: string | null;
-  video_id?: string | null;     // playable rows
-  browse_id?: string | null;    // detail-page target
-  params?: string | null;       // opaque browse params
-  playlist_id?: string | null;
-}
-```
-
-### Other DTOs
-
-| Type | Shape |
-|---|---|
-| `PlaybackStateDto` | `{status, position_secs, duration_secs, volume, muted, current_song}`; `status` is `Stopped`, `Playing`, `Paused`, etc. |
-| `StatsDto` | `{total_plays, total_listened_secs, total_skips, streak_days, avg_listen_ratio, top_songs: TopSongDto[], top_artists: [name, plays][], daily_minutes: [day, minutes][]}` |
-| `TopSongDto` | `{id, title, artist, plays}` |
-| `LibraryEntry` (`CatalogEntry`) | `{id, kind, title, subtitle, thumbnail, browse_id, params, video_id, added_at}` |
-| `PlaylistTrack` | `{source: "yt" \| "saavn" \| "local", id, title, artist, album, duration_secs, thumbnail, file_path?}` |
-| `UserPlaylist` | `{id, name, created_at, modified_at, tracks: PlaylistTrack[]}` |
-| `SmartPlaylist` | `{id, name, rules: FilterRule[], max_songs, sort_by, sort_ascending}` |
-| `BatchJob` | `{id, label, tracks: [{video_id, title, state}], active}`; `state` is `pending`, `done`, or `failed:<reason>` |
-| `LyricsDto` | `{synced, lines: [{time_secs, text}]}` |
-| `EnhancedLyricsDto` | `{track_id, synced, source, has_word_sync, has_romanized, has_translation, lines: EnhancedLyricLineDto[]}` |
-| `SyncedLyricsDto` | `{synced: [{time_secs, text}], plain: string \| null}` |
-
-`EnhancedLyricLineDto` is `{time_secs, text, words: [{word, start_ms, end_ms}],
-romanized, translation}`. Word timings are synthesized from the line span, not
-provided by LRCLIB.
-
-## 3. Command catalog
-
-### Library (4)
-
-| Command | Arguments | Returns | Notes |
+| Command | Request Args | Response `data` | Notes |
 |---|---|---|---|
-| `get_library` | — | `SongMeta[]` | In-memory scan result |
-| `start_scan` | — | `bool` | `false` when a scan is already running; progress via events |
-| `get_cover` | `songId` | `string \| null` | Base64 `data:image/jpeg` URL from the cover cache |
-| `search_library` | `query` | `SongMeta[]` | Case-insensitive title/artist/album substring |
+| `ping` | `{}` | `{ version, core: "rust-mobile", initialized }` | `version` uses `MUSICO_VERSION_OVERRIDE` or `<CARGO_PKG_VERSION>-cmp`. |
+| `settings.get` | `{}` | Full `AppSettings` object | Loads `<config_dir>/settings.json` with serde defaults. |
+| `settings.save` | `{ settings: { ...partial } }` | Merged `AppSettings` object | Mutex-serialized read-merge-write; live-updates cache cap. |
+| `app.update.check` | `{}` | `{ current, latest, updateAvailable, assetUrl, assetName, assetSizeBytes, assetDigest, notes }` | Queries GitHub `/releases/latest`; picks platform asset (`.apk` / `.dmg` / `.msi` / `.deb` / `.tar.gz`). |
 
-### Playback (11)
+### Online Catalog, Search & Stream Resolution (7)
 
-| Command | Arguments | Returns | Notes |
+All catalog/search commands require `offline_mode == false` (`ensure_online()`). `track.resolve` checks the local disk cache **before** `ensure_online()`, so cached tracks play offline.
+
+| Command | Request Args | Response `data` | Notes |
 |---|---|---|---|
-| `play_song` | `song: SongMeta` | `null` | Pushes to the queue and plays it now; `previous()` works |
-| `pause` | — | `null` | |
-| `resume` | — | `null` | |
-| `seek` | `positionSecs` | `null` | Seconds |
-| `set_volume` | `volume` | `null` | Clamped 0–1 |
-| `toggle_mute` | — | `null` | |
-| `get_playback_state` | — | `PlaybackStateDto` | Poll fallback; events are the primary stream |
-| `next` | — | `null` | Runs the full advance policy |
-| `previous` | — | `null` | Restarts if position > 3 s, else pops history |
-| `set_playback_modes` | `shuffle`, `repeat` | `null` | Shuffle 0/1/2 (2 = smart radio), repeat 0/1/2 |
-| `set_autoplay` | `enabled` | `null` | Persists immediately |
+| `online.search` | `{ query, videos?: bool, continuation?: string }` | `SearchResultPage` | Merges InnerTube + JioSaavn (`SEARCH_MERGE_LIMIT = 10`); 5-min TTL cache. |
+| `online.home` | `{}` | `BrowsePage` (shelves + continuation) | SWR-cached InnerTube Home feed. |
+| `online.genres` | `{}` | `{ items: ShelfItem[] }` | Moods & Genres (`FEmusic_moods_and_genres`). |
+| `online.browse` | `{ browseId, params? }` or `{ continuation }` | `BrowsePage` | Album, artist, playlist, or genre detail / continuation. |
+| `online.related` | `{ videoId }` | `{ tracks: OnlineTrack[] }` | InnerTube `RD<videoId>` radio, avoiding last 12 played tracks. |
+| `online.suggestions` | `{ query }` | `{ suggestions: string[] }` | Autocomplete suggestions (requires online). |
+| `track.resolve` | `OnlineTrack` + `{ background?: bool, allowStream?: bool }` | `{ path, songId, mode, resolveMs }` | `mode` is `"cached"`, `"stream"` (`http://127.0.0.1:<port>/stream/<token>`), `"file"`, or `"bg_file"`. Enqueues background acoustic indexing. |
 
-`play_song` rejects when the engine is unavailable. `next` returns `Ok` even
-when the advance policy stops (no queue, no autoplay); use events to observe
-the result.
+### Cache Management (2)
 
-### Queue (7)
-
-| Command | Arguments | Returns | Notes |
+| Command | Request Args | Response `data` | Notes |
 |---|---|---|---|
-| `get_queue` | — | `SongMeta[]` | Upcoming + current, in queue order |
-| `add_to_queue` | `song` | `null` | Appends |
-| `play_next` | `song` | `null` | Inserts at the front |
-| `remove_from_queue` | `songId` | `null` | Removes the first matching id |
-| `clear_queue` | — | `null` | Clears upcoming and history |
-| `queue_move` | `from`, `to` | `bool` | Indices into the **upcoming** list only |
-| `queue_play_at` | `index` | `null` | Removes that upcoming row and plays it now |
+| `online.cache.usage` | `{}` | `{ bytes: u64, capMb: u32? }` | Counts stream cache files + `.part`/`.ytdl`/`.tmp`/`.meta.json` usage. |
+| `online.cache.clear` | `{}` | `{ freedBytes: u64 }` | Deletes cached audio and sidecars in `<cache_dir>/online/`. |
 
-Every mutation emits `queue-changed`.
+### User Playlists (7)
 
-### Settings and folder (4)
+Backed by `sled` tree `lib:playlists` in `musico_recommender`.
 
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `get_settings` | — | `AppSettings` | Full object from [data-storage.md](data-storage.md#2-settingsjson) |
-| `save_settings` | `settings` | `null` | Persists, applies DSP/audio fields, then replaces in-memory state |
-| `pick_folder` | — | `string \| null` | Native dialog; saves and starts a scan; `null` on cancel |
-| `set_music_folder` | `path` | `string` | Saves and rescans; error when the scan cannot start |
-
-### Recommendations and likes (4)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `get_recommendations` | — | `SongMeta[]` | 6 picks anchored on the current song; deterministic fallback when the recommender is busy/unavailable |
-| `recommended_for_home` | — | `{header, songs} \| null` | `null` hides the Home shelf; header is "Because you liked <artist>" |
-| `set_song_like` | `songId`, `liked` | `null` | Backend is the source of truth for ♥ |
-| `get_liked_ids` | — | `string[]` | Used for the one-time frontend likes migration and the Liked filter |
-
-### Online catalog and search (6)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `online_search` | `query`, `videos?`, `continuation?` | `SearchResultPage` | Saavn is merged into first-page Songs results only |
-| `online_search_suggestions` | `query` | `string[]` | Empty on offline/error/short query; never rejects for those |
-| `online_home` | — | `BrowsePage` | Cached/stale-while-revalidate |
-| `online_browse` | `browseId`, `params?` | `BrowsePage` | Album/artist/playlist/genre detail |
-| `online_genres` | — | `ShelfItem[]` | Mood/genre grid |
-| `online_available` | — | `bool` | Desktop: yt-dlp present. Android: always `true` (pure-Rust resolvers) |
-
-`online_search`, `online_home`, `online_browse`, and `online_genres` are
-Airplane-Mode gated and return the offline error string.
-
-### Online playback and radio (4)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `online_play` | `track: OnlineTrack` | `null` | Resolves interactively, pushes to the front, plays; emits `online-status` |
-| `online_enqueue` | `track` | `null` | Background resolve, appends to the queue |
-| `online_play_next` | `track` | `null` | Background resolve, inserts at the front; emits `queued-next` |
-| `online_start_radio` | `track` | `null` | Clears upcoming, plays the seed, then chains related tracks |
-
-All four are offline-gated. A resolution failure emits
-`online-status {stage:"error"}` (except the download path, which uses
-`download-state`).
-
-### Downloads, batches, offline, cache (9)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `online_download` | `track` | `null` | Cache fill without touching the queue; emits `download-state` |
-| `online_download_batch` | `label`, `tracks` | `string` | Persisted batch id; starts a worker unless offline |
-| `online_batches` | — | `BatchJob[]` | All persisted jobs |
-| `online_batch_retry` | `id` | `null` | Resets failed tracks to pending and restarts |
-| `online_batch_cancel` | `id` | `null` | Cooperative: in-flight tracks finish |
-| `set_offline` | `enabled` | `bool` | Persists; lifting resumes pending batches |
-| `get_offline` | — | `bool` | |
-| `online_cache_usage` | — | `{used_bytes, cap_mb}` | Includes `.part`/`.ytdl` sidecars |
-| `set_online_cache_cap` | `mb: number \| null` | `{used_bytes, cap_mb}` | Persists, prunes immediately; env override still wins |
-
-`online_clear_cache` is listed with lyrics below because it is a cache
-command, not a batch command.
-
-### Saved catalog library (4)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `library_add` | `entry: LibraryEntry` | `bool` | Backend stamps `added_at`; same id replaces |
-| `library_remove` | `kind`, `id` | `null` | `kind` is `album`, `artist`, or `track` |
-| `library_list` | `kind` | `LibraryEntry[]` | Newest first |
-| `library_contains` | `kind`, `ids` | `string[]` | Subset of ids that are saved |
-
-These are online-catalog bookmarks, stored in `lib:album` / `lib:artist` /
-`lib:track`. They are not the local file library (`get_library`).
-
-### User playlists (7)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `playlist_create` | `name` | `UserPlaylist` | 1–200 characters after trim |
-| `playlist_list` | — | `UserPlaylist[]` | |
-| `playlist_rename` | `id`, `name` | `bool` | |
-| `playlist_delete` | `id` | `bool` | |
-| `playlist_add_track` | `id`, `track: PlaylistTrack` | `number` | New track count; max 1000 |
-| `playlist_remove_track` | `id`, `index` | `bool` | |
-| `playlist_move_track` | `id`, `from`, `to` | `bool` | Remove then insert |
-
-Duplicates are allowed. `source` must be `yt`, `saavn`, or `local`; local rows
-must carry `file_path`.
-
-### Related, lyrics, and stream cache (6)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `online_related` | `videoId` | `OnlineTrack[]` | Suggested shelf; seed excluded, shuffled |
-| `online_lyrics` | `videoId` | `string \| null` | Unsynced YouTube Music text |
-| `online_synced_lyrics` | `artist`, `title`, `durationSecs?` | `SyncedLyricsDto \| null` | LRCLIB; `None` means fall back |
-| `get_lyrics` | `songId` | `LyricsDto \| null` | Local sidecar only |
-| `get_enhanced_lyrics` | `trackId`, `title?`, `artist?`, `durationSecs?` | `EnhancedLyricsDto \| null` | Unified ladder; local sidecar works offline |
-| `online_clear_cache` | — | `number` | Bytes freed |
-
-`online_lyrics` and `online_synced_lyrics` are offline-gated.
-`get_enhanced_lyrics` checks the local sidecar first, then returns `null`
-offline; it never rejects just because lyrics are missing.
-
-### Stats and smart lists (2)
-
-| Command | Arguments | Returns | Notes |
-|---|---|---|---|
-| `get_stats` | — | `StatsDto` | Empty object shape when the recommender is unavailable |
-| `get_playlists` | — | `SmartPlaylist[]` | Reads the `playlists` tree; no v0.7.0 command writes it |
-
-### DSP / Sonic Lab (12)
-
-| Command | Arguments | Returns |
+| Command | Request Args | Response `data` |
 |---|---|---|
-| `set_eq` | `enabled`, `gains: number[]` | `null` |
-| `set_normalization` | `mode: "Off" \| "Track"` | `null` |
-| `set_stem_mode` | `mode` | `{mode, spec: {mode, label}}` |
-| `set_loudness_norm` | `enabled`, `targetLufs?` | `{enabled, targetLufs, label}` |
-| `get_autoeq_profiles` | — | `{profiles, activeProfile, tubeWarmth}` |
-| `apply_autoeq_profile` | `profileId?`, `tubeWarmth?` | `{activeProfile, tubeWarmth, eqEnabled}` |
-| `get_prefetch_plan` | — | `{enabled, count, streamingQuality, downloadQuality, sampleRate, instantBufferKb, gaplessPlayback, tubeWarmth, items}` |
-| `get_autodj_plan` | — | `{enabled, outgoingBpm, incomingBpm, stretchRatio, effectiveIncomingBpm, beatGridOffsetMs, crossfadeDurationSec, phraseAlignedBars, label}` |
-| `get_taste_dna` | — | `{subprofileCount, weights, recommendations}` |
-| `apply_taste_dna` | `config?` (ignored) | `{applied, recommendations}` |
-| `build_sonic_bridge` | `startTrackId?`, `targetTrackId?`, `steps?` | JSON path plan |
-| `get_daypart_capsule` | `hour?` | JSON daypart capsule |
+| `playlist.list` | `{}` | `{ playlists: UserPlaylist[] }` |
+| `playlist.create` | `{ name }` | Created `UserPlaylist` |
+| `playlist.rename` | `{ id, name }` | `{ renamed: true }` |
+| `playlist.delete` | `{ id }` | `{ deleted: true }` |
+| `playlist.add_track` | `{ id, track: OnlineTrack }` | `{ count: usize }` (also saves `mobile:track_meta`) |
+| `playlist.remove_track` | `{ id, index: usize }` | `{ removed: true }` |
+| `playlist.move_track` | `{ id, from: usize, to: usize }` | `{ moved: true }` |
 
-`set_stem_mode` accepts `full`, `instrumental`/`karaoke`, and
-`vocals`/`vocals_only`. `set_loudness_norm` clamps the target to −24…−9 LUFS.
-`get_prefetch_plan` reports the current queue's prefetch plan; it does not
-start downloads. `get_autodj_plan` returns descriptive metadata for the UI —
-the engine's crossfade is configured through `save_settings`.
+### Playlist Import (3)
 
-### Jam sessions (4)
+Single-flight, cancelable importer (`musico_core/src/online/playlist_import.rs`).
 
-| Command | Arguments | Returns | Notes |
+| Command | Request Args | Response `data` | Notes |
 |---|---|---|---|
-| `create_jam_session` | `hostName?` | JSON session | Builds a local session from the queue/library |
-| `join_jam_session` | `roomCode`, `userName?` | JSON session | Normalizes the code, stores it in-process |
-| `vote_jam_track` | `roomCode?`, `trackId`, `delta?` | JSON session \| `null` | Re-sorts the shared queue by votes |
-| `get_jam_session` | — | JSON session \| `null` | |
+| `library.playlist.import` | `{ mode: "url", url }` or `{ mode: "file", fileName?, content }` | `{ playlistId, name, total, matched, unmatched: [{ title, artist }], cancelled }` | `url` allows only `https://open.spotify.com/...` and `https://music.apple.com/...`. `file` parses CSV, JSON, or M3U/M3U8 (max `4 MiB` / `500` tracks). `200 ms` search pacing. |
+| `library.playlist.import.status` | `{}` | `{ active, name, current, total }` | Polled by UI during import. |
+| `library.playlist.import.cancel` | `{}` | `{ cancelling: true }` | Sets atomic cancel flag checked between tracks. |
 
-**These commands are a local simulation in v0.7.0.** There is no network
-transport, discovery, or multi-device sync; `JAM_STATE` is an in-process
-`Mutex`. Room codes and participant names are display data.
+### Library, Likes, Downloads & Migration (8)
 
-### Utility (2)
-
-| Command | Arguments | Returns |
-|---|---|---|
-| `get_platform_capabilities` | — | `{platform, rollout, canPickLocalFolder, hasNativeAudio, streamResolvers}` |
-| `execute_sonic_command` | `query` | JSON match list from the local library |
-
-`get_platform_capabilities` reports `linux`, `macos`, `windows`, or `android`,
-and lists the resolvers available on that platform. Android includes
-`piped`, `invidious`, `saavn`, `innertube_direct`; desktop adds `yt_dlp`.
-
-## 4. Events
-
-Subscribe with:
-
-```js
-const off = Bridge.listen('queue-changed', (envelope) => {
-  const songs = envelope.payload ?? envelope;
-});
-```
-
-Tauri delivers `{event, payload}`; legacy handlers also accept the bare
-payload. `Bridge.listen` returns an unsubscribe function. A missing
-`core:event` permission makes registration reject; the bridge logs it and
-returns a no-op, so events then silently never arrive — check the console.
-
-| Event | Emitted by | Payload | Consumer |
+| Command | Request Args | Response `data` | Notes |
 |---|---|---|---|
-| `playback-event` | `event_bridge.rs` every 50 ms | Tagged object, see below | `app.js`, `online.js`, shell |
-| `queue-changed` | Queue commands, advance, online enqueue/play paths | `SongMeta[]` | Queue panel |
-| `scan-progress` | `scanner.rs` | `{done, total, current}` | Library/settings status |
-| `library-updated` | `scanner.rs` | `SongMeta[]` | Library refresh |
-| `index-progress` | `scanner.rs` | `{done, total}` | Indexing status |
-| `index-complete` | `scanner.rs` | `{indexed}` | Indexing status |
-| `online-status` | Online commands | `{stage, videoId, title, message?}` | `online.js` |
-| `download-state` | `online_download` | `{videoId, stage, title, message}` | `online.js` |
-| `download-progress` | Batch worker | `{batchId, label, done, failed, total, state}` | Downloads UI |
+| `library.put` | `{ kind, id, title, subtitle?, thumbnail?, browseId?, params?, videoId? }` | `{ saved: true }` | Saves bincode `CatalogEntry` (`kind`: `"album"`, `"artist"`, or `"track"`). |
+| `library.remove` | `{ kind, id }` | `{ removed: true }` | Removes `CatalogEntry`. |
+| `library.list` | `{ kind }` | `{ entries: CatalogEntry[] }` | Lists saved entries by kind. |
+| `library.likes.set` | `{ track: OnlineTrack, liked?: bool }` | `{ liked: bool }` | Syncs `likes`, `lib:track`, and `mobile:track_meta` together. |
+| `library.likes.list` | `{}` | `{ tracks: OnlineTrack[], ids: string[] }` | Reconstructs full `OnlineTrack` with live `cached` flag. |
+| `library.downloads.list` | `{}` | `{ downloads: [{ track, sizeBytes, filePath }], totalBytes }` | Works offline; enriches stems via `mobile:track_meta` → `.meta.json` sidecar → playlists → offline fallback. |
+| `library.downloads.enrich` | `{}` | `{ enriched, remaining }` | Online-only; fetches metadata for up to `15` un-enriched cached files (`250 ms` pacing) and tracks attempts in `mobile:enrich_attempted`. |
+| `library.migrate_legacy` | `{ likedTracks?: OnlineTrack[], recentTracks?: OnlineTrack[] }` | `{ migratedLikes: usize }` | Idempotent one-time migration from legacy Android `SharedPreferences`. |
 
-### `playback-event` payloads
+### Local Recommender & Smart Mixes (6)
 
-```ts
-{ type: "Playing", song: SongMeta }
-{ type: "Paused", position_secs: number }
-{ type: "Resumed" }
-{ type: "Stopped" }
-{ type: "Seeked", position_secs: number }
-{ type: "PositionUpdate", position_secs: number }
-{ type: "SongEnded", song_id: string, listened_secs: number, duration_secs: number }
-{ type: "BufferingStarted" }
-{ type: "BufferingComplete" }
-{ type: "Error", message: string }
-{ type: "VolumeChanged", volume: number }
-```
+| Command | Request Args | Response `data` | Notes |
+|---|---|---|---|
+| `rec.on_song_changed` | `{ videoId?, track? }` | `{ recorded: true }` | Updates session history + `mobile:track_meta`. |
+| `rec.on_song_ended` | `{ videoId?, artist?, listenedSecs, durationSecs }` | `{ recorded: true }` | Records play/skip event; calls `bump_artist_listen` if acoustic indexing hasn't completed yet. |
+| `rec.get_recommendations` | `{ currentVideoId?, topN?: 1..50 }` | `{ recommendations: [{ track, score, signal }] }` | Queries 8-signal local recommender over acoustically indexed tracks. |
+| `rec.rerank_candidates` | `{ currentVideoId?, topN?: 1..60, candidates: OnlineTrack[] }` | `{ tracks: OnlineTrack[] }` | Re-ranks online candidates using rank decay + artist affinity + likes/dislikes + cache + recency + MMR diversity. |
+| `rec.smart_mixes` | `{ localHour?: u32 }` | `{ mixes: [{ id, title, subtitle, accent, tracks }], topArtists: string[] }` | Generates Daily Discovery, On Repeat, Daypart Vibe, and Offline Ready mixes. |
+| `rec.stats` | `{}` | `{ totalPlays, totalListenedSecs, totalSkips, streakDays, avgListenRatio, topArtists, exploration }` | Powers Profile / Taste DNA view. |
 
-`PositionUpdate` is the only high-frequency event. Do not trigger a layout or
-network request from it; update the progress display only.
+### Lyrics (1)
 
-### `online-status` stages
+| Command | Request Args | Response `data` | Notes |
+|---|---|---|---|
+| `lyrics.enhanced` | `{ title, artist?, trackId?, videoId?, durationSecs? }` | `{ track_id, synced, source, has_word_sync, has_romanized, has_translation, lines }` | `ensure_online()`-gated; tries LRCLIB (synced → plain) then YouTube Music plain lyrics. |
 
-| Stage | Meaning |
-|---|---|
-| `resolving` | A resolve started (interactive or queued) |
-| `playing` | The track resolved and playback started |
-| `queued-next` | `online_play_next` finished and inserted the row |
-| `radio` | `online_start_radio` is clearing the queue and starting the seed |
-| `error` | Resolution failed; `message` carries the reason |
+### Desktop JVM Audio Engine (`player.*`, 10)
 
-`download-state` stages are `resolving`, `done`, and `failed`; on `done` the
-`message` field is `null`.
+Compiled on `cfg(not(target_os = "android"))`. On Android these return `"player.* is desktop-only; Android uses Media3"`.
 
-### `download-progress`
+| Command | Request Args | Response `data` | Notes |
+|---|---|---|---|
+| `player.play_file` | `{ path \| filePath, id?, title?, artist?, album?, durationSecs? }` | `{ playing: true }` | Accepts local file paths OR `http://127.0.0.1:<port>/stream/<token>` via `LoopbackHttpMediaSource`. |
+| `player.preload_next` | Same as `player.play_file` | `{ preloaded: true }` | Gapless next-track preloader. |
+| `player.toggle` | `{}` | `{ playing: bool }` | Toggles pause/resume based on current engine state. |
+| `player.pause` | `{}` | `{ ok: true }` | Pauses playback. |
+| `player.resume` | `{}` | `{ ok: true }` | Resumes playback. |
+| `player.stop` | `{}` | `{ ok: true }` | Stops playback and clears current song. |
+| `player.seek` | `{ positionMs: f64 }` | `{ ok: true }` | Seeks in seconds (`positionMs / 1000.0`). |
+| `player.set_volume` | `{ volume: f32 }` | `{ ok: true }` | Clamped to `0.0..=1.0`. |
+| `player.set_eq` | `{ enabled: bool, gainsDb: f32[10] }` | `{ ok: true }` | 10-band ISO EQ gains clamped to `-12.0..=12.0` dB. |
+| `player.state` | `{}` | `{ status, playing, buffering, positionMs, durationMs, volume, muted, ended, endedSongId, currentSongId, error }` | Polled every `150 ms` by `DesktopPlayback.kt`; drains `SongEnded` / `Error` events. |
 
-`state` is `running` while the batch worker is active and `settled` once it
-has no pending work or was cancelled. `done` counts completed tracks, `failed`
-counts rows whose state starts with `failed:`.
+---
 
-## 5. Offline gating
+## Appendix A: Web Preview Bridge
 
-`ensure_online` is called by every network-reaching command. When Airplane
-Mode is on, these commands reject with:
+The unreleased browser/PWA preview (`npm start` → `server.ts` + `frontend/`) does **not** use `musico_core`. Instead, [`frontend/js/bridge.js`](../frontend/js/bridge.js) implements an 83-case mock/HTTP dispatcher (`Bridge.invoke`) talking to Express routes in [`server.ts`](../server.ts):
 
-```text
-Offline — turn Airplane Mode off to reach YouTube Music
-```
+- `POST /api/invoke/:cmd` (plus `POST /api/invoke/cross_source_check`)
+- `GET /api/audio/:trackId` (streams demo audio for browser preview playback)
 
-Gated: `online_search`, `online_home`, `online_browse`, `online_genres`,
-`online_play`, `online_enqueue`, `online_play_next`, `online_start_radio`,
-`online_download`, `online_download_batch`, `online_related`,
-`online_lyrics`, `online_synced_lyrics`, and the online branch of
-`get_enhanced_lyrics`.
-
-Not gated: local playback and queue commands, settings, library/playlist
-commands, `online_cache_usage`, `set_online_cache_cap`, `online_clear_cache`,
-`online_available`, `get_lyrics` (sidecar only), and `get_platform_capabilities`.
-
-Special cases:
-
-- `online_search_suggestions` returns `[]` instead of rejecting.
-- `online_download_batch` persists the job and starts no worker; the tracks
-  stay `pending` until the mode is lifted.
-- `online_start_radio` checks Airplane Mode **before** clearing the upcoming
-  queue, so an offline attempt leaves the queue untouched. Once online, it
-  clears the queue and then calls `online_play`.
-
-## 6. Adding a command
-
-1. Implement the handler in `src-tauri/src/commands.rs`:
-
-   ```rust
-   #[tauri::command]
-   pub fn my_command(state: State<AppState>, song_id: String) -> Result<bool, String> {
-       // validate → do bounded work → return a value the UI can gate on
-       Ok(true)
-   }
-   ```
-
-2. Use `Result<T, String>` with user-readable errors. Use `async fn` plus
-   `spawn_blocking` for network/disk work.
-3. Register it in `src-tauri/src/lib.rs` inside `tauri::generate_handler!`.
-   An unregistered command fails at runtime with "command not found".
-4. Call it from JS with camelCase arguments.
-5. Emit an event instead of blocking the UI for long work; include a
-   `stage`/`type` discriminator and the ids the UI needs.
-6. Add a test for validation and failure, not just the happy path.
-7. Update this file, `ARCHITECTURE.md` if the system shape changed, and
-   `CHANGELOG.md` if the command is user-visible.
-
-Do not return `Result<(), String>` when the UI needs to distinguish success
-from failure; Tauri serializes `Ok(())` and `Bridge` maps rejection to the same
-`null`.
-
-## 7. Where to go next
-
-- [frontend.md](frontend.md) — bridge implementation, store, router.
-- [online-stack.md](online-stack.md) — what the online commands do internally.
-- [data-storage.md](data-storage.md) — where command writes land.
-- [development.md](development.md#add-an-ipc-command) — step-by-step workflow.
+See [docs/frontend.md](frontend.md) for the web preview stack.

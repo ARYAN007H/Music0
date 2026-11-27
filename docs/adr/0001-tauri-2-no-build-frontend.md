@@ -1,8 +1,10 @@
 # 0001. Tauri 2 with a no-build, static frontend
 
-- Status: Accepted
+- Status: Superseded by [ADR-0005](0005-compose-multiplatform-and-jni-core.md) (Tauri retired in `v1.0.0`)
 - Recorded: 2026-11-05
 - Deciders: maintainers
+
+> **Historical record:** Tauri 2 (`src-tauri/`) was retired in `v1.0.0` (PR #132). Production Android and Desktop apps now use Compose Multiplatform + pure-Rust JNI `musico_core` ([ADR-0005](0005-compose-multiplatform-and-jni-core.md)). The static `frontend/` directory remains in the repository only for the `server.ts` web/PWA preview.
 
 ## Context
 

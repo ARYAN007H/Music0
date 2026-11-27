@@ -31,7 +31,7 @@ body:
     attributes:
       label: Version and commit
       description: "Output of: grep '^version' musico_core/Cargo.toml && git rev-parse --short HEAD"
-      placeholder: "1.0.0 / a1b2c3d"
+      placeholder: "1.0.1 / a1b2c3d"
     validations:
       required: true
 
@@ -40,8 +40,8 @@ body:
     attributes:
       label: Install method
       options:
-        - Development build (`gradle :desktopApp:run` / `:app:assembleDebug`)
-        - Linux deb / rpm / tar.gz (Compose Desktop)
+        - Development build (`gradle -p android :desktopApp:run` / `:app:assembleDebug`)
+        - Linux deb / rpm / AppImage / Flatpak / tar.gz (Compose Desktop)
         - macOS DMG / app (Compose Desktop)
         - Windows MSI / portable zip (Compose Desktop)
         - Android APK (Compose Multiplatform)

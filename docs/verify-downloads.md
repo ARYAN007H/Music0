@@ -5,42 +5,43 @@ the file we published. Nothing here requires trusting us — only math.
 
 ## 1. Check the SHA-256 checksum
 
-Every release publishes a `SHA256SUMS.txt` containing the SHA-256 hash of each
-artifact. Download it from the same release page as your installer.
+Every release publishes a `SHA256SUMS.txt` containing the SHA-256 hash of all
+10 release artifacts. Download it from the same release page as your installer.
 
 **Linux / macOS:**
 
 ```sh
-sha256sum -c SHA256SUMS.txt           # from the folder with your downloads
-# macOS: shasum -a 256 -c SHA256SUMS.txt
+sha256sum --ignore-missing -c SHA256SUMS.txt   # from the folder with your download
+# macOS: grep -F "Music0-macos-arm64.dmg" SHA256SUMS.txt | shasum -a 256 -c -
 ```
+
+*(Using `--ignore-missing` on Linux or filtering with `grep` avoids errors when you only downloaded a single platform artifact.)*
 
 **Windows (PowerShell):**
 
 ```powershell
-Get-FileHash .\musico-online-native-aarch64.apk -Algorithm SHA256
-# compare against the value in SHA256SUMS.txt
+Get-FileHash .\Music0-windows-x86_64.msi -Algorithm SHA256
+# or for the portable archive: Get-FileHash .\Music0-windows-x86_64.zip -Algorithm SHA256
+# compare against the matching line in SHA256SUMS.txt
 ```
 
-**Android:** any hash-checker app from F-Droid/Play can compute SHA-256 for a
-downloaded file — compare against `SHA256SUMS.txt`.
+**Android:** any hash-checker app from F-Droid/Play can compute SHA-256 for
+`musico-online-native-aarch64.apk` — compare against `SHA256SUMS.txt`. When
+updating from inside Music0, `UpdateManager` automatically verifies the
+release asset's `sha256:` digest before launching the Android package installer.
 
 If the hash matches, the file is bit-for-bit what CI published.
 
 ## 2. Check it on VirusTotal
 
-The latest release APK is uploaded to [VirusTotal](https://www.virustotal.com)
-after every release. For **v1.0.0**:
+Release APKs are scanned on [VirusTotal](https://www.virustotal.com). For any release (such as **v1.0.1**), search VirusTotal using the artifact's SHA-256 from `SHA256SUMS.txt` or upload the file directly.
 
-- Scan result: **0/66 vendors flagged** — <https://www.virustotal.com/gui/file/69f15b35d987f962e2af4dc9ad987a058b0349ea1ae44a88704a8fca7bc1f013>
-- SHA-256: `69f15b35d987f962e2af4dc9ad987a058b0349ea1ae44a88704a8fca7bc1f013`
+- Reference **v1.0.0** APK scan: **0/66 vendors flagged** — <https://www.virustotal.com/gui/file/69f15b35d987f962e2af4dc9ad987a058b0349ea1ae44a88704a8fca7bc1f013> (`SHA-256: 69f15b35d987f962e2af4dc9ad987a058b0349ea1ae44a88704a8fca7bc1f013`).
 
-For other releases, upload the artifact to VirusTotal or search by its
-SHA-256 from `SHA256SUMS.txt`.
+## 3. Check the signing status & certificate
 
-## 3. Check the signing certificate
-
-All Android APKs since v0.9.5 are signed with the same key:
+- **Desktop (Linux, macOS, Windows):** Installers and archives are currently **unsigned** (no Apple Developer ID or Authenticode certificate). Always verify via `SHA256SUMS.txt` above.
+- **Android APK:** All release APKs since `v0.9.5` are signed in CI with the same release keystore:
 
 ```
 Certificate SHA-256: 0cd961a9c2ac9f6655040975e672739d79901fd2862c31e8f6508e85b4f12353
@@ -67,9 +68,9 @@ themselves outside the Play Store. Every self-distributed FOSS Android app
 **Tap "Install anyway."** The build is safe — verify it yourself with steps
 1–3 above.
 
-A false-positive appeal was submitted to Google (with the VirusTotal 0/66
-result) so the warning clears as the app accumulates install reputation.
-Should the verdict ever change, this page will say so.
+A false-positive appeal was submitted to Google so the warning clears as the
+app accumulates install reputation. Should the verdict ever change, this page
+will say so.
 
 ## 5. Reporting problems
 

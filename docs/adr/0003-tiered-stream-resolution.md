@@ -1,6 +1,6 @@
 # 0003. Tiered, local-first stream resolution
 
-- Status: Accepted
+- Status: Accepted (amended by [ADR-0006](0006-loopback-progressive-streaming.md))
 - Recorded: 2026-11-05
 - Deciders: maintainers
 
@@ -114,8 +114,17 @@ Negative:
 
 ## References
 
-- `src-tauri/src/online/stream.rs`
-- `src-tauri/src/online/sources.rs`
-- `src-tauri/src/online/saavn.rs`
+- `musico_core/src/online/stream.rs` (moved from `src-tauri/src/online/` in `v1.0.0`)
+- `musico_core/src/online/sources.rs`
+- `musico_core/src/online/saavn.rs`
+- `musico_core/src/online/stream_server.rs`
 - [docs/online-stack.md](../online-stack.md)
-- [docs/troubleshooting.md](../troubleshooting.md#5-online-problems)
+- [docs/troubleshooting.md](../troubleshooting.md)
+
+## Amendments (v0.9.4–v1.0.1)
+
+- **Parallel race:** Interactive playback (`resolve_track` / `resolve_track_streaming`) races JioSaavn cross-source (`2,500 ms` search timeout) in parallel with the direct-URL fast path rather than strictly sequentially.
+- **Direct-URL source priority:** `InnerTubeDirectSource` (targeting `music.youtube.com/youtubei/v1/player` with multi-client rotation `VISIONOS_0_1` / `VISIONOS_1_02` / `WEB_REMIX` and `STREAM_LOUDNESS` capture; `ANDROID_VR` removed) is pinned **first**, ahead of EWMA-sorted `Piped` and `Invidious` pools. High/lossless quality tiers raise the bitrate cap from `192 kbps` to `256 kbps`.
+- **Cross-source JioSaavn matching:** Searches 6 results with romanized `" - "` tail fallback, normalizes titles alphanumerically, ranks by minimum duration drift, and disqualifies only `> 6 s` AND `> 20%` relative duration drift (`saavn.rs`).
+- **Progressive loopback streaming:** Replaced whole-file blocking for interactive playback; see [ADR-0006](0006-loopback-progressive-streaming.md).
+- **Flatpak `yt-dlp`:** Linux Flatpak now bundles `yt-dlp`, `yt-dlp-ejs`, and `deno` inside `/app/bin`.

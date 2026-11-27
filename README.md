@@ -48,11 +48,11 @@ Windows) · pure-Rust `musico_core` JNI engine · optional web/PWA dev preview.
 - **JioSaavn as a second catalog and stream source** — direct AAC URLs up to
   320 kbps (quality-tier dependent), merged into search results and raced
   against InnerTube for fast track resolution.
-- **Tiered stream resolution & stream-while-downloading** — cache hit → exact
-  JioSaavn cross-source match → Piped / Invidious / InnerTube Direct fast path →
-  `yt-dlp` fallback. A loopback HTTP/1.1 range server (`127.0.0.1`) streams
-  from `.part` files as bytes arrive (32 KiB startup gate) before atomically
-  committing tracks to disk.
+- **Tiered stream resolution & stream-while-downloading** — cache hit → parallel
+  JioSaavn cross-source match vs. InnerTube Direct / Piped / Invidious hedged
+  fast path → `yt-dlp` fallback (Desktop). A loopback HTTP/1.1 range server
+  (`127.0.0.1`) streams from `.part` files as bytes arrive (16 KiB startup
+  gate) before atomically committing tracks to disk.
 - **Home & Radio discovery** — dynamic time-of-day Home feed with *Jump back
   in* quick picks, auto-advancing Hero Carousel, Smart Mixes, and personalized
   shelves; **Radio** mood & genre station grid; and collapsing parallax album,
@@ -112,8 +112,8 @@ unsigned installer.
 
 ### Verify your download
 
-Every release publishes `SHA256SUMS.txt`, and the Android APK is scanned on
-[VirusTotal](https://www.virustotal.com) (v1.0.0: **0/66 detections**).
+Every release publishes `SHA256SUMS.txt`, and APKs are scanned on
+[VirusTotal](https://www.virustotal.com) (reference v1.0.0 scan: **0/66 detections**).
 On Android, Google Play Protect may show *"Harmful app blocked"* on install —
 that's a false positive for any self-distributed FOSS app: tap
 **Install anyway**, or verify the file yourself first. Full guide:
@@ -217,9 +217,10 @@ search / browse / radio
    loopback range server / verified local file  →  musico_playback / ExoPlayer  →  speakers
 ```
 
-- The cache lives at `~/.cache/musico-online/online/` and is pruned LRU to a
-  configurable cap (1 GB default, `MUSICO_ONLINE_CACHE_MB` or the Storage
-  settings slider override, 512 MB–5120 MB).
+- The stream cache lives under `~/.cache/musico-online/musico-online/online/`
+  on Linux (see [docs/data-storage.md](docs/data-storage.md) for all OS paths)
+  and is pruned LRU to a configurable cap (1 GB default, `MUSICO_ONLINE_CACHE_MB`
+  or the Storage settings slider override, 512 MB–5120 MB).
 - A global cap of three `yt-dlp` children prevents interactive, pre-resolve,
   batch, and radio-warmup work from stacking.
 - Downloads write a `.part` file, verify a minimum size, write a
@@ -249,7 +250,7 @@ npm test
 npm run build
 
 # Opt-in live network tests
-MUSICO_LIVE_TESTS=1 cargo test -p musico_core live_ -- --ignored --nocapture
+cargo test -p musico_core live_ -- --ignored --nocapture
 ```
 
 Browser suites and the WCAG contrast gate are documented in
@@ -266,8 +267,8 @@ Browser suites and the WCAG contrast gate are documented in
 | [docs/adr/](docs/adr/README.md) | Architecture decision records and their rationale |
 | [SECURITY.md](SECURITY.md) | Supported versions, threat model, reporting, privacy |
 | [CHANGELOG.md](CHANGELOG.md) | Release history through v1.0.1 |
-| [ROADMAP.md](ROADMAP.md) | Plan of record and remaining phases |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 2.1 |
+| [ROADMAP.md](ROADMAP.md) | Post-v1.0.1 roadmap and non-goals |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community code of conduct |
 
 ## Project layout
 
@@ -306,9 +307,10 @@ you do not need to participate in it to contribute.
   availability, and YouTube extraction can change without notice. `yt-dlp`
   needs regular updates; the direct sources and JioSaavn absorb some outages.
 - **Cross-source matching is heuristic.** A YouTube track is mapped to
-  JioSaavn by title, artist token, and a ±4 s duration window. If the wrong
-  take is picked, there is no per-track override yet; report the YouTube id and
-  the Saavn id so the matching heuristic can be fixed.
+  JioSaavn by normalized title, artist token overlap, and duration-drift
+  ranking (allowing ≤ 6 s or ≤ 20% relative drift). If the wrong take is
+  picked, there is no per-track override yet; report the YouTube id and the
+  Saavn id so the matching heuristic can be improved.
 - **Quality is source-bounded.** `lossless` means "best available from the
   source", not a guarantee of a lossless master.
 - **Prebuilt macOS/Windows artifacts are unsigned.** Gatekeeper and SmartScreen
