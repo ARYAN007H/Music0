@@ -309,7 +309,7 @@ fun MusicoApp(
                             mainTabs(state, activeAtmosphere)
                             // Unmount docked bar while full-screen PLAYER covers it so wavy seekbar,
                             // equalizer bars, and title marquee frame loops stop burning battery.
-                            AnimatedVisibility(
+                            androidx.compose.animation.AnimatedVisibility(
                                 visible = state.overlay != AppOverlay.PLAYER,
                                 enter = fadeIn(tween(MusicoMotion.FAST)),
                                 exit = fadeOut(tween(MusicoMotion.FAST)),
