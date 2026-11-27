@@ -221,7 +221,7 @@ fun EqScreen(onBack: () -> Unit) {
                     )
                     Text(
                         "${eq.bandCount} bands · ${eq.bandFreqLabels.firstOrNull() ?: ""} – ${eq.bandFreqLabels.lastOrNull() ?: ""}" +
-                            if (eq.presetName.isNotBlank()) " · ${eq.presetName}" else "",
+                            if (!eq.presetName.isNullOrBlank()) " · ${eq.presetName}" else "",
                         style = Musico.type.caption,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
