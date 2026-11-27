@@ -685,8 +685,9 @@ class SharedCoreTests {
         assertEquals(listOf("c1", "c2", "c3", "c4"), chartA.items.map { it.videoId })
         assertEquals(listOf("c1", "c2", "c3", "c4"), chartB.items.map { it.videoId })
 
-        // Personalized shelves stay ahead of general shelves.
-        assertEquals("Quick picks for you", orderedA.first().title)
+        // Personalized shelves stay grouped ahead of general shelves.
+        assertEquals(setOf("Quick picks for you", "Fresh Indie"), orderedA.take(2).map { it.title }.toSet())
+        assertEquals(setOf("Top Charts Global", "Late Night Chill"), orderedA.drop(2).map { it.title }.toSet())
 
         // Across distinct refresh seeds, non-ranked shelf item ordering or general shelf order refreshes.
         val sigA = orderedA.map { it.title to it.items.map { item -> item.videoId } }
