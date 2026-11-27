@@ -1034,15 +1034,17 @@ app.post('/api/invoke/:cmd', (req, res) => {
   }
 });
 
-// Serve static frontend assets
-const frontendDir = path.join(__dirname, 'frontend');
-app.use(express.static(frontendDir));
-
+// The legacy Tauri/web frontend has been retired in favor of the native
+// Compose Multiplatform Desktop and Android clients. Keep the JSON API intact.
 app.use((_req, res) => {
-  res.sendFile(path.join(frontendDir, 'index.html'));
+  res.status(200).json({
+    app: 'Musico Online',
+    status: 'native_only',
+    message: 'The legacy web preview has been retired. Build or run the native Desktop or Android Compose Multiplatform client.',
+  });
 });
 
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Musico Online web server listening on http://0.0.0.0:${PORT}`);
+  console.log(`Musico Online API server listening on http://0.0.0.0:${PORT}`);
 });

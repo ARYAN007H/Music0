@@ -2,13 +2,8 @@ package io.github.aryan007h.musicoonline.ui.components
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,11 +30,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,8 +57,38 @@ import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
 import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
+import kotlinx.coroutines.delay
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.sin
+
+/**
+ * Pure math & state-settlement helpers for [ExpressiveWavySeekBar], decoupled
+ * from Compose for deterministic unit testing in `SharedCoreTests`.
+ */
+object ExpressiveSeekMath {
+    fun clampFraction(value: Float): Float =
+        if (value.isNaN()) 0f else value.coerceIn(0f, 1f)
+
+    fun shouldAnimateWave(isPlaying: Boolean, enabled: Boolean, dragging: Boolean): Boolean =
+        isPlaying && enabled && !dragging
+
+    fun resolveDisplayedFraction(
+        progress: Float,
+        dragging: Boolean,
+        dragFraction: Float,
+        pendingSeekFraction: Float?,
+    ): Float = clampFraction(
+        when {
+            dragging -> dragFraction
+            pendingSeekFraction != null -> pendingSeekFraction
+            else -> progress
+        },
+    )
+
+    fun isPendingSeekSettled(progress: Float, pendingSeekFraction: Float, tolerance: Float = 0.025f): Boolean =
+        abs(clampFraction(progress) - clampFraction(pendingSeekFraction)) <= tolerance
+}
 
 /**
  * Native Material 3 Expressive morphing Play / Pause button.
@@ -166,11 +193,13 @@ fun ExpressivePlayPauseButton(
 /**
  * Native Material 3 Expressive wavy seekbar (Android Pixel Media Player style).
  *
- * - Active track renders a smooth traveling sine wave while playing and
- *   flattens cleanly when paused or while scrubbing.
- * - Inactive track is a crisp flat rounded bar with a subtle gap around the
- *   vertical M3E rounded-pill thumb handle.
- * - Supports both tap-to-seek and smooth horizontal drag scrubbing.
+ * - Active track renders a smooth traveling sine wave ONLY while playing,
+ *   enabled, and not scrubbing; wave phase is read exclusively in the draw
+ *   phase so zero composable recompositions occur at 60–120 Hz.
+ * - Reuses a single `Path` across frames (zero per-frame heap allocations).
+ * - Holds the user's released scrub position until player playback settles so
+ *   there is no brief snap-back on `onDragEnd`.
+ * - Safely resets drag state if `enabled` flips false mid-gesture.
  */
 @Composable
 fun ExpressiveWavySeekBar(
@@ -189,27 +218,72 @@ fun ExpressiveWavySeekBar(
     onDragProgress: ((Float?) -> Unit)? = null,
 ) {
     var dragging by remember { mutableStateOf(false) }
-    var dragFraction by remember { mutableFloatStateOf(progress.coerceIn(0f, 1f)) }
-    val shown = (if (dragging) dragFraction else progress).coerceIn(0f, 1f)
+    var dragFraction by remember { mutableFloatStateOf(ExpressiveSeekMath.clampFraction(progress)) }
+    var pendingSeekFraction by remember { mutableStateOf<Float?>(null) }
 
-    val animatedAmplitude by animateFloatAsState(
-        targetValue = if (isPlaying && !dragging && enabled) 1f else 0f,
-        animationSpec = tween(durationMillis = 320),
+    // Never allow drag state to get stuck if `enabled` flips false mid-gesture.
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            dragging = false
+            pendingSeekFraction = null
+            onDragProgress?.invoke(null)
+        }
+    }
+
+    // Clear pending seek settlement once player position catches up or after a short timeout.
+    LaunchedEffect(progress, pendingSeekFraction) {
+        val target = pendingSeekFraction ?: return@LaunchedEffect
+        if (ExpressiveSeekMath.isPendingSeekSettled(progress, target)) {
+            pendingSeekFraction = null
+            onDragProgress?.invoke(null)
+        }
+    }
+    LaunchedEffect(pendingSeekFraction) {
+        if (pendingSeekFraction != null) {
+            delay(480L)
+            pendingSeekFraction = null
+            onDragProgress?.invoke(null)
+        }
+    }
+
+    val shown = ExpressiveSeekMath.resolveDisplayedFraction(
+        progress = progress,
+        dragging = dragging,
+        dragFraction = dragFraction,
+        pendingSeekFraction = pendingSeekFraction,
+    )
+
+    val shouldAnimate = ExpressiveSeekMath.shouldAnimateWave(
+        isPlaying = isPlaying,
+        enabled = enabled,
+        dragging = dragging,
+    )
+    val animatedAmplitudeState = animateFloatAsState(
+        targetValue = if (shouldAnimate) 1f else 0f,
+        animationSpec = tween(durationMillis = 280),
         label = "m3eWaveAmp",
     )
 
-    val phaseTransition = rememberInfiniteTransition(label = "m3eWavePhase")
-    val phase by phaseTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "m3eWavePhaseVal",
-    )
+    // Frame-driven phase clock that ONLY runs while playing & enabled & not scrubbing,
+    // and is read strictly inside Canvas draw scope (zero recompositions per frame).
+    val phaseState = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(shouldAnimate) {
+        if (!shouldAnimate) return@LaunchedEffect
+        var lastNanos = 0L
+        val radiansPerSec = (2.0 * PI / 1.5).toFloat()
+        while (true) {
+            withFrameNanos { now ->
+                if (lastNanos != 0L) {
+                    val dt = ((now - lastNanos).coerceIn(0L, 100_000_000L)) / 1_000_000_000f
+                    phaseState.floatValue = (phaseState.floatValue + dt * radiansPerSec) % (2.0 * PI).toFloat()
+                }
+                lastNanos = now
+            }
+        }
+    }
 
-    val effectivePhase = if (isPlaying && !dragging) phase else 0f
+    // Reused Path object to prevent per-frame heap allocations during playback.
+    val wavePath = remember { Path() }
 
     Canvas(
         modifier = modifier
@@ -219,7 +293,9 @@ fun ExpressiveWavySeekBar(
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { offset ->
-                    val frac = (offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                    val frac = ExpressiveSeekMath.clampFraction(offset.x / size.width.coerceAtLeast(1))
+                    pendingSeekFraction = frac
+                    onDragProgress?.invoke(frac)
                     hapticTick()
                     onSeek(frac)
                 }
@@ -229,23 +305,26 @@ fun ExpressiveWavySeekBar(
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         dragging = true
-                        dragFraction = (offset.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        pendingSeekFraction = null
+                        dragFraction = ExpressiveSeekMath.clampFraction(offset.x / size.width.coerceAtLeast(1))
                         onDragProgress?.invoke(dragFraction)
                     },
                     onHorizontalDrag = { change, _ ->
                         change.consume()
-                        dragFraction = (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        dragFraction = ExpressiveSeekMath.clampFraction(change.position.x / size.width.coerceAtLeast(1))
                         onDragProgress?.invoke(dragFraction)
                     },
                     onDragEnd = {
                         val finalFrac = dragFraction
                         dragging = false
-                        onDragProgress?.invoke(null)
+                        pendingSeekFraction = finalFrac
+                        onDragProgress?.invoke(finalFrac)
                         hapticTick()
                         onSeek(finalFrac)
                     },
                     onDragCancel = {
                         dragging = false
+                        pendingSeekFraction = null
                         onDragProgress?.invoke(null)
                     },
                 )
@@ -279,7 +358,7 @@ fun ExpressiveWavySeekBar(
         val activeEnd = (thumbX - thumbGap).coerceAtLeast(pad)
         val activeLen = activeEnd - pad
         if (activeLen > 1f) {
-            val ampPx = waveAmplitude.toPx() * animatedAmplitude
+            val ampPx = waveAmplitude.toPx() * animatedAmplitudeState.value
             if (ampPx < 0.25f) {
                 drawLine(
                     color = activeColor,
@@ -291,26 +370,26 @@ fun ExpressiveWavySeekBar(
             } else {
                 val wlPx = waveLength.toPx().coerceAtLeast(8f)
                 val stepPx = 3f
-                val path = Path()
+                val currentPhase = phaseState.floatValue
+                wavePath.reset()
                 var x = pad
                 var first = true
                 while (x <= activeEnd) {
                     val distFromStart = x - pad
                     val distFromEnd = activeEnd - x
-                    // Smooth taper near both ends so the wave joins cleanly without sharp kinks
                     val endFade = (minOf(distFromStart, distFromEnd) / 10f).coerceIn(0f, 1f)
-                    val y = cy + sin((distFromStart / wlPx) * 2.0 * PI - effectivePhase).toFloat() * ampPx * endFade
+                    val y = cy + sin((distFromStart / wlPx) * 2.0 * PI - currentPhase).toFloat() * ampPx * endFade
                     if (first) {
-                        path.moveTo(x, y)
+                        wavePath.moveTo(x, y)
                         first = false
                     } else {
-                        path.lineTo(x, y)
+                        wavePath.lineTo(x, y)
                     }
                     x += stepPx
                 }
-                path.lineTo(activeEnd, cy)
+                wavePath.lineTo(activeEnd, cy)
                 drawPath(
-                    path = path,
+                    path = wavePath,
                     color = activeColor,
                     style = Stroke(
                         width = strokePx,

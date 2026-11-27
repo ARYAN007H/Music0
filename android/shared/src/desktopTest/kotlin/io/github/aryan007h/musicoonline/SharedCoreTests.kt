@@ -7,27 +7,36 @@ import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
 import io.github.aryan007h.musicoonline.core.PlaylistImportResult
 import io.github.aryan007h.musicoonline.core.PlaylistImportStatus
 import io.github.aryan007h.musicoonline.core.ResolvedTrack
+import io.github.aryan007h.musicoonline.core.Shelf
 import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.platform.DesktopPlatformPrefs
 import io.github.aryan007h.musicoonline.platform.PlatformEqualizer
 import io.github.aryan007h.musicoonline.platform.mapFiveBandsToTenDb
+import io.github.aryan007h.musicoonline.ui.DesktopLayoutMetrics
+import io.github.aryan007h.musicoonline.ui.LibrarySection
 import io.github.aryan007h.musicoonline.ui.LyricBackdrop
 import io.github.aryan007h.musicoonline.ui.ResolveFailureAction
 import io.github.aryan007h.musicoonline.ui.ResolveFailurePolicy
 import io.github.aryan007h.musicoonline.ui.StreamResolvePolicy
+import io.github.aryan007h.musicoonline.ui.components.ExpressiveSeekMath
 import io.github.aryan007h.musicoonline.ui.components.HorizontalScrollMath
 import io.github.aryan007h.musicoonline.ui.components.HorizontalWheelAction
+import io.github.aryan007h.musicoonline.ui.home.HomeLayoutMetrics
+import io.github.aryan007h.musicoonline.ui.home.HomeMoodFilter
 import io.github.aryan007h.musicoonline.ui.resolveLanguageGenreStyle
 import io.github.aryan007h.musicoonline.ui.library.formatDownloadsSummary
 import io.github.aryan007h.musicoonline.ui.library.formatSongCount
 import io.github.aryan007h.musicoonline.ui.library.formatTrackCount
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.player.ArtworkPaletteCache
+import io.github.aryan007h.musicoonline.ui.player.PlayerBackdropSpecs
 import io.github.aryan007h.musicoonline.ui.player.formatTime
 import io.github.aryan007h.musicoonline.ui.settings.snapCacheCapMb
 import io.github.aryan007h.musicoonline.ui.theme.Palette
+import io.github.aryan007h.musicoonline.ui.theme.paletteLightScheme
 import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
 import io.github.aryan007h.musicoonline.ui.theme.safePositiveScale
+import io.github.aryan007h.musicoonline.ui.theme.toDarkScheme
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -391,5 +400,79 @@ class SharedCoreTests {
         )
         assertEquals("", legacyReply.mode)
         assertEquals(0L, legacyReply.resolveMs)
+    }
+
+    @Test
+    fun expressiveSeekMathStopsWaveWhenPausedAndHoldsPendingSeekWithoutSnapback() {
+        assertTrue(ExpressiveSeekMath.shouldAnimateWave(isPlaying = true, enabled = true, dragging = false))
+        assertTrue(!ExpressiveSeekMath.shouldAnimateWave(isPlaying = false, enabled = true, dragging = false))
+        assertTrue(!ExpressiveSeekMath.shouldAnimateWave(isPlaying = true, enabled = true, dragging = true))
+        assertTrue(!ExpressiveSeekMath.shouldAnimateWave(isPlaying = true, enabled = false, dragging = false))
+
+        assertEquals(0f, ExpressiveSeekMath.clampFraction(Float.NaN), 1e-6f)
+        assertEquals(1f, ExpressiveSeekMath.clampFraction(1.4f), 1e-6f)
+
+        // Pending seek fraction holds the released position until player progress settles.
+        assertEquals(
+            0.72f,
+            ExpressiveSeekMath.resolveDisplayedFraction(
+                progress = 0.25f,
+                dragging = false,
+                dragFraction = 0.72f,
+                pendingSeekFraction = 0.72f,
+            ),
+            1e-5f,
+        )
+        assertTrue(ExpressiveSeekMath.isPendingSeekSettled(progress = 0.71f, pendingSeekFraction = 0.72f))
+        assertTrue(!ExpressiveSeekMath.isPendingSeekSettled(progress = 0.25f, pendingSeekFraction = 0.72f))
+    }
+
+    @Test
+    fun responsiveMetricsProtectCompactPhonesAnd840dpDesktopWindows() {
+        // 360-412dp phones use the compact HeroCard layout so text/CTA never clip.
+        assertTrue(HomeLayoutMetrics.isCompactHero(360f))
+        assertTrue(HomeLayoutMetrics.isCompactHero(412f))
+        assertTrue(!HomeLayoutMetrics.isCompactHero(600f))
+
+        // Right above 840dp, rail narrows to 224dp and volume slider hides below 740dp bar width.
+        assertEquals(224f, DesktopLayoutMetrics.railWidthDp(840f), 1e-4f)
+        assertEquals(256f, DesktopLayoutMetrics.railWidthDp(1280f), 1e-4f)
+        assertTrue(!DesktopLayoutMetrics.showInlineVolumeSlider(580f))
+        assertTrue(DesktopLayoutMetrics.showInlineVolumeSlider(800f))
+    }
+
+    @Test
+    fun allPalettesDefineDistinctSecondaryAndTertiaryContainers() {
+        Palette.ALL.forEach { palette ->
+            val dark = palette.toDarkScheme()
+            val light = paletteLightScheme(palette)
+            assertNotEquals(dark.primaryContainer, dark.secondaryContainer, "${palette.id} dark secondaryContainer")
+            assertNotEquals(dark.primaryContainer, dark.tertiaryContainer, "${palette.id} dark tertiaryContainer")
+            assertNotEquals(Color(0xFF633B48), dark.tertiaryContainer, "${palette.id} must not use M3 default maroon")
+            assertNotEquals(light.primaryContainer, light.tertiaryContainer, "${palette.id} light tertiaryContainer")
+        }
+    }
+
+    @Test
+    fun homeMoodFilterAndBackdropSpecsCoverAllOptions() {
+        val chillShelf = Shelf(title = "Late Night Lo-Fi Chill", items = listOf(ShelfItem(title = "Rainy Beats")))
+        val gymShelf = Shelf(title = "Workout Power Hits", items = listOf(ShelfItem(title = "Sprint")))
+        val all = listOf(chillShelf, gymShelf)
+
+        assertEquals(2, HomeMoodFilter.filterShelves(all, "All").size)
+        assertEquals(listOf(chillShelf), HomeMoodFilter.filterShelves(all, "Chill"))
+        assertEquals(listOf(gymShelf), HomeMoodFilter.filterShelves(all, "Workout"))
+        assertEquals(emptyList(), HomeMoodFilter.filterShelves(all, "Focus"))
+
+        assertEquals(5, PlayerBackdropSpecs.ALL_IDS.size)
+        assertTrue(PlayerBackdropSpecs.animatesMotion("mesh"))
+        assertTrue(PlayerBackdropSpecs.animatesMotion("artwork"))
+        assertTrue(PlayerBackdropSpecs.animatesMotion("aurora"))
+        assertTrue(PlayerBackdropSpecs.animatesMotion("rain"))
+        assertTrue(!PlayerBackdropSpecs.animatesMotion("black"))
+        assertEquals("mesh", PlayerBackdropSpecs.normalize("unknown"))
+
+        assertEquals(7, LibrarySection.entries.size)
+        assertTrue(LibrarySection.ARTISTS in LibrarySection.entries)
     }
 }

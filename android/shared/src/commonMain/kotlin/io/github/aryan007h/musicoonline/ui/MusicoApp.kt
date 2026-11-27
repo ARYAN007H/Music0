@@ -98,6 +98,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
@@ -268,9 +269,11 @@ fun MusicoApp(
             ) {
                 if (isWidescreen) {
                     // ── Widescreen Desktop / Tablet Shell ────────────────────────
+                    val railWidth = DesktopLayoutMetrics.railWidthDp(maxWidth.value).dp
                     Row(Modifier.fillMaxSize()) {
                         DesktopNavigationRail(
                             state = state,
+                            railWidth = railWidth,
                             onSelectTab = { hapticTick(); vm.selectTab(it) },
                             onOpenMadeForYou = { hapticTick(); vm.openMadeForYou() },
                             onOpenLibrarySection = { hapticTick(); vm.openLibrarySection(it) },
@@ -302,7 +305,7 @@ fun MusicoApp(
                                 onVolumeChange = vm::setVolume,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .padding(horizontal = 24.dp, vertical = 14.dp)
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
                                     .widthIn(max = 1040.dp),
                             )
                         }
@@ -838,6 +841,21 @@ private fun MainTabContent(
                 isPlaying = state.isPlaying,
                 savedArtists = state.libraryArtists,
                 onOpenCatalogEntry = vm::openCatalogEntry,
+                onStartMood = { mood ->
+                    val styleMatch = state.radioStyles.firstOrNull {
+                        it.title.contains(mood, ignoreCase = true)
+                    } ?: state.styleItems.firstOrNull {
+                        it.title.contains(mood, ignoreCase = true)
+                    }
+                    if (styleMatch != null) {
+                        vm.openShelfItem(styleMatch, emptyList())
+                    } else {
+                        val query = "$mood music mix"
+                        vm.onQueryChange(query)
+                        vm.search(query)
+                        vm.selectTab(AppTab.SEARCH)
+                    }
+                },
             )
             AppTab.RADIO -> RadioScreen(
                 atmosphere = atmosphere,
@@ -897,11 +915,23 @@ private fun MainTabContent(
     }
 }
 
+/**
+ * Pure responsive metrics for the widescreen Desktop/Tablet shell so 840–960dp
+ * windows never crush the docked player bar or volume slider.
+ */
+object DesktopLayoutMetrics {
+    fun railWidthDp(windowWidthDp: Float): Float = if (windowWidthDp >= 1080f) 256f else 224f
+    fun showInlineVolumeSlider(barWidthDp: Float): Boolean = barWidthDp >= 740f
+    fun showInlineLikeButton(barWidthDp: Float): Boolean = barWidthDp >= 640f
+    fun showSecondaryTransportExtras(barWidthDp: Float): Boolean = barWidthDp >= 640f
+}
+
 // ── Desktop Left Navigation Drawer (Native Material 3 Expressive) ─────────
 
 @Composable
 private fun DesktopNavigationRail(
     state: MusicViewModel.UiState,
+    railWidth: Dp = 256.dp,
     onSelectTab: (AppTab) -> Unit,
     onOpenMadeForYou: () -> Unit,
     onOpenLibrarySection: (LibrarySection) -> Unit,
@@ -915,7 +945,7 @@ private fun DesktopNavigationRail(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
-            .width(264.dp)
+            .width(railWidth)
             .fillMaxHeight(),
     ) {
         Column(
@@ -1323,7 +1353,12 @@ private fun DesktopDockedPlayerBar(
             .fillMaxWidth()
             .height(82.dp),
     ) {
-        Box(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val barWidthDp = maxWidth.value
+            val showVolumeSlider = DesktopLayoutMetrics.showInlineVolumeSlider(barWidthDp)
+            val showInlineLike = DesktopLayoutMetrics.showInlineLikeButton(barWidthDp)
+            val showExtras = DesktopLayoutMetrics.showSecondaryTransportExtras(barWidthDp)
+
             if (state.resolvingId != null) {
                 LinearProgressIndicator(
                     color = MaterialTheme.colorScheme.primary,
@@ -1340,31 +1375,32 @@ private fun DesktopDockedPlayerBar(
             Row(
                 Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 18.dp),
+                    .padding(horizontal = if (showVolumeSlider) 18.dp else 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (showVolumeSlider) 16.dp else 10.dp),
             ) {
                 // Left: Track Info + Like
                 Row(
                     Modifier
-                        .weight(0.30f)
+                        .weight(if (showVolumeSlider) 0.30f else 0.34f)
                         .clip(RoundedCornerShape(16.dp))
                         .pressable(onClick = onExpandPlayer, enabled = track != null, pressedScale = 0.98f)
-                        .padding(vertical = 6.dp, horizontal = 6.dp),
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (track != null) {
                         Artwork(
                             url = track.thumbnail,
                             contentDescription = track.title,
-                            modifier = Modifier.size(54.dp),
+                            modifier = Modifier.size(if (showVolumeSlider) 52.dp else 46.dp),
                             cornerRadius = 14.dp,
                         )
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 track.title.ifEmpty { "Untitled" },
                                 style = Musico.type.title,
+                                fontSize = if (showVolumeSlider) 15.sp else 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1382,39 +1418,45 @@ private fun DesktopDockedPlayerBar(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Spacer(Modifier.width(8.dp))
-                        LikeButton(
-                            liked = track.videoId in state.likedIds,
-                            onToggle = onLikeToggle,
-                            size = 20.dp,
-                        )
+                        if (showInlineLike) {
+                            Spacer(Modifier.width(6.dp))
+                            LikeButton(
+                                liked = track.videoId in state.likedIds,
+                                onToggle = onLikeToggle,
+                                size = 20.dp,
+                            )
+                        }
                     } else {
                         Text(
-                            "Pick any song to start listening",
+                            "Pick any song to listen",
                             style = Musico.type.caption,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
 
                 // Center: Native M3E Morphing Play/Pause + Expressive Wavy Seek Bar
                 Column(
-                    Modifier.weight(0.42f),
+                    Modifier.weight(if (showVolumeSlider) 0.42f else 0.46f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (showExtras) 10.dp else 6.dp),
                     ) {
-                        IconButton(onClick = { hapticTick(); onToggleRepeat() }, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                Icons.Filled.Repeat,
-                                contentDescription = "Repeat",
-                                tint = if (state.repeatAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
+                        if (showExtras) {
+                            IconButton(onClick = { hapticTick(); onToggleRepeat() }, modifier = Modifier.size(30.dp)) {
+                                Icon(
+                                    Icons.Filled.Repeat,
+                                    contentDescription = "Repeat",
+                                    tint = if (state.repeatAll) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
-                        IconButton(onClick = { hapticThud(); onPrevious() }, enabled = track != null, modifier = Modifier.size(36.dp)) {
+                        IconButton(onClick = { hapticThud(); onPrevious() }, enabled = track != null, modifier = Modifier.size(34.dp)) {
                             Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface)
                         }
                         ExpressivePlayPauseButton(
@@ -1422,22 +1464,24 @@ private fun DesktopDockedPlayerBar(
                             isBuffering = state.isBuffering || state.resolvingId != null,
                             enabled = track != null,
                             onClick = onTogglePlay,
-                            size = 44.dp,
+                            size = 42.dp,
                         )
-                        IconButton(onClick = { hapticThud(); onNext() }, enabled = track != null, modifier = Modifier.size(36.dp)) {
+                        IconButton(onClick = { hapticThud(); onNext() }, enabled = track != null, modifier = Modifier.size(34.dp)) {
                             Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
                         }
-                        if (track != null) {
-                            EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(14.dp))
-                        } else {
-                            Spacer(Modifier.width(16.dp))
+                        if (showExtras) {
+                            if (track != null) {
+                                EqualizerBars(playing = state.isPlaying, color = MaterialTheme.colorScheme.primary, modifier = Modifier.height(14.dp))
+                            } else {
+                                Spacer(Modifier.width(16.dp))
+                            }
                         }
                     }
 
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text(
                             formatTime(if (dragFraction == null) smoothPosition else (shownSeek * state.durationMs).toLong()),
@@ -1475,34 +1519,34 @@ private fun DesktopDockedPlayerBar(
                     }
                 }
 
-                // Right: Lyrics Studio + Queue + Volume
+                // Right: Lyrics Studio + Queue + Mute (+ spacious Volume Slider when >= 740dp)
                 Row(
-                    Modifier.weight(0.28f),
+                    modifier = if (showVolumeSlider) Modifier.weight(0.28f) else Modifier,
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End,
                 ) {
                     IconButton(
                         onClick = onOpenLyrics,
                         enabled = track != null,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(34.dp),
                     ) {
                         Icon(
                             Icons.Filled.Lyrics,
                             contentDescription = "Open Lyrics Studio",
                             tint = if (track != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(19.dp),
                         )
                     }
                     IconButton(
                         onClick = onOpenQueue,
                         enabled = track != null,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(34.dp),
                     ) {
                         Icon(
                             Icons.Filled.QueueMusic,
                             contentDescription = "Open Queue",
                             tint = if (track != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(19.dp),
                         )
                     }
                     var lastNonZeroVol by remember { mutableFloatStateOf(0.8f) }
@@ -1515,27 +1559,27 @@ private fun DesktopDockedPlayerBar(
                                 onVolumeChange(lastNonZeroVol.coerceAtLeast(0.2f))
                             }
                         },
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(34.dp),
                     ) {
                         Icon(
                             if (state.volume <= 0.01f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = "Mute",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(19.dp),
                         )
                     }
-                    Slider(
-                        value = state.volume,
-                        onValueChange = onVolumeChange,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        ),
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .widthIn(min = 56.dp, max = 104.dp),
-                    )
+                    if (showVolumeSlider) {
+                        Slider(
+                            value = state.volume,
+                            onValueChange = onVolumeChange,
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            ),
+                            modifier = Modifier.width(88.dp),
+                        )
+                    }
                 }
             }
         }

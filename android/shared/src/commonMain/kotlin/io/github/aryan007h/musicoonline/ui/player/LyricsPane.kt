@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,13 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -92,7 +87,6 @@ import io.github.aryan007h.musicoonline.core.EnhancedLyrics
 import io.github.aryan007h.musicoonline.core.LyricLine
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
-import io.github.aryan007h.musicoonline.platform.platformBlur
 import io.github.aryan007h.musicoonline.platform.shareLyricCard
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
@@ -252,11 +246,11 @@ fun LyricsPane(
         ) {
             Surface(
                 shape = MusicoShapes.chip,
-                color = Color(0xD912121D),
-                shadowElevation = 12.dp,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 6.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .border(1.dp, Color.White.copy(alpha = 0.14f), MusicoShapes.chip),
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MusicoShapes.chip),
             ) {
                 Row(
                     Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -400,11 +394,12 @@ private fun LyricsStudioToolbar(
 ) {
     Surface(
         shape = MusicoShapes.chip,
-        color = Color(0x9E0D0D18),
-        modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.12f), MusicoShapes.chip),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 4.dp,
+        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, MusicoShapes.chip),
     ) {
         Row(
-            Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -608,27 +603,10 @@ private fun FlowingVerseCinema(
 
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = topPad, bottom = bottomPad, start = 26.dp, end = 26.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            contentPadding = PaddingValues(top = topPad, bottom = bottomPad, start = 20.dp, end = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0.00f to Color.Transparent,
-                            0.04f to Color.Black.copy(alpha = 0.28f),
-                            0.09f to Color.Black.copy(alpha = 0.78f),
-                            0.14f to Color.Black,
-                            0.84f to Color.Black,
-                            0.90f to Color.Black.copy(alpha = 0.76f),
-                            0.96f to Color.Black.copy(alpha = 0.24f),
-                            1.00f to Color.Transparent,
-                        ),
-                        blendMode = BlendMode.DstIn,
-                    )
-                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -705,10 +683,9 @@ private fun FlowingVerseCinema(
         ) {
             Surface(
                 shape = MusicoShapes.chip,
-                color = Color(0xCC121220),
-                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shadowElevation = 4.dp,
                 modifier = Modifier
-                    .border(1.dp, atmosphere.glow.copy(alpha = 0.4f), MusicoShapes.chip)
                     .pressable(
                         onClick = {
                             hapticTick()
@@ -755,53 +732,56 @@ private fun CinemaLyricRow(
 ) {
     val targetAlpha = when {
         selectingForShare -> if (isSelected) 1f else 0.45f
-        !isSynced -> 0.90f
+        !isSynced -> 0.92f
         isActive -> 1f
-        clearFocus -> 0.82f
-        distance == 1 -> if (isPast) 0.36f else 0.48f
-        distance == 2 -> 0.28f
-        else -> 0.18f
+        clearFocus -> 0.85f
+        distance == 1 -> if (isPast) 0.42f else 0.56f
+        distance == 2 -> 0.34f
+        else -> 0.24f
     }
     val targetScale = when {
-        selectingForShare -> if (isSelected) 1.0f else 0.96f
-        !isSynced -> 0.95f
+        selectingForShare -> if (isSelected) 1.0f else 0.97f
+        !isSynced -> 0.97f
         isActive -> 1.0f
-        clearFocus -> 0.96f
-        distance == 1 -> 0.94f
-        else -> 0.90f
-    }
-    val targetBlurDp = when {
-        clearFocus || isActive || !isSynced -> 0f
-        distance == 1 -> 0.7f
-        distance == 2 -> 1.4f
-        else -> 2.1f
+        clearFocus -> 0.97f
+        distance == 1 -> 0.95f
+        else -> 0.92f
     }
 
     val animAlpha by animateFloatAsState(targetValue = targetAlpha, animationSpec = MusicoMotion.cinema(), label = "verseAlpha")
     val animScale by animateFloatAsState(targetValue = targetScale, animationSpec = MusicoMotion.cinema(), label = "verseScale")
+    val activeBgColor by animateColorAsState(
+        targetValue = when {
+            selectingForShare && isSelected -> glowColor.copy(alpha = 0.18f)
+            selectingForShare -> Color.White.copy(alpha = 0.04f)
+            isActive -> Color.White.copy(alpha = 0.09f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(MusicoMotion.MED),
+        label = "verseCardBg",
+    )
     val selectedBorderColor by animateColorAsState(
         targetValue = if (isSelected) glowColor else Color.Transparent,
         animationSpec = tween(MusicoMotion.FAST),
         label = "verseSelectBorder",
     )
 
-    val rowShape = RoundedCornerShape(18.dp)
+    val rowShape = RoundedCornerShape(22.dp)
     val containerModifier = Modifier
         .fillMaxWidth()
         .clip(rowShape)
+        .background(activeBgColor)
         .then(
             if (selectingForShare) {
-                Modifier
-                    .background(if (isSelected) glowColor.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.04f))
-                    .border(1.5.dp, selectedBorderColor, rowShape)
+                Modifier.border(1.5.dp, selectedBorderColor, rowShape)
             } else {
                 Modifier
             },
         )
         .combinedClickable(onClick = onClick, onLongClick = onLongClick)
         .padding(
-            horizontal = if (selectingForShare) 14.dp else 4.dp,
-            vertical = if (selectingForShare) 10.dp else 2.dp,
+            horizontal = if (isActive || selectingForShare) 16.dp else 10.dp,
+            vertical = if (isActive || selectingForShare) 12.dp else 4.dp,
         )
 
     Row(
@@ -815,6 +795,16 @@ private fun CinemaLyricRow(
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (isActive && !selectingForShare) {
+            Box(
+                Modifier
+                    .width(4.dp)
+                    .height(28.dp)
+                    .clip(CircleShape)
+                    .background(glowColor),
+            )
+            Spacer(Modifier.width(12.dp))
+        }
         Column(Modifier.weight(1f)) {
             if (isActive && line.words.isNotEmpty() && !selectingForShare) {
                 val styledLine = buildAnnotatedString {
@@ -824,28 +814,14 @@ private fun CinemaLyricRow(
                         val progress = ((adjustedPosMs - word.startMs).toFloat() / span).coerceIn(0f, 1f)
                         when {
                             adjustedPosMs >= word.endMs -> {
-                                withStyle(
-                                    SpanStyle(
-                                        color = Color.White,
-                                        shadow = Shadow(color = glowColor.copy(alpha = 0.55f), offset = Offset.Zero, blurRadius = 18f),
-                                    ),
-                                ) { append(word.word) }
+                                withStyle(SpanStyle(color = Color.White)) { append(word.word) }
                             }
                             adjustedPosMs >= word.startMs -> {
-                                val liftedColor = lerpColor(Color.White.copy(alpha = 0.55f), Color.White, progress)
-                                withStyle(
-                                    SpanStyle(
-                                        color = liftedColor,
-                                        shadow = Shadow(
-                                            color = glowColor.copy(alpha = 0.35f + 0.55f * progress),
-                                            offset = Offset.Zero,
-                                            blurRadius = 12f + 16f * progress,
-                                        ),
-                                    ),
-                                ) { append(word.word) }
+                                val liftedColor = lerpColor(glowColor, Color.White, progress * 0.5f)
+                                withStyle(SpanStyle(color = liftedColor)) { append(word.word) }
                             }
                             else -> {
-                                withStyle(SpanStyle(color = Color.White.copy(alpha = 0.42f))) { append(word.word) }
+                                withStyle(SpanStyle(color = Color.White.copy(alpha = 0.44f))) { append(word.word) }
                             }
                         }
                     }
@@ -855,20 +831,28 @@ private fun CinemaLyricRow(
                 val lineStartMs = (line.timeSecs * 1000f).toLong()
                 val lineSpan = (nextLineMs - lineStartMs).coerceAtLeast(600L)
                 val fill = ((adjustedPosMs - lineStartMs).toFloat() / lineSpan).coerceIn(0f, 1f)
-                val sweepBrush = Brush.horizontalGradient(
-                    0f to Color.White,
-                    (fill * 0.95f).coerceIn(0.01f, 0.98f) to Color.White,
-                    (fill + 0.14f).coerceIn(0.02f, 1f) to Color.White.copy(alpha = 0.58f),
-                    1f to Color.White.copy(alpha = 0.46f),
-                )
                 Text(
                     text = line.text,
-                    style = Musico.type.lyricCinema.copy(
-                        brush = sweepBrush,
-                        shadow = Shadow(color = glowColor.copy(alpha = 0.42f), offset = Offset.Zero, blurRadius = 18f),
-                    ),
+                    style = Musico.type.lyricCinema,
+                    color = Color.White,
                     textAlign = TextAlign.Start,
                 )
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.14f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fill.coerceIn(0.02f, 1f))
+                            .height(3.dp)
+                            .clip(CircleShape)
+                            .background(glowColor),
+                    )
+                }
             } else {
                 Text(text = line.text, style = Musico.type.lyricCinema, color = Color.White, textAlign = TextAlign.Start)
             }
@@ -881,7 +865,7 @@ private fun CinemaLyricRow(
                     Text(
                         text = sub,
                         style = Musico.type.lyricSub,
-                        color = if (isActive) glowColor.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.62f),
+                        color = if (isActive) glowColor else Color.White.copy(alpha = 0.64f),
                     )
                 }
             }
@@ -1008,13 +992,7 @@ private fun KineticWordStage(
         Box(contentAlignment = Alignment.Center, modifier = Modifier.height(128.dp)) {
             effectiveCurrent?.let { word ->
                 val fillFraction = wordFill(word, positionMs)
-                val unsung = Color.White.copy(alpha = 0.34f)
-                val brush = Brush.horizontalGradient(
-                    0.0f to glowColor,
-                    fillFraction.coerceIn(0.001f, 0.999f) to Color.White,
-                    (fillFraction + 0.04f).coerceIn(0.002f, 1.0f) to unsung,
-                    1.0f to unsung,
-                )
+                val wordColor = lerpColor(glowColor, Color.White, fillFraction)
                 AnimatedContent(
                     targetState = word.startMs to word.word,
                     transitionSpec = {
@@ -1031,10 +1009,8 @@ private fun KineticWordStage(
                 ) { (_, wText) ->
                     Text(
                         text = wText,
-                        style = Musico.type.lyricCurrent.copy(
-                            brush = brush,
-                            shadow = Shadow(color = glowColor.copy(alpha = 0.45f), offset = Offset(0f, 2f), blurRadius = 24f),
-                        ),
+                        style = Musico.type.lyricCurrent,
+                        color = wordColor,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1084,7 +1060,6 @@ private fun KineticLineStage(
                     style = Musico.type.lyricCurrent.copy(
                         fontSize = 36.sp,
                         lineHeight = 44.sp,
-                        shadow = Shadow(color = glowColor.copy(alpha = 0.42f), offset = Offset(0f, 2f), blurRadius = 22f),
                     ),
                     color = Color.White,
                     textAlign = TextAlign.Center,

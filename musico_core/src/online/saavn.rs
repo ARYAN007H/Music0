@@ -482,12 +482,52 @@ pub(crate) fn open_saavn_stream(
     open_saavn_stream_from_encrypted(enc, has_320, interactive)
 }
 
+/// Returns true when a pipe-delimited trailing segment looks like YouTube video
+/// or label boilerplate (e.g. `Official Video`, `4K`, `T-Series`) rather than
+/// part of an `"Artist | Title"` string.
+fn is_pipe_video_noise(segment: &str) -> bool {
+    let lower = segment.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return true;
+    }
+    const NOISE_TOKENS: &[&str] = &[
+        "official",
+        "video",
+        "audio",
+        "lyrics",
+        "lyric",
+        "full song",
+        "full video",
+        "music video",
+        "visualizer",
+        "jukebox",
+        "slowed",
+        "reverb",
+        "4k",
+        "uhd",
+        "t-series",
+        "sony music",
+        "zee music",
+        "vevo",
+        "saregama",
+        "tips",
+        "yrf",
+        "speed records",
+    ];
+    lower == "hd"
+        || lower == "hq"
+        || NOISE_TOKENS.iter().any(|tok| lower.contains(tok))
+}
+
 /// Strips common YouTube video suffixes like "(Official Video)",
-/// "(Official Music Video)", "[Lyrics]", "(Audio)", "(HD)", or "| ..." so
-/// JioSaavn cross-source matching hits fast direct 320 kbps CDN tracks.
+/// "(Official Music Video)", "[Lyrics]", "(Audio)", "(HD)", or trailing
+/// noise-only `| ...` tags while preserving `"Artist | Title"` strings.
 fn strip_video_noise(title: &str) -> String {
-    let base = title.split('|').next().unwrap_or(title).trim();
-    let mut out = base.to_string();
+    let mut parts: Vec<&str> = title.split('|').map(str::trim).collect();
+    while parts.len() > 1 && is_pipe_video_noise(parts[parts.len() - 1]) {
+        parts.pop();
+    }
+    let mut out = parts.join(" | ");
     for tag in [
         "(official music video)",
         "(official video)",
@@ -517,41 +557,43 @@ fn strip_video_noise(title: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Builds primary + romanized-tail + noise-stripped query variants for
+/// Builds noise-stripped + primary + romanized-tail query variants for
 /// cross-source matching.
 ///
-/// YTM renders international songs as `"native - romanized"` (e.g.
-/// `"すずめ - Suzume (feat. Toaka)"`), and saavn's search returns zero results
-/// for mixed-script queries while the romanized tail hits directly.
+/// The cleaned title runs FIRST so JioSaavn hits direct 320 kbps matches on
+/// attempt #1 without wasting an RTT on "(Official Video)" noise. YTM also
+/// renders international songs as `"native - romanized"` (e.g.
+/// `"すずめ - Suzume (feat. Toaka)"`), so the romanized tail follows cleanly.
 fn cross_source_queries(track: &OnlineTrack) -> Option<(String, String, Vec<String>)> {
     let title = track.title.trim();
     if title.is_empty() {
         return None;
     }
     let cleaned = strip_video_noise(title);
-    let req_title = norm_title(if cleaned.is_empty() { title } else { &cleaned });
+    let primary = if cleaned.is_empty() { title } else { &cleaned };
+    let req_title = norm_title(primary);
     if req_title.is_empty() {
         return None;
     }
     let req_artist = track.artist.to_lowercase();
-    let mut queries = vec![format!("{} {}", title, track.artist)];
-    if !cleaned.is_empty() && cleaned != title {
-        queries.push(format!("{} {}", cleaned, track.artist));
+    let mut queries: Vec<String> = Vec::new();
+    let mut push_unique = |q: String| {
+        if !queries.contains(&q) {
+            queries.push(q);
+        }
+    };
+    push_unique(format!("{} {}", primary, track.artist));
+    if primary != title {
+        push_unique(format!("{} {}", title, track.artist));
     }
     if let Some(pos) = title.rfind(" - ") {
         let tail = title[pos + 3..].trim();
         if !tail.is_empty() && tail != title {
-            let tail_query = format!("{} {}", tail, track.artist);
-            if !queries.contains(&tail_query) {
-                queries.push(tail_query);
-            }
             let cleaned_tail = strip_video_noise(tail);
-            if !cleaned_tail.is_empty() && cleaned_tail != tail {
-                let ct_query = format!("{} {}", cleaned_tail, track.artist);
-                if !queries.contains(&ct_query) {
-                    queries.push(ct_query);
-                }
+            if !cleaned_tail.is_empty() {
+                push_unique(format!("{} {}", cleaned_tail, track.artist));
             }
+            push_unique(format!("{} {}", tail, track.artist));
         }
     }
     Some((req_title, req_artist, queries))
@@ -1167,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn strip_video_noise_cleans_youtube_suffixes() {
+    fn strip_video_noise_cleans_youtube_suffixes_and_preserves_artist_pipe_title() {
         assert_eq!(
             strip_video_noise("Blinding Lights (Official Audio)"),
             "Blinding Lights"
@@ -1176,8 +1218,20 @@ mod tests {
             strip_video_noise("Starboy [Official Music Video] | HD"),
             "Starboy"
         );
+        assert_eq!(
+            strip_video_noise("Tum Hi Ho | Official Video | T-Series"),
+            "Tum Hi Ho"
+        );
+        assert_eq!(
+            strip_video_noise("Arijit Singh | Tum Hi Ho"),
+            "Arijit Singh | Tum Hi Ho"
+        );
         let yt = test_track("v2", "Blinding Lights (Official Video)", "The Weeknd", Some(200));
         let (_, _, queries) = cross_source_queries(&yt).unwrap();
-        assert!(queries.iter().any(|q| q == "Blinding Lights The Weeknd"));
+        assert_eq!(
+            queries.first().map(String::as_str),
+            Some("Blinding Lights The Weeknd"),
+            "cleaned title must be tried before noisy raw title"
+        );
     }
 }

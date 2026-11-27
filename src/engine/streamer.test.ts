@@ -121,6 +121,8 @@ test('InnerTubeClientHealthTracker requires consecutive transport failures befor
   assert.equal(tracker.isDemoted('IOS_20', 95_000), false);
 
   tracker.recordTransportFailure('IOS_20', 96_000);
+  // After cooldown expired, a single new failure must NOT immediately re-demote.
+  assert.equal(tracker.isDemoted('IOS_20', 96_100), false);
   tracker.recordSuccess('IOS_20');
   assert.equal(tracker.isDemoted('IOS_20', 96_500), false);
 });

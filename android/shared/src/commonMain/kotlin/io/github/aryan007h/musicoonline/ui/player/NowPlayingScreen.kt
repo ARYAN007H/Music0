@@ -63,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -151,6 +152,61 @@ fun NowPlayingScreen(
         isPlaying = isPlaying,
         durationMs = durationMs,
     )
+    var pureCinema by remember { mutableStateOf(false) }
+
+    // Keep LyricsPane and QueuePage state alive when resizing across 840dp
+    // (mirrors MainTabContent in MusicoApp). Compose's movableContentOf only
+    // supports up to 4 parameters, so pass compact state holders.
+    val sharedLyricsPane = remember {
+        movableContentOf<LyricsSlotState> { s ->
+            LyricsPane(
+                track = s.track,
+                lyrics = s.lyrics,
+                loading = s.loading,
+                positionMs = s.positionMs,
+                durationMs = s.durationMs,
+                mode = s.mode,
+                offsetMs = s.offsetMs,
+                atmosphere = s.atmosphere,
+                pureCinema = s.pureCinema,
+                onTogglePureCinema = { pureCinema = !pureCinema },
+                onModeChange = onLyricsModeChange,
+                onOffsetChange = onLyricOffsetChange,
+                onCycleBackdrop = onCycleBackdrop,
+                onSeek = onSeek,
+                onShareFeedback = onShareFeedback,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+    val sharedQueuePane = remember {
+        movableContentOf<QueueSlotState> { s ->
+            QueuePage(
+                queue = s.queue,
+                queueIndex = s.queueIndex,
+                glowColor = s.glowColor,
+                onPlayFromQueue = onPlayFromQueue,
+                onRemoveFromQueue = onRemoveFromQueue,
+            )
+        }
+    }
+
+    val lyricsSlotState = LyricsSlotState(
+        track = activeTrack,
+        lyrics = lyrics,
+        loading = lyricsLoading,
+        positionMs = smoothPositionMs,
+        durationMs = durationMs,
+        mode = lyricsMode,
+        offsetMs = lyricOffsetMs,
+        atmosphere = atmosphere,
+        pureCinema = pureCinema,
+    )
+    val queueSlotState = QueueSlotState(
+        queue = queue,
+        queueIndex = queueIndex,
+        glowColor = atmosphere.glow,
+    )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth >= 840.dp) {
@@ -160,13 +216,8 @@ fun NowPlayingScreen(
                 isBuffering = isBuffering,
                 smoothPositionMs = smoothPositionMs,
                 durationMs = durationMs,
-                lyrics = lyrics,
-                lyricsLoading = lyricsLoading,
-                lyricsMode = lyricsMode,
-                lyricOffsetMs = lyricOffsetMs,
                 atmosphere = atmosphere,
-                queue = queue,
-                queueIndex = queueIndex,
+                queueSize = queue.size,
                 liked = liked,
                 repeatAll = repeatAll,
                 initialShowQueue = initialPage == 2,
@@ -178,12 +229,8 @@ fun NowPlayingScreen(
                 onLikeToggle = onLikeToggle,
                 onRepeatToggle = onRepeatToggle,
                 onAddToPlaylist = onAddToPlaylist,
-                onLyricsModeChange = onLyricsModeChange,
-                onLyricOffsetChange = onLyricOffsetChange,
-                onCycleBackdrop = onCycleBackdrop,
-                onShareFeedback = onShareFeedback,
-                onPlayFromQueue = onPlayFromQueue,
-                onRemoveFromQueue = onRemoveFromQueue,
+                lyricsContent = { sharedLyricsPane(lyricsSlotState) },
+                queueContent = { sharedQueuePane(queueSlotState) },
             )
         } else {
             CompactPagerNowPlaying(
@@ -192,16 +239,12 @@ fun NowPlayingScreen(
                 isBuffering = isBuffering,
                 smoothPositionMs = smoothPositionMs,
                 durationMs = durationMs,
-                lyrics = lyrics,
-                lyricsLoading = lyricsLoading,
-                lyricsMode = lyricsMode,
-                lyricOffsetMs = lyricOffsetMs,
                 atmosphere = atmosphere,
-                queue = queue,
-                queueIndex = queueIndex,
                 liked = liked,
                 repeatAll = repeatAll,
                 initialPage = initialPage,
+                pureCinema = pureCinema,
+                onPureCinemaChange = { pureCinema = it },
                 onCollapse = onCollapse,
                 onTogglePlay = onTogglePlay,
                 onNext = onNext,
@@ -210,17 +253,31 @@ fun NowPlayingScreen(
                 onLikeToggle = onLikeToggle,
                 onRepeatToggle = onRepeatToggle,
                 onAddToPlaylist = onAddToPlaylist,
-                onLyricsModeChange = onLyricsModeChange,
-                onLyricOffsetChange = onLyricOffsetChange,
-                onCycleBackdrop = onCycleBackdrop,
-                onShareFeedback = onShareFeedback,
-                onPlayFromQueue = onPlayFromQueue,
-                onRemoveFromQueue = onRemoveFromQueue,
                 onDragProgressChange = onDragProgressChange,
+                lyricsContent = { sharedLyricsPane(lyricsSlotState) },
+                queueContent = { sharedQueuePane(queueSlotState) },
             )
         }
     }
 }
+
+private data class LyricsSlotState(
+    val track: OnlineTrack,
+    val lyrics: EnhancedLyrics?,
+    val loading: Boolean,
+    val positionMs: Long,
+    val durationMs: Long,
+    val mode: LyricsDisplayMode,
+    val offsetMs: Long,
+    val atmosphere: ArtworkAtmosphere,
+    val pureCinema: Boolean,
+)
+
+private data class QueueSlotState(
+    val queue: List<OnlineTrack>,
+    val queueIndex: Int,
+    val glowColor: Color,
+)
 
 // ── Widescreen Split Stage (Desktop / Tablet >= 840dp) ────────────────────
 
@@ -231,13 +288,8 @@ private fun WidescreenSplitNowPlaying(
     isBuffering: Boolean,
     smoothPositionMs: Long,
     durationMs: Long,
-    lyrics: EnhancedLyrics?,
-    lyricsLoading: Boolean,
-    lyricsMode: LyricsDisplayMode,
-    lyricOffsetMs: Long,
     atmosphere: ArtworkAtmosphere,
-    queue: List<OnlineTrack>,
-    queueIndex: Int,
+    queueSize: Int,
     liked: Boolean,
     repeatAll: Boolean,
     initialShowQueue: Boolean,
@@ -249,15 +301,10 @@ private fun WidescreenSplitNowPlaying(
     onLikeToggle: () -> Unit,
     onRepeatToggle: () -> Unit,
     onAddToPlaylist: (OnlineTrack) -> Unit,
-    onLyricsModeChange: (LyricsDisplayMode) -> Unit,
-    onLyricOffsetChange: (Long) -> Unit,
-    onCycleBackdrop: () -> Unit,
-    onShareFeedback: (String) -> Unit,
-    onPlayFromQueue: (Int) -> Unit,
-    onRemoveFromQueue: (Int) -> Unit,
+    lyricsContent: @Composable () -> Unit,
+    queueContent: @Composable () -> Unit,
 ) {
     var rightTabQueue by remember { mutableStateOf(initialShowQueue) }
-    var pureCinema by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -302,7 +349,7 @@ private fun WidescreenSplitNowPlaying(
                     )
                     SplitStageTab(
                         icon = Icons.Filled.QueueMusic,
-                        label = "Up Next · ${queue.size}",
+                        label = "Up Next · $queueSize",
                         selected = rightTabQueue,
                         accent = MaterialTheme.colorScheme.onSecondaryContainer,
                         onClick = { rightTabQueue = true },
@@ -420,32 +467,9 @@ private fun WidescreenSplitNowPlaying(
                     label = "splitRightStage",
                 ) { showQueue ->
                     if (showQueue) {
-                        QueuePage(
-                            queue = queue,
-                            queueIndex = queueIndex,
-                            glowColor = atmosphere.glow,
-                            onPlayFromQueue = onPlayFromQueue,
-                            onRemoveFromQueue = onRemoveFromQueue,
-                        )
+                        queueContent()
                     } else {
-                        LyricsPane(
-                            track = activeTrack,
-                            lyrics = lyrics,
-                            loading = lyricsLoading,
-                            positionMs = smoothPositionMs,
-                            durationMs = durationMs,
-                            mode = lyricsMode,
-                            offsetMs = lyricOffsetMs,
-                            atmosphere = atmosphere,
-                            pureCinema = pureCinema,
-                            onTogglePureCinema = { pureCinema = !pureCinema },
-                            onModeChange = onLyricsModeChange,
-                            onOffsetChange = onLyricOffsetChange,
-                            onCycleBackdrop = onCycleBackdrop,
-                            onSeek = onSeek,
-                            onShareFeedback = onShareFeedback,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        lyricsContent()
                     }
                 }
             }
@@ -490,16 +514,12 @@ private fun CompactPagerNowPlaying(
     isBuffering: Boolean,
     smoothPositionMs: Long,
     durationMs: Long,
-    lyrics: EnhancedLyrics?,
-    lyricsLoading: Boolean,
-    lyricsMode: LyricsDisplayMode,
-    lyricOffsetMs: Long,
     atmosphere: ArtworkAtmosphere,
-    queue: List<OnlineTrack>,
-    queueIndex: Int,
     liked: Boolean,
     repeatAll: Boolean,
     initialPage: Int,
+    pureCinema: Boolean,
+    onPureCinemaChange: (Boolean) -> Unit,
     onCollapse: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
@@ -508,23 +528,18 @@ private fun CompactPagerNowPlaying(
     onLikeToggle: () -> Unit,
     onRepeatToggle: () -> Unit,
     onAddToPlaylist: (OnlineTrack) -> Unit,
-    onLyricsModeChange: (LyricsDisplayMode) -> Unit,
-    onLyricOffsetChange: (Long) -> Unit,
-    onCycleBackdrop: () -> Unit,
-    onShareFeedback: (String) -> Unit,
-    onPlayFromQueue: (Int) -> Unit,
-    onRemoveFromQueue: (Int) -> Unit,
     onDragProgressChange: (Float) -> Unit,
+    lyricsContent: @Composable () -> Unit,
+    queueContent: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
     val pagerState = rememberPagerState(initialPage = initialPage.coerceIn(0, 2), pageCount = { 3 })
-    var pureCinema by remember { mutableStateOf(false) }
 
     LaunchedEffect(pagerState.currentPage) {
         if (pagerState.currentPage != 1 && pureCinema) {
-            pureCinema = false
+            onPureCinemaChange(false)
         }
     }
 
@@ -639,31 +654,8 @@ private fun CompactPagerNowPlaying(
         ) { page ->
             when (page) {
                 0 -> ArtworkPage(activeTrack, isPlaying, isBuffering, atmosphere, onTogglePlay)
-                1 -> LyricsPane(
-                    track = activeTrack,
-                    lyrics = lyrics,
-                    loading = lyricsLoading,
-                    positionMs = smoothPositionMs,
-                    durationMs = durationMs,
-                    mode = lyricsMode,
-                    offsetMs = lyricOffsetMs,
-                    atmosphere = atmosphere,
-                    pureCinema = pureCinema,
-                    onTogglePureCinema = { pureCinema = !pureCinema },
-                    onModeChange = onLyricsModeChange,
-                    onOffsetChange = onLyricOffsetChange,
-                    onCycleBackdrop = onCycleBackdrop,
-                    onSeek = onSeek,
-                    onShareFeedback = onShareFeedback,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                2 -> QueuePage(
-                    queue = queue,
-                    queueIndex = queueIndex,
-                    glowColor = atmosphere.glow,
-                    onPlayFromQueue = onPlayFromQueue,
-                    onRemoveFromQueue = onRemoveFromQueue,
-                )
+                1 -> lyricsContent()
+                2 -> queueContent()
             }
         }
 

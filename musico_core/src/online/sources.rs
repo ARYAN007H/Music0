@@ -54,9 +54,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(1_500);
 /// and stalled chunks without cutting off long tracks on slow internet).
 const STREAM_READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// Delay before hedging backup sources when the primary source hasn't opened yet.
-const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(400);
+const STREAM_HEDGE_DELAY: Duration = Duration::from_millis(750);
 /// Maximum backup sources launched per hedge wave.
-const STREAM_HEDGE_BATCH: usize = 3;
+const STREAM_HEDGE_BATCH: usize = 2;
 /// Upper bound on one downloaded track — a 5-minute 128 kbps m4a is ~5 MB;
 /// anything beyond this cap is not audio we asked for.
 pub(crate) const MAX_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
@@ -590,41 +590,65 @@ fn select_best_m4a_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
         .map(|s| s.url.clone())
 }
 
-/// Selects the best playable direct audio stream (`audio/mp4` preferred, then
-/// `audio/webm` Opus, then uncapped audio-only up to 512 kbps) so tracks that
-/// only expose Opus or slightly higher bitrates still play seamlessly on
-/// ExoPlayer (Android) and Symphonia (Desktop).
+/// Selects the best playable direct audio stream.
+///
+/// Priority:
+/// 1. `audio/mp4` (AAC) with `bitrate <= cap` (highest first).
+/// 2. Uncapped `audio/mp4` up to 512 kbps (closest to `cap`) — always preferred
+///    over WebM so Desktop (Symphonia 0.5.5, which has NO Opus decoder) never
+///    receives an undecodable `.webm` stream or poisons the disk cache.
+/// 3. On Android only (`#[cfg(target_os = "android")]`), ExoPlayer natively
+///    decodes Opus/WebM, so `audio/webm` acts as a last-resort fallback.
 fn select_best_audio_within(streams: &[PipedAudio], cap: u64) -> Option<String> {
     if let Some(m4a) = select_best_m4a_within(streams, cap) {
         return Some(m4a);
     }
-    if let Some(webm) = streams
+    if let Some(uncapped_m4a) = streams
         .iter()
         .filter(|s| {
             s.mime_type
                 .as_deref()
-                .is_some_and(|m| m.starts_with("audio/webm"))
-        })
-        .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
-        .filter(|s| s.url.starts_with("https://"))
-        .max_by_key(|s| s.bitrate.unwrap_or(0))
-        .map(|s| s.url.clone())
-    {
-        return Some(webm);
-    }
-    // Last resort: accept any audio/mp4 or audio/webm stream up to 512 kbps
-    // (or missing bitrate field) rather than dropping the song entirely.
-    streams
-        .iter()
-        .filter(|s| {
-            s.mime_type
-                .as_deref()
-                .is_some_and(|m| m.starts_with("audio/mp4") || m.starts_with("audio/webm"))
+                .is_some_and(|m| m.starts_with("audio/mp4"))
         })
         .filter(|s| s.bitrate.unwrap_or(128_000) <= 512_000)
         .filter(|s| s.url.starts_with("https://"))
         .min_by_key(|s| s.bitrate.unwrap_or(128_000).abs_diff(cap))
         .map(|s| s.url.clone())
+    {
+        return Some(uncapped_m4a);
+    }
+    #[cfg(target_os = "android")]
+    {
+        if let Some(webm) = streams
+            .iter()
+            .filter(|s| {
+                s.mime_type
+                    .as_deref()
+                    .is_some_and(|m| m.starts_with("audio/webm"))
+            })
+            .filter(|s| s.bitrate.is_some_and(|b| b > 0 && b <= cap))
+            .filter(|s| s.url.starts_with("https://"))
+            .max_by_key(|s| s.bitrate.unwrap_or(0))
+            .map(|s| s.url.clone())
+        {
+            return Some(webm);
+        }
+        return streams
+            .iter()
+            .filter(|s| {
+                s.mime_type
+                    .as_deref()
+                    .is_some_and(|m| m.starts_with("audio/webm"))
+            })
+            .filter(|s| s.bitrate.unwrap_or(128_000) <= 512_000)
+            .filter(|s| s.url.starts_with("https://"))
+            .min_by_key(|s| s.bitrate.unwrap_or(128_000).abs_diff(cap))
+            .map(|s| s.url.clone());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
 }
 
 /// The default-cap variant — the unit-test target for the fixture suite.
@@ -912,14 +936,22 @@ fn it_demoted(id: &str) -> bool {
         .is_some_and(|until| until > Instant::now())
 }
 
-fn it_record_transport_failure(id: &'static str) {
+fn it_record_transport_failure_at(id: &'static str, now: Instant) {
     if let Ok(mut map) = IT_HEALTH.lock() {
         let entry = map.entry(id).or_default();
+        if entry.demoted_until.is_some_and(|until| until <= now) {
+            entry.consecutive_failures = 0;
+            entry.demoted_until = None;
+        }
         entry.consecutive_failures = entry.consecutive_failures.saturating_add(1);
         if entry.consecutive_failures >= IT_DEMOTE_THRESHOLD {
-            entry.demoted_until = Some(Instant::now() + IT_DEMOTE);
+            entry.demoted_until = Some(now + IT_DEMOTE);
         }
     }
+}
+
+fn it_record_transport_failure(id: &'static str) {
+    it_record_transport_failure_at(id, Instant::now());
 }
 
 /// Last-working InnerTube client profile id — tried first on subsequent
@@ -1337,14 +1369,16 @@ impl InnerTubeDirectSource {
         // before anything can fail below.
         capture_stream_loudness(&bytes, video_id);
         let cap = fast_path_bitrate_cap();
-        let url = select_best_audio_within(&ready, cap)
-            .or_else(|| select_best_audio_within(&all_streams, cap))
-            .ok_or_else(|| {
-                format!(
-                    "{}: no direct audio stream (cipher-only formats)",
-                    p.id
-                )
-            })?;
+        let (url, used_n_fallback) = if let Some(u) = select_best_audio_within(&ready, cap) {
+            (u, false)
+        } else if let Some(u) = select_best_audio_within(&all_streams, cap) {
+            (u, true)
+        } else {
+            return Err(format!(
+                "{}: no direct audio stream (cipher-only formats)",
+                p.id
+            ));
+        };
 
         let err_prefix = format!("{}: download", p.id);
         match send_and_validate_audio(
@@ -1357,9 +1391,19 @@ impl InnerTubeDirectSource {
             &err_prefix,
         ) {
             Ok(opened) => {
-                it_rehab(p.id);
-                remember_good_it_client(p.id);
-                log::info!("innertube-direct: {} serving {video_id}", p.id);
+                // Only promote/pin a client profile when it served a clean
+                // non-`n`-param stream; an `n`-param URL can return HTTP 200
+                // headers and then throttle body bytes, so never pin it as
+                // LAST_GOOD_IT_CLIENT.
+                if !used_n_fallback {
+                    it_rehab(p.id);
+                    remember_good_it_client(p.id);
+                }
+                log::info!(
+                    "innertube-direct: {} serving {video_id}{}",
+                    p.id,
+                    if used_n_fallback { " (n-param fallback)" } else { "" }
+                );
                 Ok(opened)
             }
             Err(e) => {
@@ -2519,17 +2563,37 @@ mod tests {
     }
 
     #[test]
-    fn select_best_audio_prefers_m4a_and_falls_back_to_opus_webm() {
+    fn select_best_audio_prefers_uncapped_m4a_over_webm_and_gates_opus_to_android() {
         let only_opus = vec![PipedAudio {
             url: "https://rr1---sn.googlevideo.com/videoplayback?itag=251".into(),
             bitrate: Some(160_000),
             mime_type: Some("audio/webm; codecs=\"opus\"".into()),
         }];
+        #[cfg(target_os = "android")]
         assert_eq!(
             select_best_audio_within(&only_opus, MAX_AUDIO_BITRATE).as_deref(),
             Some("https://rr1---sn.googlevideo.com/videoplayback?itag=251")
         );
-        let mut mixed = only_opus.clone();
+        #[cfg(not(target_os = "android"))]
+        assert_eq!(
+            select_best_audio_within(&only_opus, MAX_AUDIO_BITRATE),
+            None,
+            "desktop Symphonia lacks an Opus decoder so audio/webm must never be selected"
+        );
+
+        // Even when audio/mp4 exceeds the 192k cap (e.g. 256k itag 141), it must
+        // win over a <=192k audio/webm stream on all platforms.
+        let mut uncapped_m4a_and_webm = only_opus.clone();
+        uncapped_m4a_and_webm.push(pa(
+            "https://rr1---sn.googlevideo.com/videoplayback?itag=141",
+            Some(256_000),
+        ));
+        assert_eq!(
+            select_best_audio_within(&uncapped_m4a_and_webm, MAX_AUDIO_BITRATE).as_deref(),
+            Some("https://rr1---sn.googlevideo.com/videoplayback?itag=141")
+        );
+
+        let mut mixed = only_opus;
         mixed.push(pa(
             "https://rr1---sn.googlevideo.com/videoplayback?itag=140",
             Some(130_000),
@@ -2541,16 +2605,30 @@ mod tests {
     }
 
     #[test]
-    fn it_demotion_requires_consecutive_transport_failures() {
+    fn it_demotion_requires_consecutive_transport_failures_and_resets_after_cooldown() {
         let id = "TEST_PROFILE_DEMOTE";
         it_rehab(id);
+        let t0 = Instant::now();
         assert!(!it_demoted(id));
-        it_record_transport_failure(id);
+        it_record_transport_failure_at(id, t0);
         assert!(!it_demoted(id), "single failure must not blacklist a profile");
-        it_record_transport_failure(id);
+        it_record_transport_failure_at(id, t0);
         assert!(!it_demoted(id), "two failures below threshold must not blacklist");
-        it_record_transport_failure(id);
+        it_record_transport_failure_at(id, t0);
         assert!(it_demoted(id), "three consecutive transport failures demote");
+
+        // Once the 90s cooldown expires, the profile must receive a fresh 3-strike
+        // budget instead of re-demoting on a single failure.
+        let after_cooldown = t0 + IT_DEMOTE + Duration::from_secs(1);
+        it_record_transport_failure_at(id, after_cooldown);
+        assert!(
+            IT_HEALTH
+                .lock()
+                .unwrap()
+                .get(id)
+                .is_some_and(|h| h.consecutive_failures == 1 && h.demoted_until.is_none()),
+            "expired cooldown must reset strike count before counting new failure"
+        );
         it_rehab(id);
         assert!(!it_demoted(id), "rehab clears demotion");
     }

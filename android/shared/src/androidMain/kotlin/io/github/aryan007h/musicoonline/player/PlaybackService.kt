@@ -23,9 +23,9 @@ class PlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
-        // Low-latency progressive startup (T25): start playing after 500 ms of
+        // Low-latency progressive startup (T25): start playing after 350 ms of
         // buffered audio instead of ExoPlayer's 2,500 ms default, and recover
-        // from slow-network stalls in 1,500 ms instead of 5,000 ms while still
+        // from slow-network stalls in 1,000 ms instead of 5,000 ms while still
         // buffering 15-50 s ahead in the background.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(

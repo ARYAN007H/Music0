@@ -350,7 +350,11 @@ export class InnerTubeClientHealthTracker {
   }
 
   recordTransportFailure(profileId: string, nowMs = Date.now()): void {
-    const prev = this.state.get(profileId) ?? { consecutiveFailures: 0, demotedUntilMs: 0 };
+    const existing = this.state.get(profileId);
+    const expired = Boolean(existing && existing.demotedUntilMs > 0 && existing.demotedUntilMs <= nowMs);
+    const prev = !existing || expired
+      ? { consecutiveFailures: 0, demotedUntilMs: 0 }
+      : existing;
     const nextFailures = prev.consecutiveFailures + 1;
     const demotedUntilMs = nextFailures >= this.threshold ? nowMs + this.cooldownMs : prev.demotedUntilMs;
     this.state.set(profileId, { consecutiveFailures: nextFailures, demotedUntilMs });

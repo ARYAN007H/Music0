@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,10 +38,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -133,6 +137,7 @@ fun HomeScreen(
     onOpenCollection: (LibraryCollectionRef) -> Unit = {},
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit = { _, _ -> },
     onOpenCatalogEntry: (CatalogEntry) -> Unit = {},
+    onStartMood: (String) -> Unit = {},
     onRetry: () -> Unit,
     onLoadMore: () -> Unit,
     onRetryPersonalization: (() -> Unit)? = null,
@@ -166,6 +171,7 @@ fun HomeScreen(
                     onOpenCollection = onOpenCollection,
                     onOpenTrack = onOpenTrack,
                     onOpenCatalogEntry = onOpenCatalogEntry,
+                    onStartMood = onStartMood,
                     onLoadMore = onLoadMore,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
@@ -281,6 +287,39 @@ private sealed interface QuickPickEntry {
 
 private val HOME_MOOD_CHIPS = listOf("All", "Made for You", "Chill", "Energize", "Focus", "Workout")
 
+/** Pure responsive breakpoints & mood-filter logic for HomeScreen unit tests. */
+object HomeLayoutMetrics {
+    fun isCompactHero(cardWidthDp: Float): Boolean = cardWidthDp < 440f
+}
+
+object HomeMoodFilter {
+    fun keywordsFor(mood: String): List<String> = when (mood) {
+        "Made for You" -> listOf("made for", "because you", "mix", "discover", "repeat", "pick", "for you", "recommend")
+        "Chill" -> listOf("chill", "lofi", "lo-fi", "calm", "ambient", "acoustic", "relax", "soft", "late night", "unplugged", "indie")
+        "Energize" -> listOf("energize", "energy", "party", "dance", "upbeat", "pop", "hits", "trending", "electronic", "club")
+        "Focus" -> listOf("focus", "study", "instrumental", "piano", "classical", "ambient", "deep", "work", "concentration")
+        "Workout" -> listOf("workout", "gym", "run", "running", "hype", "hip-hop", "hip hop", "rap", "pump", "cardio", "power")
+        else -> emptyList()
+    }
+
+    /** Returns shelves matching the selected mood; empty list when none match so UI renders an honest Mood Station card. */
+    fun filterShelves(shelves: List<Shelf>, mood: String): List<Shelf> {
+        val content = shelves.filter { it.items.isNotEmpty() }
+        if (mood == "All") return content
+        val keywords = keywordsFor(mood)
+        if (keywords.isEmpty()) return content
+        return content.filter { shelf ->
+            val titleLower = shelf.title.lowercase()
+            keywords.any { kw -> titleLower.contains(kw) } ||
+                shelf.items.any { item ->
+                    val t = item.title.lowercase()
+                    val s = item.subtitle.lowercase()
+                    keywords.any { kw -> t.contains(kw) || s.contains(kw) }
+                }
+        }
+    }
+}
+
 @Composable
 private fun HomeFeed(
     displayName: String,
@@ -297,25 +336,23 @@ private fun HomeFeed(
     onOpenCollection: (LibraryCollectionRef) -> Unit,
     onOpenTrack: (OnlineTrack, List<OnlineTrack>) -> Unit,
     onOpenCatalogEntry: (CatalogEntry) -> Unit,
+    onStartMood: (String) -> Unit,
     onLoadMore: () -> Unit,
     currentTrackId: String?,
     isPlaying: Boolean,
 ) {
     var selectedMood by remember { mutableStateOf("All") }
 
-    val filteredShelves = remember(shelves, selectedMood) {
-        val content = shelves.filter { it.items.isNotEmpty() }
-        if (selectedMood == "All") {
-            content
-        } else {
-            val needle = selectedMood.lowercase()
-            val matched = content.filter { shelf ->
-                shelf.title.lowercase().contains(needle) ||
-                    shelf.items.any {
-                        it.title.lowercase().contains(needle) || it.subtitle.lowercase().contains(needle)
-                    }
-            }
-            if (matched.isNotEmpty()) matched else content
+    val matchedShelves = remember(shelves, selectedMood) {
+        HomeMoodFilter.filterShelves(shelves, selectedMood)
+    }
+    val nonEmptyShelves = remember(shelves) { shelves.filter { it.items.isNotEmpty() } }
+    val filteredShelves = remember(matchedShelves, nonEmptyShelves, selectedMood) {
+        when {
+            selectedMood == "All" -> nonEmptyShelves
+            matchedShelves.isNotEmpty() -> matchedShelves
+            selectedMood == "Made for You" -> nonEmptyShelves.take(3)
+            else -> emptyList()
         }
     }
 
@@ -419,8 +456,94 @@ private fun HomeFeed(
             }
         }
 
+        // ── M3E Mood Station Launch Card when a specific vibe is active ──
+        if (selectedMood != "All" && selectedMood != "Made for You") {
+            item(key = "home-mood-station-$selectedMood") {
+                Surface(
+                    shape = MusicoShapes.hero,
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .pressable(
+                            onClick = {
+                                hapticThud()
+                                onStartMood(selectedMood)
+                            },
+                            pressedScale = 0.97f,
+                        ),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Radio,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "$selectedMood Station",
+                                style = Musico.type.titleLarge,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                if (matchedShelves.isNotEmpty()) {
+                                    "${matchedShelves.size} matching shelves · Tap to tune live radio"
+                                } else {
+                                    "Instant $selectedMood mix tailored for right now"
+                                },
+                                style = Musico.type.caption,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.82f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.PlayArrow,
+                                    contentDescription = "Play $selectedMood",
+                                    tint = MaterialTheme.colorScheme.tertiaryContainer,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    "Tune in",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ── M3E 2-Column Quick-Pick Instant-Resume Grid ─────────────────
-        if (quickPicks.size >= 2) {
+        if (quickPicks.size >= 2 && (selectedMood == "All" || selectedMood == "Made for You")) {
             item(key = "home-quick-picks") {
                 QuickPickGrid(
                     entries = quickPicks,
@@ -758,7 +881,11 @@ private fun QuickPickCard(
                     style = Musico.type.title,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isCurrent) Musico.extras.mint else MaterialTheme.colorScheme.onBackground,
+                    color = if (isCurrent) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -766,7 +893,11 @@ private fun QuickPickCard(
                     entry.subtitle,
                     style = Musico.type.tabularCaption,
                     fontSize = 11.sp,
-                    color = Musico.extras.inkDim,
+                    color = if (isCurrent) {
+                        MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -969,74 +1100,93 @@ private fun HeroCarousel(
 
 @Composable
 private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        shape = MusicoShapes.hero,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier
-            .fillMaxWidth()
-            .height(216.dp)
-            .pressable(onClick = onClick, pressedScale = 0.97f),
-    ) {
-        Row(
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val compact = HomeLayoutMetrics.isCompactHero(maxWidth.value)
+        val artworkSize = if (compact) 104.dp else 176.dp
+        val cardPadding = if (compact) 14.dp else 18.dp
+        val contentGap = if (compact) 14.dp else 18.dp
+
+        Surface(
+            shape = MusicoShapes.hero,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                .fillMaxWidth()
+                .then(if (compact) Modifier.heightIn(min = 148.dp) else Modifier.height(212.dp))
+                .pressable(onClick = onClick, pressedScale = 0.97f),
         ) {
-            Artwork(
-                url = item.thumbnail,
-                contentDescription = item.title,
-                modifier = Modifier.size(180.dp),
-                cornerRadius = 22.dp,
-            )
-            Column(
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween,
+                    .fillMaxWidth()
+                    .padding(cardPadding),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(contentGap),
             ) {
-                Column {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                    ) {
+                Artwork(
+                    url = item.thumbnail,
+                    contentDescription = item.title,
+                    modifier = Modifier.size(artworkSize),
+                    cornerRadius = if (compact) 18.dp else 22.dp,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
+                ) {
+                    Column {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Text(
+                                    "FEATURED",
+                                    style = Musico.type.overline,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(if (compact) 6.dp else 10.dp))
                         Text(
-                            "FEATURED",
-                            style = Musico.type.overline,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        item.title,
-                        style = Musico.type.headline,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (item.subtitle.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            item.subtitle,
-                            style = Musico.type.caption,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            item.title,
+                            style = if (compact) {
+                                Musico.type.titleLarge.copy(fontSize = 19.sp, lineHeight = 23.sp)
+                            } else {
+                                Musico.type.headline
+                            },
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (item.subtitle.isNotBlank()) {
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                item.subtitle,
+                                style = Musico.type.caption,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = if (compact) 1 else 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.primary,
                     ) {
                         Row(
-                            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            Modifier.padding(
+                                horizontal = if (compact) 12.dp else 16.dp,
+                                vertical = if (compact) 8.dp else 10.dp,
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
@@ -1044,13 +1194,15 @@ private fun HeroCard(item: ShelfItem, onClick: () -> Unit, modifier: Modifier = 
                                 Icons.Filled.PlayArrow,
                                 contentDescription = "Play",
                                 tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(if (compact) 18.dp else 20.dp),
                             )
                             Text(
                                 "Play now",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
+                                fontSize = if (compact) 12.sp else 13.sp,
                                 color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                         }
                     }
