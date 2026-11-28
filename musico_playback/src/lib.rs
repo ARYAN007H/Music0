@@ -1981,7 +1981,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn remote_stream_path_guard_detects_http_urls() {
         assert!(is_remote_stream_path("http://127.0.0.1:41234/stream/abc"));
         assert!(is_remote_stream_path("https://example.com/audio.mp4"));
@@ -1989,6 +1988,7 @@ mod tests {
         assert!(!is_remote_stream_path("track.mp4"));
     }
 
+    #[test]
     fn coalesce_pending_commands_preserves_pause_seek_preload() {
         let state = Arc::new(Mutex::new(PlaybackState::default()));
         let (event_tx, _event_rx) = crossbeam_channel::unbounded();
