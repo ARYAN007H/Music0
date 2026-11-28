@@ -227,11 +227,11 @@ fun Modifier.staggerIn(
     }
 }
 
-/** Clamps spring-animated corner radii so Compose never sees a negative CornerSize. */
-fun safeCornerDp(radius: Dp): Dp = radius.coerceAtLeast(0.dp)
+/** Clamps spring-animated corner radii so Compose never sees a negative or non-finite CornerSize. */
+fun safeCornerDp(radius: Dp): Dp = if (!radius.value.isFinite()) 0.dp else radius.coerceAtLeast(0.dp)
 
-/** Clamps spring-animated scale factors strictly positive to prevent inverted geometry. */
-fun safePositiveScale(scale: Float): Float = scale.coerceAtLeast(0.01f)
+/** Clamps spring-animated scale factors strictly positive and finite to prevent inverted geometry. */
+fun safePositiveScale(scale: Float): Float = if (!scale.isFinite()) 1f else scale.coerceAtLeast(0.01f)
 
 // ── Cross-platform Haptics ────────────────────────────────────────────────
 

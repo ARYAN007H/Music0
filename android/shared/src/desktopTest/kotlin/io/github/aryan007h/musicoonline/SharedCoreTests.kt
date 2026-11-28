@@ -1,11 +1,17 @@
 package io.github.aryan007h.musicoonline
 
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.CatalogEntry
 import io.github.aryan007h.musicoonline.core.CoreException
 import io.github.aryan007h.musicoonline.core.DownloadedTrack
 import io.github.aryan007h.musicoonline.core.ItemKind
+import io.github.aryan007h.musicoonline.core.ListeningStatsReply
 import io.github.aryan007h.musicoonline.core.MusicoCoreCodec
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.PlaylistImportResult
@@ -43,7 +49,10 @@ import io.github.aryan007h.musicoonline.ui.player.formatTime
 import io.github.aryan007h.musicoonline.ui.settings.EqCurveMath
 import io.github.aryan007h.musicoonline.ui.settings.snapCacheCapMb
 import androidx.compose.ui.graphics.luminance
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveArchShape
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveScallopShape
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveSegmentedMath
+import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Palette
 import io.github.aryan007h.musicoonline.ui.theme.ThemeMode
 import io.github.aryan007h.musicoonline.ui.theme.paletteLightScheme
@@ -780,5 +789,65 @@ class SharedCoreTests {
         assertEquals("MPRE_RAM", recAlbums.first().browseId)
         assertTrue(recAlbums.any { it.title == "Starboy" })
         assertTrue(recAlbums.any { it.title == "Currents" })
+    }
+
+    @Test
+    fun expressiveShapesAndMotionGuardsHandleDegenerateGeometrySafely() {
+        val density = Density(2f)
+        val degenerateSizes = listOf(
+            Size.Zero,
+            Size(-10f, 54f),
+            Size(54f, 0f),
+            Size(Float.NaN, 54f),
+            Size(Float.POSITIVE_INFINITY, 54f),
+        )
+        for (sz in degenerateSizes) {
+            val scallop = ExpressiveShapes.Cookie10.createOutline(sz, LayoutDirection.Ltr, density)
+            assertEquals(Outline.Rectangle(Rect.Zero), scallop, "Scallop must return Rect.Zero outline for $sz")
+            val arch = ExpressiveShapes.Arch.createOutline(sz, LayoutDirection.Ltr, density)
+            assertEquals(Outline.Rectangle(Rect.Zero), arch, "Arch must return Rect.Zero outline for $sz")
+        }
+
+        val validArch = ExpressiveShapes.Arch.createOutline(Size(120f, 160f), LayoutDirection.Ltr, density)
+        assertTrue(validArch is Outline.Rounded, "Valid Arch size should produce Outline.Rounded")
+        assertEquals(ExpressiveScallopShape(lobes = 10, amplitude = 0.07f), ExpressiveShapes.Cookie10)
+        assertEquals(ExpressiveArchShape(18.dp), ExpressiveShapes.Arch)
+
+        assertEquals(0.dp, safeCornerDp((-4f).dp))
+        assertEquals(0.dp, safeCornerDp(Float.NaN.dp))
+        assertEquals(0.dp, safeCornerDp(Float.POSITIVE_INFINITY.dp))
+        assertEquals(12.dp, safeCornerDp(12.dp))
+
+        assertEquals(0.01f, safePositiveScale(-0.5f), 1e-5f)
+        assertEquals(1f, safePositiveScale(Float.NaN), 1e-5f)
+        assertEquals(1f, safePositiveScale(Float.POSITIVE_INFINITY), 1e-5f)
+        assertEquals(0.90f, safePositiveScale(0.90f), 1e-5f)
+    }
+
+    @Test
+    fun listeningStatsReplyDecodesEmptyAndPopulatedPayloads() {
+        val codec = Json { ignoreUnknownKeys = true }
+        val empty = codec.decodeFromString(ListeningStatsReply.serializer(), "{}")
+        assertEquals(0L, empty.totalPlays)
+        assertEquals(0L, empty.totalListenedSecs)
+        assertTrue(empty.topArtists.isEmpty())
+
+        val full = codec.decodeFromString(
+            ListeningStatsReply.serializer(),
+            """
+            {
+              "totalPlays": 42,
+              "totalListenedSecs": 7200,
+              "streakDays": 5,
+              "topArtists": [
+                {"artist": "Arijit Singh", "affinity": 0.91, "plays": 19}
+              ]
+            }
+            """.trimIndent(),
+        )
+        assertEquals(42L, full.totalPlays)
+        assertEquals(7200L, full.totalListenedSecs)
+        assertEquals(5, full.streakDays)
+        assertEquals("Arijit Singh", full.topArtists.single().artist)
     }
 }

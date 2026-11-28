@@ -99,11 +99,11 @@ object ExpressiveSegmentedMath {
  * Used intentionally for hero moments: brand mark, profile avatar, artist frames,
  * active palette badges, and radio emblems.
  */
-class ExpressiveScallopShape(
+data class ExpressiveScallopShape(
     val lobes: Int = 8,
     val amplitude: Float = 0.085f,
     val rotationDeg: Float = 0f,
-    val samples: Int = 144,
+    val samples: Int = 72,
 ) : Shape {
     override fun createOutline(
         size: Size,
@@ -112,7 +112,9 @@ class ExpressiveScallopShape(
     ): Outline {
         val w = size.width
         val h = size.height
-        if (w <= 0f || h <= 0f) return Outline.Generic(Path())
+        if (!w.isFinite() || !h.isFinite() || w <= 0f || h <= 0f) {
+            return Outline.Rectangle(Rect.Zero)
+        }
 
         val cx = w / 2f
         val cy = h / 2f
@@ -139,7 +141,7 @@ class ExpressiveScallopShape(
  * Material 3 Expressive Arch shape: full semicircular top crown with crisp rounded
  * base corners — great for curated editorial cards and station accents.
  */
-class ExpressiveArchShape(
+data class ExpressiveArchShape(
     private val bottomCornerRadius: Dp = 18.dp,
 ) : Shape {
     override fun createOutline(
@@ -149,7 +151,9 @@ class ExpressiveArchShape(
     ): Outline {
         val w = size.width
         val h = size.height
-        if (w <= 0f || h <= 0f) return Outline.Generic(Path())
+        if (!w.isFinite() || !h.isFinite() || w <= 0f || h <= 0f) {
+            return Outline.Rectangle(Rect.Zero)
+        }
 
         val topR = min(w / 2f, h * 0.55f)
         val bottomR = with(density) { bottomCornerRadius.toPx() }.coerceIn(0f, min(w, h) / 2f)

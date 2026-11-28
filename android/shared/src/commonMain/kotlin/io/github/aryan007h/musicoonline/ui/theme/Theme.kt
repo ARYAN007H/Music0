@@ -10,7 +10,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -342,7 +342,7 @@ fun MusicoTheme(
     val extras = palette.toExtras(isDark = dark)
     val tokens = MusicoTokens(extras = extras, type = DefaultTypography)
 
-    SideEffect {
+    LaunchedEffect(dark) {
         onDarkResolved?.invoke(dark)
     }
 

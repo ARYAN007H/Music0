@@ -101,7 +101,7 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .musicoTopInset()
                 .navigationBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 36.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             item(key = "header") {
