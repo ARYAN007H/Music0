@@ -743,7 +743,13 @@ impl<'a> PlaySession<'a> {
 
     fn perform_preload(&mut self, s: &SongInfo) {
         log::info!("Staging next for gapless handoff: {}", s.title);
-        // If metadata is already complete, verify readability without keeping a
+        // Loopback/remote HTTP stream URLs are opened lazily on handoff — never
+        // pass them to `std::fs::File::open` or open a duplicate stream early.
+        if is_remote_stream_path(&s.file_path) {
+            self.preloaded_song = Some(s.clone());
+            return;
+        }
+        // If local metadata is already complete, verify readability without keeping a
         // second open Symphonia demuxer/FD alive for the entire current track.
         if !s.title.is_empty() && s.duration_secs > 0.0 {
             if let Err(e) = std::fs::File::open(&s.file_path) {
@@ -1748,6 +1754,10 @@ fn accumulate_listen(state: &Arc<Mutex<PlaybackState>>) {
 }
 
 /// Resets state to Stopped.
+fn is_remote_stream_path(path: &str) -> bool {
+    path.starts_with("http://") || path.starts_with("https://")
+}
+
 fn set_stopped(state: &Arc<Mutex<PlaybackState>>) {
     let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
     st.status = PlaybackStatus::Stopped;
@@ -1971,6 +1981,14 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn remote_stream_path_guard_detects_http_urls() {
+        assert!(is_remote_stream_path("http://127.0.0.1:41234/stream/abc"));
+        assert!(is_remote_stream_path("https://example.com/audio.mp4"));
+        assert!(!is_remote_stream_path("/home/user/.cache/musico-online/track.mp4"));
+        assert!(!is_remote_stream_path("track.mp4"));
+    }
+
     fn coalesce_pending_commands_preserves_pause_seek_preload() {
         let state = Arc::new(Mutex::new(PlaybackState::default()));
         let (event_tx, _event_rx) = crossbeam_channel::unbounded();

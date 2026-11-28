@@ -41,6 +41,7 @@ compose.desktop {
             "-XX:SoftRefLRUPolicyMSPerMB=25",
             "-XX:MaxHeapFreeRatio=20",
             "-XX:MinHeapFreeRatio=5",
+            "-Dkotlinx.coroutines.io.parallelism=8",
             "-Dskiko.gpu.resourceCacheLimit=33554432",
         )
 

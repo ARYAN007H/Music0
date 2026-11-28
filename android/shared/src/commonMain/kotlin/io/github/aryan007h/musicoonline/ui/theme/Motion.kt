@@ -22,6 +22,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +32,6 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.platform.HapticKind
@@ -161,13 +161,20 @@ fun Modifier.pressable(
  * so loading placeholders remain crisp on both light lavender and dark obsidian surfaces.
  */
 /**
+ * Provided by the Desktop window host to report when the window is minimized
+ * (iconified), allowing animations to remain active when visible on a secondary
+ * monitor while dropping cleanly to 0 FPS when minimized.
+ */
+val LocalWindowMinimized = compositionLocalOf { false }
+
+/**
  * On Desktop JVM, pauses continuous VSync frame clocks and infinite transitions
- * whenever the window loses focus or is minimized so Skiko/OpenGL idles at 0 FPS
- * instead of churning GPU and glibc allocator buffers in the background.
+ * when the window is minimized so Skiko/OpenGL idles at 0 FPS in the background
+ * without freezing visible playback animations on a second monitor.
  */
 @Composable
 fun rememberWindowAnimationsActive(): Boolean =
-    !isDesktopPlatform || LocalWindowInfo.current.isWindowFocused
+    !isDesktopPlatform || !LocalWindowMinimized.current
 
 fun Modifier.shimmer(highlight: Color = Color.Unspecified): Modifier = composed {
     val resolvedHighlight = if (highlight == Color.Unspecified) {

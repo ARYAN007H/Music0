@@ -44,6 +44,7 @@ import io.github.aryan007h.musicoonline.ui.theme.ThemeMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -149,6 +150,9 @@ class MusicViewModel(
     private val updater: PlatformUpdater,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val ioDispatcher = Dispatchers.IO.limitedParallelism(4)
 
     /** One pushed detail page (album/playlist/artist/genre from a card tap). */
     data class DetailPageState(
@@ -353,7 +357,7 @@ class MusicViewModel(
     // ── Legacy Migration & Full Sled Library Hydration ───────────────────
 
     private fun migrateAndHydrateLibrary() {
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             if (!prefs.getBoolean(PREF_SLED_MIGRATED, false)) {
                 val legacyIds = _state.value.likedIds
                 val recents = _state.value.recentlyPlayed
@@ -384,7 +388,7 @@ class MusicViewModel(
     }
 
     fun refreshLibraryAll() {
-        scope.launch(Dispatchers.IO) { refreshLibraryAllInternal() }
+        scope.launch(ioDispatcher) { refreshLibraryAllInternal() }
     }
 
     private suspend fun refreshLibraryAllInternal() {
@@ -440,7 +444,7 @@ class MusicViewModel(
                         (item.track.title == item.track.videoId && item.track.artist == "Offline track")
                 }
                 if (hasLegacyStems && downloadsEnrichJob?.isActive != true) {
-                    downloadsEnrichJob = scope.launch(Dispatchers.IO) {
+                    downloadsEnrichJob = scope.launch(ioDispatcher) {
                         val enriched = runCatching {
                             val res = MusicoCore.call("library.downloads.enrich")
                             res["enriched"]?.toString()?.trim('"')?.toIntOrNull() ?: 0
@@ -498,9 +502,9 @@ class MusicViewModel(
     fun openCollection(ref: LibraryCollectionRef) {
         _state.update { it.copy(activeCollection = ref, overlay = AppOverlay.COLLECTION) }
         if (ref is LibraryCollectionRef.OfflineDownloads) {
-            scope.launch(Dispatchers.IO) { refreshDownloadsInternal() }
+            scope.launch(ioDispatcher) { refreshDownloadsInternal() }
         } else if (ref is LibraryCollectionRef.Mix) {
-            scope.launch(Dispatchers.IO) { refreshSmartMixesInternal() }
+            scope.launch(ioDispatcher) { refreshSmartMixesInternal() }
         }
     }
 
@@ -537,7 +541,7 @@ class MusicViewModel(
     fun createPlaylist(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call("playlist.create", buildJsonObject { put("name", trimmed) })
             }.onSuccess {
@@ -550,7 +554,7 @@ class MusicViewModel(
     fun createPlaylistAndAdd(name: String, tracks: List<OnlineTrack>) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 val created = json.decodeFromJsonElement(
                     UserPlaylist.serializer(),
@@ -576,7 +580,7 @@ class MusicViewModel(
     fun renamePlaylist(id: String, newName: String) {
         val trimmed = newName.trim()
         if (trimmed.isEmpty()) return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call(
                     "playlist.rename",
@@ -593,7 +597,7 @@ class MusicViewModel(
     }
 
     fun deletePlaylist(id: String) {
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call("playlist.delete", buildJsonObject { put("id", id) })
             }.onSuccess {
@@ -606,7 +610,7 @@ class MusicViewModel(
     fun addTracksToPlaylist(playlistId: String, tracks: List<OnlineTrack>) {
         if (tracks.isEmpty()) return
         val targetName = _state.value.playlists.firstOrNull { it.id == playlistId }?.name ?: "playlist"
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 tracks.forEach { track ->
                     MusicoCore.call(
@@ -634,7 +638,7 @@ class MusicViewModel(
             ?.getOrNull(index)
             ?.toOnlineTrack()
 
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call(
                     "playlist.remove_track",
@@ -647,7 +651,7 @@ class MusicViewModel(
                 refreshPlaylistsInternal()
                 if (removedTrack != null) {
                     pendingUndoAction = {
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch(ioDispatcher) {
                             runCatching {
                                 MusicoCore.call(
                                     "playlist.add_track",
@@ -694,7 +698,7 @@ class MusicViewModel(
             )
         }
         val rustTo = if (to > from) to + 1 else to
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call(
                     "playlist.move_track",
@@ -728,7 +732,7 @@ class MusicViewModel(
         val kind = if (isArtist) "artist" else "album"
         val currentlySaved = isDetailSavedInLibrary(entry.browseId)
 
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 if (currentlySaved) {
                     MusicoCore.call(
@@ -788,7 +792,7 @@ class MusicViewModel(
                 (!entry.browseId.isNullOrBlank() && it.browseId == entry.browseId) ||
                 it.title.equals(entry.title, ignoreCase = true)
         }
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 if (currentlySaved) {
                     val removeId = existingList.firstOrNull {
@@ -846,7 +850,7 @@ class MusicViewModel(
     /** Batch-download any collection of tracks into the offline stream cache. */
     fun downloadTracksOffline(tracks: List<OnlineTrack>) {
         if (tracks.isEmpty() || _state.value.savingTotal > 0) return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             val savedIds = mutableListOf<String>()
             tracks.forEachIndexed { idx, track ->
                 _state.update { it.copy(savingTotal = tracks.size, savingDone = idx) }
@@ -1273,7 +1277,7 @@ class MusicViewModel(
         saveStringListPref(PREF_LIKED_JSON, liked.toList())
         _state.update { it.copy(likedIds = liked, likedTracks = optimisticTracks) }
 
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call(
                     "library.likes.set",
@@ -1366,7 +1370,7 @@ class MusicViewModel(
             }.onSuccess { freed ->
                 saveStringListPref(PREF_USER_DOWNLOADED_IDS, emptyList())
                 _state.update { it.copy(cacheCleared = freed, cacheBytes = 0L, userDownloadedIds = emptySet()) }
-                scope.launch(Dispatchers.IO) {
+                scope.launch(ioDispatcher) {
                     refreshDownloadsInternal()
                     refreshSmartMixesInternal()
                 }
@@ -1397,7 +1401,7 @@ class MusicViewModel(
     fun openOverlay(overlay: AppOverlay) {
         _state.update { it.copy(overlay = overlay) }
         if (overlay == AppOverlay.PROFILE) {
-            scope.launch(Dispatchers.IO) { refreshListeningStatsInternal() }
+            scope.launch(ioDispatcher) { refreshListeningStatsInternal() }
         }
     }
 
@@ -1445,7 +1449,7 @@ class MusicViewModel(
         }
         _state.update { it.copy(homeSessionSeed = nextSeed) }
         loadHome()
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             refreshSmartMixesInternal()
         }
         fail("Refreshed Home picks")
@@ -1572,7 +1576,7 @@ class MusicViewModel(
                     },
                 )
             }
-            scope.launch(Dispatchers.IO) {
+            scope.launch(ioDispatcher) {
                 refreshDownloadsInternal()
                 refreshSmartMixesInternal()
             }
@@ -1867,7 +1871,7 @@ class MusicViewModel(
     }
 
     private fun recordSongChanged(track: OnlineTrack) {
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call(
                     "rec.on_song_changed",
@@ -1891,7 +1895,7 @@ class MusicViewModel(
         val listenedSecs = if (completedNaturally) durSecs else elapsedSecs.coerceAtMost(durSecs)
         if (listenedSecs < 2L) return
 
-        scope.launch(Dispatchers.IO) {
+        scope.launch(ioDispatcher) {
             runCatching {
                 MusicoCore.call(
                     "rec.on_song_ended",
@@ -1915,7 +1919,7 @@ class MusicViewModel(
         if (autoplayExtendJob?.isActive == true) return
         val seed = queueTracks.lastOrNull() ?: return
 
-        autoplayExtendJob = scope.launch(Dispatchers.IO) {
+        autoplayExtendJob = scope.launch(ioDispatcher) {
             val related = runCatching {
                 json.decodeFromJsonElement(
                     RelatedReply.serializer(),
@@ -1994,7 +1998,7 @@ class MusicViewModel(
         if (upcoming.isEmpty()) return
 
         prefetchJob?.cancel()
-        prefetchJob = scope.launch(Dispatchers.IO) {
+        prefetchJob = scope.launch(ioDispatcher) {
             upcoming.forEachIndexed { idx, track ->
                 if (_state.value.nowPlaying?.videoId != currentId) return@launch
 
@@ -2103,7 +2107,7 @@ class MusicViewModel(
                 .onSuccess {
                     recordUserDownloadedIds(listOf(track.videoId))
                     _state.update { it.copy(savingTrackId = null) }
-                    scope.launch(Dispatchers.IO) {
+                    scope.launch(ioDispatcher) {
                         refreshDownloadsInternal()
                         refreshSmartMixesInternal()
                     }
@@ -2169,7 +2173,7 @@ class MusicViewModel(
         }
         scope.launch {
             _state.update { it.copy(lyricsLoading = true, lyrics = null) }
-            val fetched = withContext(Dispatchers.IO) { fetchLyricsIntoCache(track) }
+            val fetched = withContext(ioDispatcher) { fetchLyricsIntoCache(track) }
             if (_state.value.nowPlaying?.videoId == track.videoId) {
                 _state.update { it.copy(lyricsLoading = false, lyrics = fetched) }
             }

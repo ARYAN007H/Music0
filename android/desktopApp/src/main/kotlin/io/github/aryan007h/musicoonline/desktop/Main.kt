@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +59,7 @@ import io.github.aryan007h.musicoonline.ui.AppOverlay
 import io.github.aryan007h.musicoonline.ui.AppTab
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.MusicoApp
+import io.github.aryan007h.musicoonline.ui.theme.LocalWindowMinimized
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -72,7 +74,10 @@ import java.io.File
  * Docked Player Bar, keyboard shortcuts, and low-RAM G1GC runtime.
  */
 fun main() {
-    // Cap Skia/Skiko GPU resource cache (32 MB) even when launched outside the packaged runner.
+    // Cap coroutine IO thread fan-out & Skia GPU resource cache even outside the packaged runner.
+    if (System.getProperty("kotlinx.coroutines.io.parallelism").isNullOrBlank()) {
+        System.setProperty("kotlinx.coroutines.io.parallelism", "8")
+    }
     if (System.getProperty("skiko.gpu.resourceCacheLimit").isNullOrBlank()) {
         System.setProperty("skiko.gpu.resourceCacheLimit", "33554432")
     }
@@ -195,11 +200,12 @@ fun main() {
             window.minimumSize = Dimension(420, 500)
         }
 
-        // When the window loses focus, debounce and ask Linux glibc to return
-        // freed native heap/arena pages back to the OS (`malloc_trim(0)`).
+        // When the window loses focus or is minimized, debounce and ask Linux glibc
+        // to return freed native heap/arena pages back to the OS (`malloc_trim(0)`).
         val windowFocused = LocalWindowInfo.current.isWindowFocused
-        LaunchedEffect(windowFocused) {
-            if (!windowFocused && MusicoCore.isLoaded) {
+        val windowMinimized = windowState.isMinimized
+        LaunchedEffect(windowFocused, windowMinimized) {
+            if ((!windowFocused || windowMinimized) && MusicoCore.isLoaded) {
                 delay(1500)
                 DesktopPlatformHost.trimNativeMemory()
             }
@@ -217,6 +223,7 @@ fun main() {
             }
         }
 
+        CompositionLocalProvider(LocalWindowMinimized provides windowMinimized) {
         Box(modifier = Modifier.fillMaxSize()) {
             MusicoApp(
                 vm = vm,
@@ -296,6 +303,7 @@ fun main() {
                     )
                 }
             }
+        }
         }
     }
     }
