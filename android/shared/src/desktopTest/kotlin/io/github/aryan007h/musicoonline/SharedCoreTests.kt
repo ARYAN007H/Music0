@@ -828,7 +828,7 @@ class SharedCoreTests {
     fun listeningStatsReplyDecodesEmptyAndPopulatedPayloads() {
         val codec = Json { ignoreUnknownKeys = true }
         val empty = codec.decodeFromString(ListeningStatsReply.serializer(), "{}")
-        assertEquals(0L, empty.totalPlays)
+        assertEquals(0, empty.totalPlays)
         assertEquals(0L, empty.totalListenedSecs)
         assertTrue(empty.topArtists.isEmpty())
 
@@ -845,7 +845,7 @@ class SharedCoreTests {
             }
             """.trimIndent(),
         )
-        assertEquals(42L, full.totalPlays)
+        assertEquals(42, full.totalPlays)
         assertEquals(7200L, full.totalListenedSecs)
         assertEquals(5, full.streakDays)
         assertEquals("Arijit Singh", full.topArtists.single().artist)
