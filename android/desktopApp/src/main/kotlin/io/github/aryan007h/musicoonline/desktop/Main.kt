@@ -201,7 +201,7 @@ fun main() {
         LaunchedEffect(windowFocused) {
             if (!windowFocused && MusicoCore.isLoaded) {
                 delay(1500)
-                runCatching { MusicoCore.call("system.trim_memory") }
+                DesktopPlatformHost.trimNativeMemory()
             }
         }
 

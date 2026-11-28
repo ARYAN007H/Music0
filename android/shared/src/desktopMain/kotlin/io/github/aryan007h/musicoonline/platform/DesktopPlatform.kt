@@ -78,6 +78,15 @@ object DesktopPlatformHost {
     }
 
     /**
+     * Asks the native Rust core to invoke glibc `malloc_trim(0)` on Linux so
+     * freed arena/heap pages return promptly to the OS when idle or unfocused.
+     */
+    suspend fun trimNativeMemory() {
+        if (!MusicoCore.isLoaded) return
+        runCatching { MusicoCore.call("system.trim_memory") }
+    }
+
+    /**
      * Configures a bounded Coil 3 ImageLoader on Desktop JVM so native Skia
      * bitmaps stay capped at 24 MB RAM (instead of Coil's 256 MB JVM default)
      * while a 64 MB disk cache keeps scrolled covers instant.
