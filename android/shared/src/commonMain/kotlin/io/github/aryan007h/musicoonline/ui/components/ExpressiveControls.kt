@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveSegmentedMath
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
@@ -985,7 +986,8 @@ fun ExpressiveWavySeekBar(
         pendingSeekFraction = pendingSeekFraction,
     )
 
-    val shouldAnimate = ExpressiveSeekMath.shouldAnimateWave(
+    val windowActive = rememberWindowAnimationsActive()
+    val shouldAnimate = windowActive && ExpressiveSeekMath.shouldAnimateWave(
         isPlaying = isPlaying,
         enabled = enabled,
         dragging = dragging,
@@ -1154,7 +1156,8 @@ fun ExpressiveLiveWavySeekBar(
         }
     }
 
-    val shouldAnimateWave = ExpressiveSeekMath.shouldAnimateWave(
+    val windowActive = rememberWindowAnimationsActive()
+    val shouldAnimateWave = windowActive && ExpressiveSeekMath.shouldAnimateWave(
         isPlaying = isPlaying,
         enabled = enabled,
         dragging = dragging,
@@ -1166,9 +1169,10 @@ fun ExpressiveLiveWavySeekBar(
     )
 
     // Single 120Hz draw-phase frame clock: updates wave phase & interpolated progress
-    // strictly inside MutableFloatState read ONLY by Canvas draw scope.
-    LaunchedEffect(isPlaying, enabled, durationMs) {
-        if (!isPlaying || !enabled || durationMs <= 0L) return@LaunchedEffect
+    // strictly inside MutableFloatState read ONLY by Canvas draw scope, paused when
+    // Desktop window is unfocused/minimized.
+    LaunchedEffect(isPlaying, enabled, durationMs, windowActive) {
+        if (!isPlaying || !enabled || durationMs <= 0L || !windowActive) return@LaunchedEffect
         var lastNanos = 0L
         val radiansPerSec = (2.0 * PI / 1.45).toFloat()
         while (true) {

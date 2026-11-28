@@ -20,6 +20,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,9 +31,11 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.platform.HapticKind
+import io.github.aryan007h.musicoonline.platform.isDesktopPlatform
 import io.github.aryan007h.musicoonline.platform.performHaptic
 
 /**
@@ -157,22 +160,36 @@ fun Modifier.pressable(
  * Adaptive Light/Dark skeleton shimmer: defaults to theme-aware `onSurface` alpha
  * so loading placeholders remain crisp on both light lavender and dark obsidian surfaces.
  */
+/**
+ * On Desktop JVM, pauses continuous VSync frame clocks and infinite transitions
+ * whenever the window loses focus or is minimized so Skiko/OpenGL idles at 0 FPS
+ * instead of churning GPU and glibc allocator buffers in the background.
+ */
+@Composable
+fun rememberWindowAnimationsActive(): Boolean =
+    !isDesktopPlatform || LocalWindowInfo.current.isWindowFocused
+
 fun Modifier.shimmer(highlight: Color = Color.Unspecified): Modifier = composed {
     val resolvedHighlight = if (highlight == Color.Unspecified) {
         MaterialTheme.colorScheme.onSurface.copy(alpha = if (Musico.extras.isDark) 0.13f else 0.085f)
     } else {
         highlight
     }
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val pulse by transition.animateFloat(
-        initialValue = 0.20f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "shimmerPulse",
-    )
+    val animate = rememberWindowAnimationsActive()
+    val pulse = if (animate) {
+        val transition = rememberInfiniteTransition(label = "shimmer")
+        transition.animateFloat(
+            initialValue = 0.20f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "shimmerPulse",
+        ).value
+    } else {
+        0.5f
+    }
     drawBehind {
         if (size.width <= 0f || size.height <= 0f) return@drawBehind
         drawRect(color = resolvedHighlight.copy(alpha = resolvedHighlight.alpha * pulse))
@@ -184,16 +201,21 @@ fun Modifier.breathing(
     max: Float = 1.045f,
     durationMs: Int = 1900,
 ): Modifier = composed {
-    val transition = rememberInfiniteTransition(label = "breathing")
-    val scale by transition.animateFloat(
-        initialValue = min,
-        targetValue = max,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMs, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "breathingScale",
-    )
+    val animate = rememberWindowAnimationsActive()
+    val scale = if (animate) {
+        val transition = rememberInfiniteTransition(label = "breathing")
+        transition.animateFloat(
+            initialValue = min,
+            targetValue = max,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMs, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "breathingScale",
+        ).value
+    } else {
+        min
+    }
     graphicsLayer {
         val safe = safePositiveScale(scale)
         scaleX = safe

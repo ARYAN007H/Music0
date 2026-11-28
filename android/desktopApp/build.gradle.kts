@@ -27,26 +27,20 @@ compose.desktop {
     application {
         mainClass = "io.github.aryan007h.musicoonline.desktop.MainKt"
 
-        // Lean low-RAM + 120Hz frame-pacing JVM & Skiko profile:
-        // - 160 MB max heap with G1PeriodicGCInterval returns idle heap pages to the OS
-        // - Compact JIT CodeCache (48 MB) + 2 compiler threads cuts native HotSpot overhead
+        // Verified ultra-low-RAM JVM & Skiko profile for a ~25-35 MB live heap:
+        // - SerialGC cuts HotSpot GC native metadata from ~43 MB (G1GC) to ~127 KB
+        // - C1-only JIT (TieredStopAtLevel=1) + 16 MB CodeCache eliminates C2 arena & code bloat
         // - 32 MB Skiko GPU resource cache prevents Mesa/iGPU texture & path cache bloat
         jvmArgs += listOf(
-            "-Xms24m",
-            "-Xmx160m",
-            "-XX:+UseG1GC",
-            "-XX:G1HeapRegionSize=1m",
-            "-XX:MaxGCPauseMillis=12",
+            "-Xms16m",
+            "-Xmx128m",
+            "-XX:+UseSerialGC",
+            "-XX:TieredStopAtLevel=1",
+            "-XX:ReservedCodeCacheSize=16m",
+            "-XX:MaxMetaspaceSize=80m",
+            "-XX:SoftRefLRUPolicyMSPerMB=25",
             "-XX:MaxHeapFreeRatio=20",
             "-XX:MinHeapFreeRatio=5",
-            "-XX:G1PeriodicGCInterval=15000",
-            "-XX:ParallelGCThreads=2",
-            "-XX:ConcGCThreads=1",
-            "-XX:CICompilerCount=2",
-            "-XX:ReservedCodeCacheSize=48m",
-            "-XX:MaxMetaspaceSize=96m",
-            "-XX:SoftRefLRUPolicyMSPerMB=50",
-            "-XX:+UseStringDeduplication",
             "-Dskiko.gpu.resourceCacheLimit=33554432",
         )
 

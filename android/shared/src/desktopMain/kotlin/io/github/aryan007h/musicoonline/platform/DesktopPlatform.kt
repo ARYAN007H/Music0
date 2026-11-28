@@ -21,9 +21,12 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.SuccessResult
 import coil3.request.crossfade
 import coil3.size.Precision
+import coil3.toBitmap
 import okio.Path.Companion.toOkioPath
 import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.core.OnlineTrack
@@ -361,24 +364,32 @@ actual fun Modifier.platformBlur(radiusDp: Float): Modifier =
 
 actual suspend fun decodeArtworkSamplePixels(url: String): IntArray? = withContext(Dispatchers.IO) {
     runCatching {
-        val img = loadRemoteBufferedImage(url) ?: return@withContext null
-        val targetW = 48
-        val targetH = 48
-        val scaled = BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB)
+        val req = ImageRequest.Builder(PlatformContext.INSTANCE)
+            .data(url)
+            .size(48, 48)
+            .precision(Precision.INEXACT)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .build()
+        val result = SingletonImageLoader.get(PlatformContext.INSTANCE).execute(req)
+        val image = (result as? SuccessResult)?.image ?: return@withContext null
+        val bmp = image.toBitmap()
         try {
-            val g = scaled.createGraphics()
-            try {
-                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-                g.drawImage(img, 0, 0, targetW, targetH, null)
-            } finally {
-                g.dispose()
+            val w = bmp.width.coerceAtLeast(1)
+            val h = bmp.height.coerceAtLeast(1)
+            val sampleW = w.coerceAtMost(48)
+            val sampleH = h.coerceAtMost(48)
+            val pixels = IntArray(sampleW * sampleH)
+            var idx = 0
+            for (sy in 0 until sampleH) {
+                val y = ((sy * h) / sampleH).coerceIn(0, h - 1)
+                for (sx in 0 until sampleW) {
+                    val x = ((sx * w) / sampleW).coerceIn(0, w - 1)
+                    pixels[idx++] = bmp.getColor(x, y)
+                }
             }
-            val pixels = IntArray(targetW * targetH)
-            scaled.getRGB(0, 0, targetW, targetH, pixels, 0, targetW)
             pixels
         } finally {
-            scaled.flush()
-            img.flush()
+            bmp.close()
         }
     }.getOrNull()
 }

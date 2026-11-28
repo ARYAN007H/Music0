@@ -149,6 +149,7 @@ import io.github.aryan007h.musicoonline.ui.settings.SettingsScreen
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.MusicoTheme
 import io.github.aryan007h.musicoonline.ui.theme.hapticThud
@@ -1906,8 +1907,9 @@ private fun MiniPlayerLiveProgressBar(
         }
     }
 
-    LaunchedEffect(isPlaying, durationMs) {
-        if (!isPlaying || durationMs <= 0L) return@LaunchedEffect
+    val windowActive = rememberWindowAnimationsActive()
+    LaunchedEffect(isPlaying, durationMs, windowActive) {
+        if (!isPlaying || durationMs <= 0L || !windowActive) return@LaunchedEffect
         while (true) {
             withFrameNanos { now ->
                 if (anchorNanos < 0L) anchorNanos = now

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.theme.Musico
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -130,7 +131,8 @@ fun PlayerBackdrop(
     )
 
     val phaseState = remember { mutableFloatStateOf(0f) }
-    val shouldAnimate = isPlaying && PlayerBackdropSpecs.animatesMotion(mode)
+    val windowActive = rememberWindowAnimationsActive()
+    val shouldAnimate = isPlaying && windowActive && PlayerBackdropSpecs.animatesMotion(mode)
     LaunchedEffect(shouldAnimate, mode) {
         if (!shouldAnimate) return@LaunchedEffect
         var lastNanos = 0L

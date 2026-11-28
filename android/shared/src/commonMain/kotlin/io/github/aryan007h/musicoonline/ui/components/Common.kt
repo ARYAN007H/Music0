@@ -110,6 +110,7 @@ import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.breathing
 import io.github.aryan007h.musicoonline.ui.theme.hapticConfirm
@@ -250,9 +251,11 @@ fun EqualizerBars(
     color: Color = Musico.extras.mint,
     barCount: Int = 4,
 ) {
+    val windowActive = rememberWindowAnimationsActive()
+    val animateBars = playing && windowActive
     val phaseState = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(playing) {
-        if (!playing) return@LaunchedEffect
+    LaunchedEffect(animateBars) {
+        if (!animateBars) return@LaunchedEffect
         var lastNanos = 0L
         while (true) {
             withFrameNanos { now ->
@@ -502,13 +505,18 @@ fun LikeButton(
 
 @Composable
 fun PulsingDot(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "pulse")
-    val scale by transition.animateFloat(
-        initialValue = 0.6f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse),
-        label = "pulseScale",
-    )
+    val animate = rememberWindowAnimationsActive()
+    val scale = if (animate) {
+        val transition = rememberInfiniteTransition(label = "pulse")
+        transition.animateFloat(
+            initialValue = 0.6f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(500, easing = LinearEasing), RepeatMode.Reverse),
+            label = "pulseScale",
+        ).value
+    } else {
+        0.85f
+    }
     Box(
         modifier
             .size(10.dp)

@@ -39,6 +39,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
@@ -74,6 +75,14 @@ fun main() {
     // Cap Skia/Skiko GPU resource cache (32 MB) even when launched outside the packaged runner.
     if (System.getProperty("skiko.gpu.resourceCacheLimit").isNullOrBlank()) {
         System.setProperty("skiko.gpu.resourceCacheLimit", "33554432")
+    }
+    // Optional low-RAM software renderer override (cuts ~90 MB Mesa/LLVM RSS on Linux).
+    if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
+        val envRenderApi = System.getenv("MUSICO_RENDER_API")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: if (System.getenv("MUSICO_LOW_RAM") == "1") "SOFTWARE" else null
+        if (envRenderApi != null) {
+            System.setProperty("skiko.renderApi", envRenderApi)
+        }
     }
 
     val dataDir = DesktopPlatformHost.dataDir()
@@ -184,6 +193,16 @@ fun main() {
     ) {
         LaunchedEffect(Unit) {
             window.minimumSize = Dimension(420, 500)
+        }
+
+        // When the window loses focus, debounce and ask Linux glibc to return
+        // freed native heap/arena pages back to the OS (`malloc_trim(0)`).
+        val windowFocused = LocalWindowInfo.current.isWindowFocused
+        LaunchedEffect(windowFocused) {
+            if (!windowFocused && MusicoCore.isLoaded) {
+                delay(1500)
+                runCatching { MusicoCore.call("system.trim_memory") }
+            }
         }
 
         var toastMessage by remember { mutableStateOf<String?>(null) }

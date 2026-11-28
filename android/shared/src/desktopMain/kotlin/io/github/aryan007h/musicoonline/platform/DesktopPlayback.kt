@@ -4,6 +4,7 @@ import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -54,7 +55,8 @@ class DesktopPlayback : PlatformPlayback {
     private val _gaplessAdvanced = MutableSharedFlow<String>(extraBufferCapacity = 4)
     override val gaplessAdvanced: SharedFlow<String> = _gaplessAdvanced
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(2))
     private var pollJob: Job? = null
     private var stagedNextTrack: OnlineTrack? = null
 

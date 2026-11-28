@@ -151,6 +151,7 @@ cp -a "${APP_DIR}/." "${APPDIR_PATH}/usr/lib/music0/"
 cat > "${APPDIR_PATH}/usr/bin/music0" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
+export MALLOC_ARENA_MAX="\${MALLOC_ARENA_MAX:-2}"
 SELF_DIR="\$(dirname "\$(readlink -f "\$0")")"
 exec "\${SELF_DIR}/../lib/music0/bin/${LAUNCHER_NAME}" "\$@"
 EOF
@@ -162,6 +163,7 @@ set -euo pipefail
 HERE="$(dirname "$(readlink -f "$0")")"
 export APPDIR="$HERE"
 export PATH="${HERE}/usr/bin:${PATH}"
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"
 export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 exec "${HERE}/usr/bin/music0" "$@"
 EOF
