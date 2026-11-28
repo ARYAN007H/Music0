@@ -1271,19 +1271,19 @@ private fun DesktopNavigationRail(
                         .padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Surface(
-                        shape = ExpressiveShapes.Cookie10,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(32.dp),
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(ExpressiveShapes.Cookie10)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                state.displayName.trim().take(1).uppercase().ifEmpty { "M" },
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        }
+                        Text(
+                            state.displayName.trim().take(1).uppercase().ifEmpty { "M" },
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(

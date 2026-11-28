@@ -70,13 +70,19 @@ import java.io.File
  * core with Android while presenting an adaptive Desktop Left Navigation Rail,
  * Docked Player Bar, keyboard shortcuts, and low-RAM G1GC runtime.
  */
-fun main() = application {
+fun main() {
+    // Cap Skia/Skiko GPU resource cache (32 MB) even when launched outside the packaged runner.
+    if (System.getProperty("skiko.gpu.resourceCacheLimit").isNullOrBlank()) {
+        System.setProperty("skiko.gpu.resourceCacheLimit", "33554432")
+    }
+
     val dataDir = DesktopPlatformHost.dataDir()
     val cacheDir = DesktopPlatformHost.cacheDir()
-
+    DesktopPlatformHost.initImageLoader(cacheDir)
     MusicoCore.init(dataDir.absolutePath, cacheDir.absolutePath)
 
-    val playback = remember { DesktopPlayback() }
+    application {
+        val playback = remember { DesktopPlayback() }
     val prefs = remember {
         DesktopPlatformPrefs(File(dataDir, "ui_prefs.json")).also {
             PlatformEqualizer.init(it)
@@ -272,5 +278,6 @@ fun main() = application {
                 }
             }
         }
+    }
     }
 }

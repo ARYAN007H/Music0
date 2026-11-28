@@ -69,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -98,10 +99,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
-import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Precision
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.ShelfItem
 import io.github.aryan007h.musicoonline.platform.PlatformHorizontalScrollbar
@@ -177,36 +179,38 @@ fun Artwork(
     val request = remember(url, platformContext) {
         ImageRequest.Builder(platformContext)
             .data(url)
-            .crossfade(220)
+            .precision(Precision.INEXACT)
+            .crossfade(180)
             .build()
     }
     val safeCorner = cornerRadius.coerceAtLeast(0.dp)
     val resolvedShape = shape ?: RoundedCornerShape(safeCorner)
-    SubcomposeAsyncImage(
-        model = request,
-        contentDescription = contentDescription,
-        contentScale = ContentScale.Crop,
-        modifier = modifier.clip(resolvedShape),
-        loading = { ArtworkPlaceholder(resolvedShape, placeholderIcon) },
-        error = { ArtworkPlaceholder(resolvedShape, placeholderIcon) },
-    )
-}
+    var loaded by remember(url) { mutableStateOf(false) }
 
-@Composable
-private fun ArtworkPlaceholder(shape: Shape, icon: ImageVector) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(shape)
+        modifier = modifier
+            .clip(resolvedShape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = Musico.extras.inkFaint,
-            modifier = Modifier.size(28.dp),
-        )
+        if (!loaded) {
+            Icon(
+                placeholderIcon,
+                contentDescription = null,
+                tint = Musico.extras.inkFaint,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        if (!url.isNullOrBlank()) {
+            AsyncImage(
+                model = request,
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                onSuccess = { loaded = true },
+                onError = { loaded = false },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 

@@ -11,6 +11,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -342,8 +344,9 @@ fun MusicoTheme(
     val extras = palette.toExtras(isDark = dark)
     val tokens = MusicoTokens(extras = extras, type = DefaultTypography)
 
+    val latestOnDarkResolved by rememberUpdatedState(onDarkResolved)
     LaunchedEffect(dark) {
-        onDarkResolved?.invoke(dark)
+        latestOnDarkResolved?.invoke(dark)
     }
 
     CompositionLocalProvider(

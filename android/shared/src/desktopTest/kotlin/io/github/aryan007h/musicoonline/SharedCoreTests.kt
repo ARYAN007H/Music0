@@ -811,6 +811,10 @@ class SharedCoreTests {
         val validArch = ExpressiveShapes.Arch.createOutline(Size(120f, 160f), LayoutDirection.Ltr, density)
         assertTrue(validArch is Outline.Rounded, "Valid Arch size should produce Outline.Rounded")
         assertEquals(ExpressiveScallopShape(lobes = 10, amplitude = 0.07f), ExpressiveShapes.Cookie10)
+        assertEquals(120, ExpressiveScallopShape().samples)
+        for (lobes in listOf(4, 6, 8, 10, 12)) {
+            assertEquals(0, ExpressiveScallopShape().samples % lobes, "Default samples must evenly divide $lobes lobes")
+        }
         assertEquals(ExpressiveArchShape(18.dp), ExpressiveShapes.Arch)
 
         assertEquals(0.dp, safeCornerDp((-4f).dp))

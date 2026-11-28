@@ -16,9 +16,15 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.size.Precision
+import okio.Path.Companion.toOkioPath
 import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.UpdateInfo
@@ -58,11 +64,39 @@ import java.util.Locale
 import javax.imageio.ImageIO
 
 object DesktopPlatformHost {
+    private const val COIL_MEMORY_CACHE_BYTES = 24L * 1024L * 1024L
+    private const val COIL_DISK_CACHE_BYTES = 64L * 1024L * 1024L
+
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val toasts: SharedFlow<String> = _toasts
 
     fun emitToast(message: String) {
         _toasts.tryEmit(message)
+    }
+
+    /**
+     * Configures a bounded Coil 3 ImageLoader on Desktop JVM so native Skia
+     * bitmaps stay capped at 24 MB RAM (instead of Coil's 256 MB JVM default)
+     * while a 64 MB disk cache keeps scrolled covers instant.
+     */
+    fun initImageLoader(cacheDir: File) {
+        val imageCacheDir = File(cacheDir, "coil_images").apply { mkdirs() }
+        SingletonImageLoader.setSafe { context ->
+            ImageLoader.Builder(context)
+                .crossfade(true)
+                .memoryCache {
+                    MemoryCache.Builder()
+                        .maxSizeBytes(COIL_MEMORY_CACHE_BYTES)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(imageCacheDir.toOkioPath())
+                        .maxSizeBytes(COIL_DISK_CACHE_BYTES)
+                        .build()
+                }
+                .build()
+        }
     }
 
     fun dataDir(): File {
@@ -331,19 +365,31 @@ actual suspend fun decodeArtworkSamplePixels(url: String): IntArray? = withConte
         val targetW = 48
         val targetH = 48
         val scaled = BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB)
-        val g = scaled.createGraphics()
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-        g.drawImage(img, 0, 0, targetW, targetH, null)
-        g.dispose()
-        val pixels = IntArray(targetW * targetH)
-        scaled.getRGB(0, 0, targetW, targetH, pixels, 0, targetW)
-        pixels
+        try {
+            val g = scaled.createGraphics()
+            try {
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+                g.drawImage(img, 0, 0, targetW, targetH, null)
+            } finally {
+                g.dispose()
+            }
+            val pixels = IntArray(targetW * targetH)
+            scaled.getRGB(0, 0, targetW, targetH, pixels, 0, targetW)
+            pixels
+        } finally {
+            scaled.flush()
+            img.flush()
+        }
     }.getOrNull()
 }
 
 actual suspend fun prefetchArtworkImage(url: String) {
     runCatching {
-        val req = ImageRequest.Builder(PlatformContext.INSTANCE).data(url).build()
+        val req = ImageRequest.Builder(PlatformContext.INSTANCE)
+            .data(url)
+            .size(384, 384)
+            .precision(Precision.INEXACT)
+            .build()
         SingletonImageLoader.get(PlatformContext.INSTANCE).enqueue(req)
     }
 }
@@ -358,12 +404,20 @@ actual suspend fun shareLyricCard(
 
     val outFile = withContext(Dispatchers.IO) {
         val cover = track.thumbnail?.takeIf { it.isNotBlank() }?.let { loadRemoteBufferedImage(it) }
-        val poster = renderDesktopPoster(track, cleanLines, atmosphere, cover)
-        val home = System.getProperty("user.home") ?: "."
-        val dir = File(home, "Pictures/Music0").apply { mkdirs() }
-        val file = File(dir, "music0_lyric_${System.currentTimeMillis()}.png")
-        ImageIO.write(poster, "png", file)
-        file
+        val poster = try {
+            renderDesktopPoster(track, cleanLines, atmosphere, cover)
+        } finally {
+            cover?.flush()
+        }
+        try {
+            val home = System.getProperty("user.home") ?: "."
+            val dir = File(home, "Pictures/Music0").apply { mkdirs() }
+            val file = File(dir, "music0_lyric_${System.currentTimeMillis()}.png")
+            ImageIO.write(poster, "png", file)
+            file
+        } finally {
+            poster.flush()
+        }
     }
     DesktopPlatformHost.emitToast("Saved lyric poster to ${outFile.parentFile?.name}/${outFile.name}")
     "Saved to ${outFile.absolutePath}"

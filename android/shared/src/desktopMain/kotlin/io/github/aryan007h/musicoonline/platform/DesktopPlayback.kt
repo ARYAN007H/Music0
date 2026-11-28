@@ -91,7 +91,7 @@ class DesktopPlayback : PlatformPlayback {
                         }
                     }
                 }
-                delay(POLL_INTERVAL_MS)
+                delay(if (_isPlaying.value || _isBuffering.value) POLL_ACTIVE_MS else POLL_IDLE_MS)
             }
         }
     }
@@ -190,6 +190,7 @@ class DesktopPlayback : PlatformPlayback {
     }
 
     private companion object {
-        const val POLL_INTERVAL_MS = 150L
+        const val POLL_ACTIVE_MS = 150L
+        const val POLL_IDLE_MS = 500L
     }
 }

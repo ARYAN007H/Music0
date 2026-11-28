@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.ui.theme.Musico
@@ -147,6 +148,7 @@ fun PlayerBackdrop(
     val pathA = remember { Path() }
     val pathB = remember { Path() }
     val pathC = remember { Path() }
+    val cachedScallopState = remember { ScallopPathCache() }
     val studioAccent = if (isDark) resolved.glow else scheme.primary
 
     Box(
@@ -162,8 +164,7 @@ fun PlayerBackdrop(
                     tonePrimary = tonePrimary,
                     toneSecondary = toneSecondary,
                     toneAccent = toneAccent,
-                    pathA = pathA,
-                    pathB = pathB,
+                    cache = cachedScallopState,
                 )
                 "artwork" -> drawVinylRingsBackdrop(
                     t = t,
@@ -194,43 +195,56 @@ fun PlayerBackdrop(
     }
 }
 
+private class ScallopPathCache {
+    var lastMinDim: Float = -1f
+    val cookiePath: Path = Path()
+    val cloverPath: Path = Path()
+
+    fun ensureBuilt(minDim: Float) {
+        if (minDim <= 0f || kotlin.math.abs(minDim - lastMinDim) < 0.5f) return
+        lastMinDim = minDim
+        val cookieRadius = minDim * 0.40f
+        buildCenteredScallopedPath(
+            path = cookiePath,
+            baseRadius = cookieRadius,
+            lobeAmplitude = cookieRadius * 0.11f,
+            lobes = 8,
+        )
+        val cloverRadius = minDim * 0.44f
+        buildCenteredScallopedPath(
+            path = cloverPath,
+            baseRadius = cloverRadius,
+            lobeAmplitude = cloverRadius * 0.16f,
+            lobes = 4,
+        )
+    }
+}
+
 private fun DrawScope.drawExpressiveShapesBackdrop(
     t: Float,
     tonePrimary: Color,
     toneSecondary: Color,
     toneAccent: Color,
-    pathA: Path,
-    pathB: Path,
+    cache: ScallopPathCache,
 ) {
     val minDim = min(size.width, size.height)
+    cache.ensureBuilt(minDim)
 
-    // Top-right scalloped 8-lobe M3E cookie
+    // Top-right scalloped 8-lobe M3E cookie rotated via GPU matrix (zero per-frame Path rebuilds)
     val cookieCenter = Offset(size.width * 0.86f, size.height * 0.16f)
-    val cookieRadius = minDim * 0.40f
-    buildScallopedPath(
-        path = pathA,
-        cx = cookieCenter.x,
-        cy = cookieCenter.y,
-        baseRadius = cookieRadius,
-        lobeAmplitude = cookieRadius * 0.11f,
-        lobes = 8,
-        angleOffset = t * 0.14f,
-    )
-    drawPath(path = pathA, color = tonePrimary)
+    translate(left = cookieCenter.x, top = cookieCenter.y) {
+        rotate(degrees = (t * 8.0f) % 360f, pivot = Offset.Zero) {
+            drawPath(path = cache.cookiePath, color = tonePrimary)
+        }
+    }
 
-    // Bottom-left 4-lobe clover
+    // Bottom-left 4-lobe clover rotated via GPU matrix
     val cloverCenter = Offset(size.width * 0.12f, size.height * 0.84f)
-    val cloverRadius = minDim * 0.44f
-    buildScallopedPath(
-        path = pathB,
-        cx = cloverCenter.x,
-        cy = cloverCenter.y,
-        baseRadius = cloverRadius,
-        lobeAmplitude = cloverRadius * 0.16f,
-        lobes = 4,
-        angleOffset = -t * 0.10f + 0.4f,
-    )
-    drawPath(path = pathB, color = toneSecondary)
+    translate(left = cloverCenter.x, top = cloverCenter.y) {
+        rotate(degrees = (-t * 5.7f + 22.9f) % 360f, pivot = Offset.Zero) {
+            drawPath(path = cache.cloverPath, color = toneSecondary)
+        }
+    }
 
     // Mid-canvas tilted M3E capsule pill accent (solid flat fill)
     val pillW = minDim * 0.50f
@@ -412,22 +426,19 @@ private fun DrawScope.drawStudioBackdrop(accent: Color) {
     drawLine(lineColor, Offset(w - inset, h - inset), Offset(w - inset, h - inset - arm), stroke, StrokeCap.Round)
 }
 
-private fun buildScallopedPath(
+private fun buildCenteredScallopedPath(
     path: Path,
-    cx: Float,
-    cy: Float,
     baseRadius: Float,
     lobeAmplitude: Float,
     lobes: Int,
-    angleOffset: Float,
 ) {
     path.reset()
     val segments = 96
     for (i in 0..segments) {
         val theta = (i.toFloat() / segments) * (2.0 * PI).toFloat()
-        val r = baseRadius + lobeAmplitude * cos(lobes * (theta + angleOffset))
-        val x = cx + r * cos(theta)
-        val y = cy + r * sin(theta)
+        val r = baseRadius + lobeAmplitude * cos(lobes * theta)
+        val x = r * cos(theta)
+        val y = r * sin(theta)
         if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
     path.close()

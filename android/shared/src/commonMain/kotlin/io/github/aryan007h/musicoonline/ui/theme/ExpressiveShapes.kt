@@ -103,7 +103,7 @@ data class ExpressiveScallopShape(
     val lobes: Int = 8,
     val amplitude: Float = 0.085f,
     val rotationDeg: Float = 0f,
-    val samples: Int = 72,
+    val samples: Int = 120,
 ) : Shape {
     override fun createOutline(
         size: Size,
