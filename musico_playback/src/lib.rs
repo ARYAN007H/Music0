@@ -648,7 +648,7 @@ struct PlaySession<'a> {
     controls: LoopbackControls,
     dec: Option<decoder::AudioDecoder>,
     crossfade_mixer: crossfade::CrossfadeMixer,
-    preloaded_decoder: Option<(decoder::AudioDecoder, SongInfo)>,
+    preloaded_song: Option<SongInfo>,
     seek_base: f32,
     pending_seek: Option<f32>,
     pending_preload: Option<SongInfo>,
@@ -742,17 +742,45 @@ impl<'a> PlaySession<'a> {
     }
 
     fn perform_preload(&mut self, s: &SongInfo) {
-        log::info!("Preloading next: {}", s.title);
+        log::info!("Staging next for gapless handoff: {}", s.title);
+        // Loopback/remote HTTP stream URLs are opened lazily on handoff — never
+        // pass them to `std::fs::File::open` or open a duplicate stream early.
+        if is_remote_stream_path(&s.file_path) {
+            self.preloaded_song = Some(s.clone());
+            return;
+        }
+        // If local metadata is already complete, verify readability without keeping a
+        // second open Symphonia demuxer/FD alive for the entire current track.
+        if !s.title.is_empty() && s.duration_secs > 0.0 {
+            if let Err(e) = std::fs::File::open(&s.file_path) {
+                log::warn!("Failed to stage next track: {e}");
+                return;
+            }
+            self.preloaded_song = Some(s.clone());
+            return;
+        }
+        // Otherwise probe once for missing metadata and immediately drop the
+        // decoder so its file descriptor and demuxer buffers are released.
         match decoder::AudioDecoder::new(&s.file_path) {
             Ok((dec_next, info_next)) => {
+                drop(dec_next);
                 let mut merged = info_next;
                 if !s.id.is_empty() {
                     merged.id = s.id.clone();
                 }
+                if !s.title.is_empty() {
+                    merged.title = s.title.clone();
+                }
+                if !s.artist.is_empty() {
+                    merged.artist = s.artist.clone();
+                }
+                if !s.album.is_empty() {
+                    merged.album = s.album.clone();
+                }
                 if s.cover_art.is_some() {
                     merged.cover_art = s.cover_art.clone();
                 }
-                self.preloaded_decoder = Some((dec_next, merged));
+                self.preloaded_song = Some(merged);
             }
             Err(e) => {
                 log::warn!("Failed to preload: {e}");
@@ -1289,7 +1317,7 @@ fn play_song(
         controls,
         dec: None,
         crossfade_mixer,
-        preloaded_decoder: None,
+        preloaded_song: None,
         seek_base: 0.0,
         pending_seek,
         pending_preload,
@@ -1557,7 +1585,7 @@ fn play_song(
                 });
 
                 // ── Gapless transition ──
-                if let Some((_preloaded_dec, next_song_info)) = session.preloaded_decoder.take() {
+                if let Some(next_song_info) = session.preloaded_song.take() {
                     log::info!("Gapless transition to: {}", next_song_info.title);
                     set_stopped(session.state);
                     return Some(next_song_info);
@@ -1726,6 +1754,10 @@ fn accumulate_listen(state: &Arc<Mutex<PlaybackState>>) {
 }
 
 /// Resets state to Stopped.
+fn is_remote_stream_path(path: &str) -> bool {
+    path.starts_with("http://") || path.starts_with("https://")
+}
+
 fn set_stopped(state: &Arc<Mutex<PlaybackState>>) {
     let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
     st.status = PlaybackStatus::Stopped;
@@ -1946,6 +1978,14 @@ mod tests {
             w.join().unwrap();
         }
         assert_eq!(observed_stream + observed_pause + observed_seek, 4 * 320);
+    }
+
+    #[test]
+    fn remote_stream_path_guard_detects_http_urls() {
+        assert!(is_remote_stream_path("http://127.0.0.1:41234/stream/abc"));
+        assert!(is_remote_stream_path("https://example.com/audio.mp4"));
+        assert!(!is_remote_stream_path("/home/user/.cache/musico-online/track.mp4"));
+        assert!(!is_remote_stream_path("track.mp4"));
     }
 
     #[test]

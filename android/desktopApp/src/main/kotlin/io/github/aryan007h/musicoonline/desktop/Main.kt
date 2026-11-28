@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
@@ -57,6 +59,7 @@ import io.github.aryan007h.musicoonline.ui.AppOverlay
 import io.github.aryan007h.musicoonline.ui.AppTab
 import io.github.aryan007h.musicoonline.ui.MusicViewModel
 import io.github.aryan007h.musicoonline.ui.MusicoApp
+import io.github.aryan007h.musicoonline.ui.theme.LocalWindowMinimized
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -70,13 +73,30 @@ import java.io.File
  * core with Android while presenting an adaptive Desktop Left Navigation Rail,
  * Docked Player Bar, keyboard shortcuts, and low-RAM G1GC runtime.
  */
-fun main() = application {
+fun main() {
+    // Cap coroutine IO thread fan-out & Skia GPU resource cache even outside the packaged runner.
+    if (System.getProperty("kotlinx.coroutines.io.parallelism").isNullOrBlank()) {
+        System.setProperty("kotlinx.coroutines.io.parallelism", "8")
+    }
+    if (System.getProperty("skiko.gpu.resourceCacheLimit").isNullOrBlank()) {
+        System.setProperty("skiko.gpu.resourceCacheLimit", "33554432")
+    }
+    // Optional low-RAM software renderer override (cuts ~90 MB Mesa/LLVM RSS on Linux).
+    if (System.getProperty("skiko.renderApi").isNullOrBlank()) {
+        val envRenderApi = System.getenv("MUSICO_RENDER_API")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: if (System.getenv("MUSICO_LOW_RAM") == "1") "SOFTWARE" else null
+        if (envRenderApi != null) {
+            System.setProperty("skiko.renderApi", envRenderApi)
+        }
+    }
+
     val dataDir = DesktopPlatformHost.dataDir()
     val cacheDir = DesktopPlatformHost.cacheDir()
-
+    DesktopPlatformHost.initImageLoader(cacheDir)
     MusicoCore.init(dataDir.absolutePath, cacheDir.absolutePath)
 
-    val playback = remember { DesktopPlayback() }
+    application {
+        val playback = remember { DesktopPlayback() }
     val prefs = remember {
         DesktopPlatformPrefs(File(dataDir, "ui_prefs.json")).also {
             PlatformEqualizer.init(it)
@@ -180,6 +200,17 @@ fun main() = application {
             window.minimumSize = Dimension(420, 500)
         }
 
+        // When the window loses focus or is minimized, debounce and ask Linux glibc
+        // to return freed native heap/arena pages back to the OS (`malloc_trim(0)`).
+        val windowFocused = LocalWindowInfo.current.isWindowFocused
+        val windowMinimized = windowState.isMinimized
+        LaunchedEffect(windowFocused, windowMinimized) {
+            if ((!windowFocused || windowMinimized) && MusicoCore.isLoaded) {
+                delay(1500)
+                DesktopPlatformHost.trimNativeMemory()
+            }
+        }
+
         var toastMessage by remember { mutableStateOf<String?>(null) }
         var showCoreWarning by remember { mutableStateOf(!MusicoCore.isLoaded) }
         var isDarkTheme by remember { mutableStateOf(true) }
@@ -192,6 +223,7 @@ fun main() = application {
             }
         }
 
+        CompositionLocalProvider(LocalWindowMinimized provides windowMinimized) {
         Box(modifier = Modifier.fillMaxSize()) {
             MusicoApp(
                 vm = vm,
@@ -272,5 +304,7 @@ fun main() = application {
                 }
             }
         }
+        }
+    }
     }
 }

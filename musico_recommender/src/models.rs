@@ -42,7 +42,11 @@ pub struct Store {
 
 impl Store {
     pub fn open(path: &str) -> Result<Self, sled::Error> {
-        let db = sled::open(path)?;
+        let db = sled::Config::new()
+            .path(path)
+            .cache_capacity(8 * 1024 * 1024)
+            .mode(sled::Mode::LowSpace)
+            .open()?;
         let songs = db.open_tree("songs")?;
         let events = db.open_tree("events")?;
         let sessions = db.open_tree("sessions")?;

@@ -46,6 +46,18 @@ static HAMMING: LazyLock<Vec<f32>> = LazyLock::new(|| {
         .map(|i| 0.54 - 0.46 * (2.0 * PI * i as f32 / (FRAME_LEN as f32 - 1.0)).cos())
         .collect()
 });
+static BIN_TO_CHROMA: LazyLock<Vec<Option<usize>>> = LazyLock::new(|| {
+    let n_bins = FFT_SIZE / 2 + 1;
+    (0..n_bins)
+        .map(|k| {
+            if k == 0 { return None; }
+            let freq = k as f32 * TARGET_SR / FFT_SIZE as f32;
+            if freq < 20.0 || freq > TARGET_SR / 2.0 { return None; }
+            let midi = 12.0 * (freq / 440.0).log2() + 69.0;
+            Some(((midi.round() as i32) % 12).rem_euclid(12) as usize)
+        })
+        .collect()
+});
 
 // ---------------------------------------------------------------------------
 // Public API — single-pass analysis
@@ -206,23 +218,11 @@ pub fn analyze_file(path: &str) -> Result<AnalysisResult, RecommenderError> {
         (all_samples.len() as f32 / TARGET_SR) as u32
     };
 
-    // ---- Feature extraction ----
-    let emphasised = pre_emphasis(&all_samples);
-
-    let frames = frame_and_window(&emphasised);
-    if frames.is_empty() {
-        return Err(RecommenderError::DecodeError("No frames produced".into()));
-    }
-
-    let power_spectra = compute_power_spectra(&frames);
-    let mel_spectra = apply_mel_filterbank(&power_spectra, &MEL_FILTERS);
-    let mfcc = compute_mfcc(&mel_spectra);
-    let spectral_centroid = compute_spectral_centroid(&power_spectra);
-    let spectral_rolloff = compute_spectral_rolloff(&power_spectra, 0.85);
-    let zero_crossing_rate = compute_zcr(&emphasised);
+    // ---- Feature extraction (streaming single-pass, zero per-frame Vec churn) ----
     let rms_energy = compute_rms(&all_samples);
-    let tempo_bpm = estimate_tempo(&power_spectra);
-    let chroma = compute_chroma(&power_spectra);
+    let zero_crossing_rate = compute_zcr_pre_emphasised(&all_samples);
+    let (mfcc, spectral_centroid, spectral_rolloff, tempo_bpm, chroma) =
+        extract_spectral_features_streaming(&all_samples)?;
 
     let mut fv = FeatureVector {
         version: FeatureVector::CURRENT_VERSION,
@@ -269,51 +269,152 @@ fn resample_linear(input: &[f32], src_sr: f32, dst_sr: f32) -> Vec<f32> {
 // Pre-emphasis, framing, windowing
 // ---------------------------------------------------------------------------
 
-fn pre_emphasis(samples: &[f32]) -> Vec<f32> {
-    let mut out = Vec::with_capacity(samples.len());
-    out.push(samples[0]);
+#[inline]
+fn emphasised_sample(samples: &[f32], idx: usize) -> f32 {
+    if idx == 0 {
+        samples[0]
+    } else {
+        samples[idx] - PRE_EMPH * samples[idx - 1]
+    }
+}
+
+fn compute_zcr_pre_emphasised(samples: &[f32]) -> f32 {
+    if samples.len() < 2 {
+        return 0.0;
+    }
+    let mut prev = samples[0];
+    let mut crossings: usize = 0;
     for i in 1..samples.len() {
-        out.push(samples[i] - PRE_EMPH * samples[i - 1]);
+        let cur = samples[i] - PRE_EMPH * samples[i - 1];
+        if (prev >= 0.0) != (cur >= 0.0) {
+            crossings += 1;
+        }
+        prev = cur;
     }
-    out
+    crossings as f32 / (samples.len() - 1) as f32
 }
 
-fn frame_and_window(samples: &[f32]) -> Vec<Vec<f32>> {
+/// Streams windowed FFT frames through reusable scratch buffers instead of
+/// allocating ~24,000 temporary `Vec`s per song, keeping identical feature math.
+fn extract_spectral_features_streaming(
+    samples: &[f32],
+) -> Result<([f32; N_MFCC], f32, f32, f32, [f32; 12]), RecommenderError> {
+    let n_frames = if samples.len() >= FRAME_LEN {
+        (samples.len() - FRAME_LEN) / HOP_LEN + 1
+    } else {
+        0
+    };
+    if n_frames == 0 {
+        return Err(RecommenderError::DecodeError("No frames produced".into()));
+    }
+
     let window = &*HAMMING;
-    let mut frames = Vec::new();
-    let mut start = 0;
-    while start + FRAME_LEN <= samples.len() {
-        let frame: Vec<f32> = samples[start..start + FRAME_LEN]
-            .iter()
-            .zip(window.iter())
-            .map(|(s, w)| s * w)
-            .collect();
-        frames.push(frame);
-        start += HOP_LEN;
-    }
-    frames
-}
+    let filters = &*MEL_FILTERS;
+    let bin_to_chroma = &*BIN_TO_CHROMA;
+    let n_bins = FFT_SIZE / 2 + 1;
+    let inv_fft_size = 1.0 / FFT_SIZE as f32;
 
-// ---------------------------------------------------------------------------
-// FFT & power spectrum
-// ---------------------------------------------------------------------------
-
-fn compute_power_spectra(frames: &[Vec<f32>]) -> Vec<Vec<f32>> {
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(FFT_SIZE);
-    frames
-        .iter()
-        .map(|frame| {
-            let mut buffer: Vec<Complex<f32>> =
-                frame.iter().map(|&s| Complex::new(s, 0.0)).collect();
-            buffer.resize(FFT_SIZE, Complex::new(0.0, 0.0));
-            fft.process(&mut buffer);
-            buffer[..FFT_SIZE / 2 + 1]
+
+    let mut fft_buf = vec![Complex::new(0.0_f32, 0.0_f32); FFT_SIZE];
+    let mut power_buf = vec![0.0_f32; n_bins];
+    let mut prev_power_buf = vec![0.0_f32; n_bins];
+    let mut mel_buf = [0.0_f32; N_MELS];
+    let mut onset_env = Vec::with_capacity(n_frames);
+
+    let mut mfcc_avg = [0.0_f32; N_MFCC];
+    let mut centroid_total = 0.0_f64;
+    let mut rolloff_total = 0.0_f64;
+    let mut chroma = [0.0_f32; 12];
+
+    let mut start = 0;
+    for frame_idx in 0..n_frames {
+        for (i, &w) in window.iter().enumerate() {
+            fft_buf[i] = Complex::new(emphasised_sample(samples, start + i) * w, 0.0);
+        }
+        for c in &mut fft_buf[FRAME_LEN..FFT_SIZE] {
+            *c = Complex::new(0.0, 0.0);
+        }
+        fft.process(&mut fft_buf);
+
+        let mut energy_total = 0.0_f64;
+        let mut weighted_sum = 0.0_f64;
+        for k in 0..n_bins {
+            let p = fft_buf[k].norm_sqr() * inv_fft_size;
+            power_buf[k] = p;
+            let pd = p as f64;
+            energy_total += pd;
+            weighted_sum += (k as f64) * pd;
+            if let Some(ci) = bin_to_chroma[k] {
+                chroma[ci] += p;
+            }
+        }
+
+        if energy_total >= 1e-12 {
+            centroid_total += weighted_sum / energy_total;
+        }
+
+        let target = energy_total * 0.85_f64;
+        let mut cumulative = 0.0_f64;
+        let mut rolloff_bin = 0usize;
+        for (k, &p) in power_buf.iter().enumerate() {
+            cumulative += p as f64;
+            if cumulative >= target {
+                rolloff_bin = k;
+                break;
+            }
+        }
+        rolloff_total += rolloff_bin as f64;
+
+        for (m, filt) in filters.iter().enumerate() {
+            let energy: f32 = power_buf.iter().zip(filt.iter()).map(|(s, f)| s * f).sum();
+            mel_buf[m] = (energy.max(1e-10)).ln();
+        }
+        let n_mels_f = N_MELS as f32;
+        for i in 0..N_MFCC {
+            let mut coeff = 0.0_f32;
+            for (j, &mel_val) in mel_buf.iter().enumerate() {
+                coeff += mel_val * (PI * (i as f32) * (j as f32 + 0.5) / n_mels_f).cos();
+            }
+            mfcc_avg[i] += coeff;
+        }
+
+        if frame_idx == 0 {
+            onset_env.push(0.0_f32);
+        } else {
+            let flux: f32 = power_buf
                 .iter()
-                .map(|c| c.norm_sqr() / FFT_SIZE as f32)
-                .collect()
-        })
-        .collect()
+                .zip(prev_power_buf.iter())
+                .map(|(&cur, &prev)| (cur - prev).max(0.0))
+                .sum();
+            onset_env.push(flux);
+        }
+
+        std::mem::swap(&mut power_buf, &mut prev_power_buf);
+        start += HOP_LEN;
+    }
+
+    let nf_f32 = n_frames as f32;
+    let nf_f64 = n_frames as f64;
+    for v in mfcc_avg.iter_mut() {
+        *v /= nf_f32;
+    }
+    let spectral_centroid = (centroid_total / nf_f64) as f32;
+    let spectral_rolloff = (rolloff_total / nf_f64) as f32;
+    let tempo_bpm = estimate_tempo_from_onset(&onset_env);
+
+    for c in chroma.iter_mut() {
+        *c /= nf_f32;
+    }
+    let chroma_sum: f32 = chroma.iter().sum();
+    if chroma_sum > 1e-10 {
+        for c in chroma.iter_mut() {
+            *c /= chroma_sum;
+        }
+    }
+
+    Ok((mfcc_avg, spectral_centroid, spectral_rolloff, tempo_bpm, chroma))
 }
 
 // ---------------------------------------------------------------------------
@@ -352,77 +453,6 @@ fn build_mel_filterbank(n_fft_bins: usize) -> Vec<Vec<f32>> {
     filters
 }
 
-fn apply_mel_filterbank(power_spectra: &[Vec<f32>], filters: &[Vec<f32>]) -> Vec<Vec<f32>> {
-    power_spectra
-        .iter()
-        .map(|spectrum| {
-            filters
-                .iter()
-                .map(|filt| {
-                    let energy: f32 = spectrum.iter().zip(filt.iter()).map(|(s, f)| s * f).sum();
-                    (energy.max(1e-10)).ln()
-                })
-                .collect()
-        })
-        .collect()
-}
-
-fn compute_mfcc(mel_spectra: &[Vec<f32>]) -> [f32; N_MFCC] {
-    let n_frames = mel_spectra.len();
-    let mut avg = [0.0_f32; N_MFCC];
-    for frame_mel in mel_spectra {
-        let n = frame_mel.len() as f32;
-        for i in 0..N_MFCC {
-            let mut coeff = 0.0_f32;
-            for (j, &mel_val) in frame_mel.iter().enumerate() {
-                coeff += mel_val * (PI * (i as f32) * (j as f32 + 0.5) / n).cos();
-            }
-            avg[i] += coeff;
-        }
-    }
-    for v in avg.iter_mut() { *v /= n_frames as f32; }
-    avg
-}
-
-// ---------------------------------------------------------------------------
-// Spectral features
-// ---------------------------------------------------------------------------
-
-fn compute_spectral_centroid(power_spectra: &[Vec<f32>]) -> f32 {
-    let mut total = 0.0_f64;
-    let n = power_spectra.len() as f64;
-    for spectrum in power_spectra {
-        let sum_mag: f64 = spectrum.iter().map(|&s| s as f64).sum();
-        if sum_mag < 1e-12 { continue; }
-        let weighted: f64 = spectrum.iter().enumerate().map(|(i, &s)| i as f64 * s as f64).sum();
-        total += weighted / sum_mag;
-    }
-    (total / n) as f32
-}
-
-fn compute_spectral_rolloff(power_spectra: &[Vec<f32>], threshold: f32) -> f32 {
-    let mut total = 0.0_f64;
-    let n = power_spectra.len() as f64;
-    for spectrum in power_spectra {
-        let energy_total: f64 = spectrum.iter().map(|&s| s as f64).sum();
-        let target = energy_total * threshold as f64;
-        let mut cumulative = 0.0_f64;
-        let mut rolloff_bin = 0;
-        for (i, &s) in spectrum.iter().enumerate() {
-            cumulative += s as f64;
-            if cumulative >= target { rolloff_bin = i; break; }
-        }
-        total += rolloff_bin as f64;
-    }
-    (total / n) as f32
-}
-
-fn compute_zcr(samples: &[f32]) -> f32 {
-    if samples.len() < 2 { return 0.0; }
-    let crossings: usize = samples.windows(2).filter(|w| (w[0] >= 0.0) != (w[1] >= 0.0)).count();
-    crossings as f32 / (samples.len() - 1) as f32
-}
-
 fn compute_rms(samples: &[f32]) -> f32 {
     let sum_sq: f64 = samples.iter().map(|&s| (s as f64) * (s as f64)).sum();
     (sum_sq / samples.len() as f64).sqrt() as f32
@@ -432,68 +462,26 @@ fn compute_rms(samples: &[f32]) -> f32 {
 // Tempo estimation
 // ---------------------------------------------------------------------------
 
-fn estimate_tempo(power_spectra: &[Vec<f32>]) -> f32 {
-    let mut onset_env = Vec::with_capacity(power_spectra.len());
-    onset_env.push(0.0_f32);
-    for i in 1..power_spectra.len() {
-        let flux: f32 = power_spectra[i]
-            .iter()
-            .zip(power_spectra[i - 1].iter())
-            .map(|(&cur, &prev)| (cur - prev).max(0.0))
-            .sum();
-        onset_env.push(flux);
-    }
-
+fn estimate_tempo_from_onset(onset_env: &[f32]) -> f32 {
     let max_lag = onset_env.len().min(((TARGET_SR / HOP_LEN as f32) * 60.0 / 60.0) as usize + 1);
     let min_lag = ((TARGET_SR / HOP_LEN as f32) * 60.0 / 200.0) as usize;
 
     if max_lag <= min_lag || max_lag > onset_env.len() { return 120.0; }
 
-    let mut autocorr = vec![0.0_f32; max_lag];
-    for lag in min_lag..max_lag {
-        let mut sum = 0.0_f32;
-        for i in 0..onset_env.len() - lag { sum += onset_env[i] * onset_env[i + lag]; }
-        autocorr[lag] = sum;
-    }
-
     let mut best_lag = min_lag;
     let mut best_val = f32::NEG_INFINITY;
     for lag in min_lag..max_lag {
-        if autocorr[lag] > best_val { best_val = autocorr[lag]; best_lag = lag; }
+        let mut sum = 0.0_f32;
+        for i in 0..onset_env.len() - lag { sum += onset_env[i] * onset_env[i + lag]; }
+        if sum > best_val {
+            best_val = sum;
+            best_lag = lag;
+        }
     }
     if best_lag == 0 { return 120.0; }
 
     let bpm = 60.0 * (TARGET_SR / HOP_LEN as f32) / best_lag as f32;
     bpm.clamp(60.0, 200.0)
-}
-
-// ---------------------------------------------------------------------------
-// Chroma
-// ---------------------------------------------------------------------------
-
-fn compute_chroma(power_spectra: &[Vec<f32>]) -> [f32; 12] {
-    let n_bins = FFT_SIZE / 2 + 1;
-    let bin_to_chroma: Vec<Option<usize>> = (0..n_bins)
-        .map(|k| {
-            if k == 0 { return None; }
-            let freq = k as f32 * TARGET_SR / FFT_SIZE as f32;
-            if freq < 20.0 || freq > TARGET_SR / 2.0 { return None; }
-            let midi = 12.0 * (freq / 440.0).log2() + 69.0;
-            Some(((midi.round() as i32) % 12).rem_euclid(12) as usize)
-        })
-        .collect();
-
-    let mut chroma = [0.0_f32; 12];
-    let n_frames = power_spectra.len() as f32;
-    for spectrum in power_spectra {
-        for (k, &mag) in spectrum.iter().enumerate() {
-            if let Some(ci) = bin_to_chroma[k] { chroma[ci] += mag; }
-        }
-    }
-    for c in chroma.iter_mut() { *c /= n_frames; }
-    let sum: f32 = chroma.iter().sum();
-    if sum > 1e-10 { for c in chroma.iter_mut() { *c /= sum; } }
-    chroma
 }
 
 // ---------------------------------------------------------------------------
@@ -508,4 +496,36 @@ fn normalise_feature_vector(fv: &mut FeatureVector) {
     fv.rms_energy = fv.rms_energy.clamp(0.0, 1.0);
     fv.tempo_bpm = ((fv.tempo_bpm - 60.0) / 140.0).clamp(0.0, 1.0);
     for c in fv.chroma.iter_mut() { *c = c.clamp(0.0, 1.0); }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaming_feature_extractor_produces_finite_pitch_accurate_features() {
+        // 2 seconds of a 440 Hz (A4 -> pitch class 9) sine wave at TARGET_SR.
+        let n = (TARGET_SR as usize) * 2;
+        let samples: Vec<f32> = (0..n)
+            .map(|i| (2.0 * PI * 440.0 * i as f32 / TARGET_SR).sin() * 0.5)
+            .collect();
+
+        let (mfcc, centroid, rolloff, tempo, chroma) =
+            extract_spectral_features_streaming(&samples).expect("streaming features");
+        let zcr = compute_zcr_pre_emphasised(&samples);
+
+        assert!(mfcc.iter().all(|v| v.is_finite()));
+        assert!(centroid.is_finite() && centroid > 0.0);
+        assert!(rolloff.is_finite() && rolloff > 0.0);
+        assert!((60.0..=200.0).contains(&tempo));
+        assert!(zcr > 0.0 && zcr < 1.0);
+        // Pitch class 9 (A) should dominate the 440 Hz tone's chroma distribution.
+        let dominant_chroma = chroma
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        assert_eq!(dominant_chroma, 9, "expected A (9) chroma peak, got {chroma:?}");
+    }
 }

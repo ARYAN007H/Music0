@@ -16,15 +16,34 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import coil3.BitmapImage
+import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.decode.DataSource
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.crossfade
+import coil3.size.Precision
+import coil3.toBitmap
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher as OkHttpDispatcher
+import okhttp3.OkHttpClient
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import okio.Path.Companion.toOkioPath
 import io.github.aryan007h.musicoonline.core.MusicoCore
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.core.UpdateInfo
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -58,11 +77,79 @@ import java.util.Locale
 import javax.imageio.ImageIO
 
 object DesktopPlatformHost {
+    private const val COIL_MEMORY_CACHE_BYTES = 24L * 1024L * 1024L
+    private const val COIL_DISK_CACHE_BYTES = 64L * 1024L * 1024L
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal val ioDispatcher = Dispatchers.IO.limitedParallelism(4)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val coilDecodeDispatcher = Dispatchers.IO.limitedParallelism(2)
+
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val toasts: SharedFlow<String> = _toasts
 
     fun emitToast(message: String) {
         _toasts.tryEmit(message)
+    }
+
+    /**
+     * Asks the native Rust core to invoke glibc `malloc_trim(0)` on Linux so
+     * freed arena/heap pages return promptly to the OS when idle or unfocused.
+     */
+    suspend fun trimNativeMemory() {
+        if (!MusicoCore.isLoaded) return
+        runCatching { MusicoCore.call("system.trim_memory") }
+    }
+
+    /**
+     * Configures a bounded Coil 3 ImageLoader on Desktop JVM so native Skia
+     * bitmaps stay capped at 24 MB RAM (instead of Coil's 256 MB JVM default)
+     * while a 64 MB disk cache keeps scrolled covers instant.
+     */
+    fun initImageLoader(cacheDir: File) {
+        val imageCacheDir = File(cacheDir, "coil_images").apply { mkdirs() }
+        SingletonImageLoader.setSafe { context ->
+            val httpExecutor = ThreadPoolExecutor(
+                4,
+                4,
+                30L,
+                TimeUnit.SECONDS,
+                LinkedBlockingQueue(),
+            ) { runnable ->
+                Thread(runnable, "Music0-OkHttp").apply { isDaemon = true }
+            }.apply {
+                allowCoreThreadTimeOut(true)
+            }
+            val okHttpClient = OkHttpClient.Builder()
+                .dispatcher(
+                    OkHttpDispatcher(httpExecutor).apply {
+                        maxRequests = 12
+                        maxRequestsPerHost = 4
+                    },
+                )
+                .connectionPool(ConnectionPool(4, 30L, TimeUnit.SECONDS))
+                .build()
+            ImageLoader.Builder(context)
+                .crossfade(true)
+                .fetcherCoroutineContext(ioDispatcher)
+                .decoderCoroutineContext(coilDecodeDispatcher)
+                .components {
+                    add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
+                }
+                .memoryCache {
+                    MemoryCache.Builder()
+                        .maxSizeBytes(COIL_MEMORY_CACHE_BYTES)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(imageCacheDir.toOkioPath())
+                        .maxSizeBytes(COIL_DISK_CACHE_BYTES)
+                        .build()
+                }
+                .build()
+        }
     }
 
     fun dataDir(): File {
@@ -107,7 +194,7 @@ class DesktopPlatformUpdater : PlatformUpdater {
 
     override fun currentVersion(): String = "1.0.2-cmp"
 
-    override suspend fun check(): UpdateInfo = withContext(Dispatchers.IO) {
+    override suspend fun check(): UpdateInfo = withContext(DesktopPlatformHost.ioDispatcher) {
         val reply = MusicoCore.call("app.update.check")
         json.decodeFromJsonElement(UpdateInfo.serializer(), reply)
     }
@@ -137,7 +224,8 @@ actual object PlatformEqualizer {
     private const val KEY_BASS = "eq_bass_boost"
     private const val KEY_PRESET = "eq_preset_name"
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(2))
     private val pendingPushes = Channel<Pair<Boolean, List<Double>>>(Channel.CONFLATED)
     private val listeners = mutableListOf<() -> Unit>()
 
@@ -325,25 +413,52 @@ actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) {
 actual fun Modifier.platformBlur(radiusDp: Float): Modifier =
     if (radiusDp <= 0.1f) this else this.blur(radiusDp.coerceIn(0f, 24f).dp)
 
-actual suspend fun decodeArtworkSamplePixels(url: String): IntArray? = withContext(Dispatchers.IO) {
+actual suspend fun decodeArtworkSamplePixels(url: String): IntArray? = withContext(DesktopPlatformHost.ioDispatcher) {
     runCatching {
-        val img = loadRemoteBufferedImage(url) ?: return@withContext null
-        val targetW = 48
-        val targetH = 48
-        val scaled = BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB)
-        val g = scaled.createGraphics()
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-        g.drawImage(img, 0, 0, targetW, targetH, null)
-        g.dispose()
-        val pixels = IntArray(targetW * targetH)
-        scaled.getRGB(0, 0, targetW, targetH, pixels, 0, targetW)
-        pixels
+        val req = ImageRequest.Builder(PlatformContext.INSTANCE)
+            .data(url)
+            .size(48, 48)
+            .precision(Precision.INEXACT)
+            // Read from UI's MemoryCache when already decoded (zero duplicate decode),
+            // without writing 48x48 misses into MemoryCache.
+            .memoryCachePolicy(CachePolicy.READ_ONLY)
+            .build()
+        val success = SingletonImageLoader.get(PlatformContext.INSTANCE).execute(req) as? SuccessResult
+            ?: return@withContext null
+        val rawImage = success.image
+        val bmp = rawImage.toBitmap()
+        val ownsBitmap = success.dataSource != DataSource.MEMORY_CACHE ||
+            bmp !== (rawImage as? BitmapImage)?.bitmap
+        try {
+            val w = bmp.width.coerceAtLeast(1)
+            val h = bmp.height.coerceAtLeast(1)
+            val sampleW = w.coerceAtMost(48)
+            val sampleH = h.coerceAtMost(48)
+            val pixels = IntArray(sampleW * sampleH)
+            var idx = 0
+            for (sy in 0 until sampleH) {
+                val y = ((sy * h) / sampleH).coerceIn(0, h - 1)
+                for (sx in 0 until sampleW) {
+                    val x = ((sx * w) / sampleW).coerceIn(0, w - 1)
+                    pixels[idx++] = bmp.getColor(x, y)
+                }
+            }
+            pixels
+        } finally {
+            if (ownsBitmap) {
+                bmp.close()
+            }
+        }
     }.getOrNull()
 }
 
 actual suspend fun prefetchArtworkImage(url: String) {
     runCatching {
-        val req = ImageRequest.Builder(PlatformContext.INSTANCE).data(url).build()
+        val req = ImageRequest.Builder(PlatformContext.INSTANCE)
+            .data(url)
+            .size(384, 384)
+            .precision(Precision.INEXACT)
+            .build()
         SingletonImageLoader.get(PlatformContext.INSTANCE).enqueue(req)
     }
 }
@@ -356,14 +471,22 @@ actual suspend fun shareLyricCard(
     val cleanLines = lines.map { it.trim() }.filter { it.isNotEmpty() }.take(4)
     require(cleanLines.isNotEmpty()) { "Select at least one lyric line to save" }
 
-    val outFile = withContext(Dispatchers.IO) {
+    val outFile = withContext(DesktopPlatformHost.ioDispatcher) {
         val cover = track.thumbnail?.takeIf { it.isNotBlank() }?.let { loadRemoteBufferedImage(it) }
-        val poster = renderDesktopPoster(track, cleanLines, atmosphere, cover)
-        val home = System.getProperty("user.home") ?: "."
-        val dir = File(home, "Pictures/Music0").apply { mkdirs() }
-        val file = File(dir, "music0_lyric_${System.currentTimeMillis()}.png")
-        ImageIO.write(poster, "png", file)
-        file
+        val poster = try {
+            renderDesktopPoster(track, cleanLines, atmosphere, cover)
+        } finally {
+            cover?.flush()
+        }
+        try {
+            val home = System.getProperty("user.home") ?: "."
+            val dir = File(home, "Pictures/Music0").apply { mkdirs() }
+            val file = File(dir, "music0_lyric_${System.currentTimeMillis()}.png")
+            ImageIO.write(poster, "png", file)
+            file
+        } finally {
+            poster.flush()
+        }
     }
     DesktopPlatformHost.emitToast("Saved lyric poster to ${outFile.parentFile?.name}/${outFile.name}")
     "Saved to ${outFile.absolutePath}"
@@ -512,7 +635,7 @@ actual fun rememberPlaylistFilePicker(
     return remember(scope, onPicked, onError) {
         {
             scope.launch {
-                val result = withContext(Dispatchers.IO) {
+                val result = withContext(DesktopPlatformHost.ioDispatcher) {
                     runCatching {
                         val dialog = FileDialog(null as Frame?, "Import playlist (CSV, JSON, M3U)", FileDialog.LOAD)
                         dialog.filenameFilter = FilenameFilter { _, name ->

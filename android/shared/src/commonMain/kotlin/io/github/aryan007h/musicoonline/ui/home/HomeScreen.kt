@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -67,11 +66,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -116,12 +113,14 @@ import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
 import io.github.aryan007h.musicoonline.ui.theme.shimmer
 import io.github.aryan007h.musicoonline.ui.theme.staggerIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -1290,53 +1289,43 @@ private fun HeroCarousel(
 
     var pointerHovered by remember { mutableStateOf(false) }
     val userDragging by pagerState.interactionSource.collectIsDraggedAsState()
+    val windowActive = rememberWindowAnimationsActive()
     val latestHovered by rememberUpdatedState(pointerHovered)
     val latestDragging by rememberUpdatedState(userDragging)
+    val latestWindowActive by rememberUpdatedState(windowActive)
 
-    // Draw-phase 120 FPS auto-slide timer state (zero recompositions while counting!)
-    val slideProgressState = remember { mutableFloatStateOf(0f) }
-
-    // Single uninterrupted auto-slide loop keyed ONLY on items so programmatic
-    // animateScrollToPage NEVER cancels itself when isScrollInProgress or currentPage changes.
+    // Zero-redraw idle auto-slide loop: sleeps in coarse 250 ms slices without
+    // scheduling VSync frames while dwelling, then runs a smooth 580 ms slide
+    // transition when the 5-second interval completes.
     LaunchedEffect(items) {
-        slideProgressState.floatValue = 0f
         if (items.isNotEmpty() && pagerState.currentPage >= items.size) {
             pagerState.scrollToPage(0)
         }
         if (items.size <= 1) return@LaunchedEffect
-        val totalNanos = HomeFeaturedCurator.HERO_AUTO_SLIDE_MS * 1_000_000L
         var trackedPage = pagerState.currentPage
-        var elapsedNanos = 0L
-        var lastNanos = 0L
+        var elapsedMs = 0L
+        val stepMs = 250L
         while (true) {
-            while (elapsedNanos < totalNanos) {
-                withFrameNanos { now ->
-                    val current = pagerState.currentPage
-                    if (current != trackedPage) {
-                        trackedPage = current
-                        elapsedNanos = 0L
-                        lastNanos = now
-                        slideProgressState.floatValue = 0f
-                    } else if (latestHovered || latestDragging) {
-                        lastNanos = now
-                    } else {
-                        if (lastNanos != 0L) {
-                            elapsedNanos += (now - lastNanos).coerceIn(0L, 100_000_000L)
-                        }
-                        lastNanos = now
-                        slideProgressState.floatValue = (elapsedNanos.toFloat() / totalNanos.toFloat()).coerceIn(0f, 1f)
-                    }
-                }
+            delay(stepMs)
+            val current = pagerState.currentPage
+            if (current != trackedPage) {
+                trackedPage = current
+                elapsedMs = 0L
+                continue
             }
-            val nextPage = (pagerState.currentPage + 1) % items.size
-            elapsedNanos = 0L
-            lastNanos = 0L
-            slideProgressState.floatValue = 0f
-            pagerState.animateScrollToPage(
-                page = nextPage,
-                animationSpec = tween(durationMillis = 580, easing = MusicoMotion.emphasized),
-            )
-            trackedPage = pagerState.currentPage
+            if (latestHovered || latestDragging || !latestWindowActive) {
+                continue
+            }
+            elapsedMs += stepMs
+            if (elapsedMs >= HomeFeaturedCurator.HERO_AUTO_SLIDE_MS) {
+                val nextPage = (pagerState.currentPage + 1) % items.size
+                elapsedMs = 0L
+                pagerState.animateScrollToPage(
+                    page = nextPage,
+                    animationSpec = tween(durationMillis = 580, easing = MusicoMotion.emphasized),
+                )
+                trackedPage = pagerState.currentPage
+            }
         }
     }
 
@@ -1509,50 +1498,15 @@ private fun HeroCarousel(
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (active && items.size > 1) {
-                        HeroProgressPill(
-                            progressState = slideProgressState,
-                            trackColor = dotBgColor,
-                            fillColor = activeFill,
-                            modifier = Modifier.size(width = dotWidth.coerceAtLeast(8.dp), height = 7.dp),
-                        )
-                    } else {
-                        Box(
-                            Modifier
-                                .size(width = dotWidth.coerceAtLeast(4.dp), height = 7.dp)
-                                .clip(CircleShape)
-                                .background(if (active) activeFill else dotBgColor),
-                        )
-                    }
+                    Box(
+                        Modifier
+                            .size(width = dotWidth.coerceAtLeast(4.dp), height = 7.dp)
+                            .clip(CircleShape)
+                            .background(if (active) activeFill else dotBgColor),
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun HeroProgressPill(
-    progressState: FloatState,
-    trackColor: Color,
-    fillColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val r = size.height / 2f
-        val corner = CornerRadius(r, r)
-        drawRoundRect(
-            color = trackColor,
-            topLeft = Offset.Zero,
-            size = size,
-            cornerRadius = corner,
-        )
-        val fillW = (size.width * progressState.floatValue.coerceIn(0f, 1f)).coerceAtLeast(size.height)
-        drawRoundRect(
-            color = fillColor,
-            topLeft = Offset.Zero,
-            size = Size(fillW.coerceAtMost(size.width), size.height),
-            cornerRadius = corner,
-        )
     }
 }
 

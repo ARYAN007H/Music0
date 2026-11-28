@@ -84,7 +84,7 @@ modules:
         LAUNCHER_COUNT=$(find /app/lib/music0/bin -mindepth 1 -maxdepth 1 -type f -perm -0100 | wc -l)
         [ "$LAUNCHER_COUNT" -eq 1 ] || { echo "Expected 1 executable launcher in /app/lib/music0/bin, found $LAUNCHER_COUNT" >&2; exit 1; }
         LAUNCHER=$(find /app/lib/music0/bin -mindepth 1 -maxdepth 1 -type f -perm -0100)
-        printf '#!/bin/sh\nexec "%s" "$@"\n' "$LAUNCHER" > /app/bin/music0
+        printf '#!/bin/sh\nexport MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-2}"\nexec "%s" "$@"\n' "$LAUNCHER" > /app/bin/music0
         chmod 0755 /app/bin/music0
       - install -Dm644 io.github.aryan007h.Music0.desktop /app/share/applications/io.github.aryan007h.Music0.desktop
       - install -Dm644 io.github.aryan007h.Music0.metainfo.xml /app/share/metainfo/io.github.aryan007h.Music0.metainfo.xml

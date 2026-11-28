@@ -14,6 +14,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -37,12 +38,13 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.LongState
 import androidx.compose.runtime.getValue
@@ -80,6 +82,7 @@ import androidx.compose.ui.unit.sp
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveSegmentedMath
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.safeCornerDp
@@ -553,15 +556,13 @@ fun ExpressiveActionPill(
     }
     val shape = RoundedCornerShape(safeCornerDp(corner).coerceAtLeast(8.dp))
 
-    Surface(
-        shape = shape,
-        color = bg,
-        shadowElevation = if (!Musico.extras.isDark && !active) 1.dp else 0.dp,
-        border = if (!Musico.extras.isDark && !active) {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-        } else {
-            null
-        },
+    val pillBorder = if (!Musico.extras.isDark && !active) {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.58f))
+    } else {
+        null
+    }
+
+    Box(
         modifier = modifier
             .height(height)
             .graphicsLayer {
@@ -570,6 +571,8 @@ fun ExpressiveActionPill(
                 scaleY = safe
             }
             .clip(shape)
+            .background(bg)
+            .then(if (pillBorder != null) Modifier.border(pillBorder, shape) else Modifier)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(
                 interactionSource = source,
@@ -578,6 +581,7 @@ fun ExpressiveActionPill(
                 hapticTick()
                 onClick()
             },
+        contentAlignment = Alignment.Center,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = if (label != null) 16.dp else 0.dp),
@@ -637,104 +641,104 @@ fun <T> ExpressiveConnectedButtonGroup(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEachIndexed { index, option ->
-            val isSelected = option.value == selected
-            val corners = ExpressiveSegmentedMath.connectedButtonCorners(
-                index = index,
-                count = options.size,
-                selected = isSelected,
-            )
-            val ts by animateDpAsState(corners.topStartDp.dp, MusicoMotion.spatialFast(), label = "cbTS$index")
-            val te by animateDpAsState(corners.topEndDp.dp, MusicoMotion.spatialFast(), label = "cbTE$index")
-            val be by animateDpAsState(corners.bottomEndDp.dp, MusicoMotion.spatialFast(), label = "cbBE$index")
-            val bs by animateDpAsState(corners.bottomStartDp.dp, MusicoMotion.spatialFast(), label = "cbBS$index")
+            key(index) {
+                val isSelected = option.value == selected
+                val corners = ExpressiveSegmentedMath.connectedButtonCorners(
+                    index = index,
+                    count = options.size,
+                    selected = isSelected,
+                )
+                val ts by animateDpAsState(corners.topStartDp.dp, MusicoMotion.spatialFast(), label = "cbTS$index")
+                val te by animateDpAsState(corners.topEndDp.dp, MusicoMotion.spatialFast(), label = "cbTE$index")
+                val be by animateDpAsState(corners.bottomEndDp.dp, MusicoMotion.spatialFast(), label = "cbBE$index")
+                val bs by animateDpAsState(corners.bottomStartDp.dp, MusicoMotion.spatialFast(), label = "cbBS$index")
 
-            val targetBg = when {
-                isSelected && emphasized && isDark -> MaterialTheme.colorScheme.primaryContainer
-                isSelected && emphasized -> MaterialTheme.colorScheme.primary
-                isSelected -> MaterialTheme.colorScheme.secondaryContainer
-                else -> unselectedColor
-            }
-            val targetFg = when {
-                isSelected && emphasized && isDark -> MaterialTheme.colorScheme.onPrimaryContainer
-                isSelected && emphasized -> MaterialTheme.colorScheme.onPrimary
-                isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            val bg by key(isDark) {
-                animateColorAsState(targetBg, MusicoMotion.effectsFast(), label = "cbBg$index")
-            }
-            val fg by key(isDark) {
-                animateColorAsState(targetFg, MusicoMotion.effectsFast(), label = "cbFg$index")
-            }
+                val targetBg = when {
+                    isSelected && emphasized && isDark -> MaterialTheme.colorScheme.primaryContainer
+                    isSelected && emphasized -> MaterialTheme.colorScheme.primary
+                    isSelected -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> unselectedColor
+                }
+                val targetFg = when {
+                    isSelected && emphasized && isDark -> MaterialTheme.colorScheme.onPrimaryContainer
+                    isSelected && emphasized -> MaterialTheme.colorScheme.onPrimary
+                    isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                val bg by key(index, isDark) {
+                    animateColorAsState(targetBg, MusicoMotion.effectsFast(), label = "cbBg$index")
+                }
+                val fg by key(index, isDark) {
+                    animateColorAsState(targetFg, MusicoMotion.effectsFast(), label = "cbFg$index")
+                }
 
-            val shape = RoundedCornerShape(
-                topStart = safeCornerDp(ts),
-                topEnd = safeCornerDp(te),
-                bottomEnd = safeCornerDp(be),
-                bottomStart = safeCornerDp(bs),
-            )
-            val source = remember { MutableInteractionSource() }
-            val pressed by source.collectIsPressedAsState()
-            val scale by animateFloatAsState(
-                targetValue = if (pressed) 0.96f else 1f,
-                animationSpec = MusicoMotion.spatialFast(),
-                label = "cbScale$index",
-            )
-            val segBorder = when {
-                isDark && isSelected && emphasized -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
-                isDark && !isSelected -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
-                else -> null
-            }
+                val shape = RoundedCornerShape(
+                    topStart = safeCornerDp(ts),
+                    topEnd = safeCornerDp(te),
+                    bottomEnd = safeCornerDp(be),
+                    bottomStart = safeCornerDp(bs),
+                )
+                val source = remember { MutableInteractionSource() }
+                val pressed by source.collectIsPressedAsState()
+                val scale by animateFloatAsState(
+                    targetValue = if (pressed) 0.96f else 1f,
+                    animationSpec = MusicoMotion.spatialFast(),
+                    label = "cbScale$index",
+                )
+                val segBorder = when {
+                    isDark && isSelected && emphasized -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                    isDark && !isSelected -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f))
+                    else -> null
+                }
 
-            Surface(
-                shape = shape,
-                color = bg,
-                border = segBorder,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(height)
-                    .graphicsLayer {
-                        val safe = safePositiveScale(scale)
-                        scaleX = safe
-                        scaleY = safe
-                    }
-                    .clip(shape)
-                    .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
-                    .clickable(
-                        enabled = enabled,
-                        interactionSource = source,
-                        indication = LocalIndication.current,
-                    ) {
-                        if (!isSelected) {
-                            hapticTick()
-                            onSelect(option.value)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(height)
+                        .graphicsLayer {
+                            val safe = safePositiveScale(scale)
+                            scaleX = safe
+                            scaleY = safe
                         }
-                    },
-            ) {
-                Box(contentAlignment = Alignment.Center) {
+                        .clip(shape)
+                        .background(bg)
+                        .then(if (segBorder != null) Modifier.border(segBorder, shape) else Modifier)
+                        .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
+                        .clickable(
+                            enabled = enabled,
+                            interactionSource = source,
+                            indication = LocalIndication.current,
+                        ) {
+                            if (!isSelected) {
+                                hapticTick()
+                                onSelect(option.value)
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.padding(horizontal = 8.dp),
                     ) {
-                    option.icon?.let { vec ->
-                        Icon(
-                            imageVector = vec,
-                            contentDescription = null,
-                            tint = fg,
-                            modifier = Modifier.size(16.dp),
+                        option.icon?.let { vec ->
+                            Icon(
+                                imageVector = vec,
+                                contentDescription = null,
+                                tint = fg,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Text(
+                            text = option.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            color = fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Text(
-                        text = option.label,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontSize = 12.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                        color = fg,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 }
             }
         }
@@ -797,18 +801,17 @@ fun ExpressiveFilterChip(
         label = "m3eChipScale",
     )
 
-    Surface(
-        shape = shape,
-        color = bg,
-        border = when {
-            isDark && selected && usePrimaryWhenSelected ->
-                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
-            isDark && !selected ->
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f))
-            !selected && !isDark ->
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
-            else -> null
-        },
+    val chipBorder = when {
+        isDark && selected && usePrimaryWhenSelected ->
+            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+        isDark && !selected ->
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f))
+        !selected && !isDark ->
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+        else -> null
+    }
+
+    Box(
         modifier = modifier
             .height(36.dp)
             .graphicsLayer {
@@ -817,6 +820,8 @@ fun ExpressiveFilterChip(
                 scaleY = safe
             }
             .clip(shape)
+            .background(bg)
+            .then(if (chipBorder != null) Modifier.border(chipBorder, shape) else Modifier)
             .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default)
             .clickable(
                 enabled = enabled,
@@ -826,6 +831,7 @@ fun ExpressiveFilterChip(
                 hapticTick()
                 onClick()
             },
+        contentAlignment = Alignment.Center,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp),
@@ -870,21 +876,22 @@ fun ExpressiveSegmentedItem(
     val shape = remember(index, count) {
         ExpressiveSegmentedMath.verticalListCorners(index, count).toRoundedCornerShape()
     }
-    Surface(
-        shape = shape,
-        color = containerColor,
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.34f else 0.42f),
-        ),
+    val borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDark) 0.34f else 0.42f)
+    val source = remember { MutableInteractionSource() }
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
+            .background(containerColor)
+            .border(1.dp, borderColor, shape)
             .then(
                 if (onClick != null) {
                     Modifier
                         .pointerHoverIcon(PointerIcon.Hand)
-                        .clickable {
+                        .clickable(
+                            interactionSource = source,
+                            indication = LocalIndication.current,
+                        ) {
                             hapticTick()
                             onClick()
                         }
@@ -893,7 +900,9 @@ fun ExpressiveSegmentedItem(
                 },
             ),
     ) {
-        content()
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            content()
+        }
     }
 }
 
@@ -977,7 +986,8 @@ fun ExpressiveWavySeekBar(
         pendingSeekFraction = pendingSeekFraction,
     )
 
-    val shouldAnimate = ExpressiveSeekMath.shouldAnimateWave(
+    val windowActive = rememberWindowAnimationsActive()
+    val shouldAnimate = windowActive && ExpressiveSeekMath.shouldAnimateWave(
         isPlaying = isPlaying,
         enabled = enabled,
         dragging = dragging,
@@ -1146,7 +1156,8 @@ fun ExpressiveLiveWavySeekBar(
         }
     }
 
-    val shouldAnimateWave = ExpressiveSeekMath.shouldAnimateWave(
+    val windowActive = rememberWindowAnimationsActive()
+    val shouldAnimateWave = windowActive && ExpressiveSeekMath.shouldAnimateWave(
         isPlaying = isPlaying,
         enabled = enabled,
         dragging = dragging,
@@ -1158,9 +1169,10 @@ fun ExpressiveLiveWavySeekBar(
     )
 
     // Single 120Hz draw-phase frame clock: updates wave phase & interpolated progress
-    // strictly inside MutableFloatState read ONLY by Canvas draw scope.
-    LaunchedEffect(isPlaying, enabled, durationMs) {
-        if (!isPlaying || !enabled || durationMs <= 0L) return@LaunchedEffect
+    // strictly inside MutableFloatState read ONLY by Canvas draw scope, paused when
+    // Desktop window is unfocused/minimized.
+    LaunchedEffect(isPlaying, enabled, durationMs, windowActive) {
+        if (!isPlaying || !enabled || durationMs <= 0L || !windowActive) return@LaunchedEffect
         var lastNanos = 0L
         val radiansPerSec = (2.0 * PI / 1.45).toFloat()
         while (true) {

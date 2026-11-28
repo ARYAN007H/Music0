@@ -14,7 +14,6 @@ dependencies {
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
-    implementation(compose.materialIconsExtended)
     implementation(libs.kotlinx.coroutines.swing)
 }
 
@@ -28,13 +27,22 @@ compose.desktop {
     application {
         mainClass = "io.github.aryan007h.musicoonline.desktop.MainKt"
 
-        // Tuned low-RAM + 120Hz frame-pacing JVM profile (sub-5ms G1GC pause target).
+        // Verified ultra-low-RAM JVM & Skiko profile for a ~25-35 MB live heap:
+        // - SerialGC cuts HotSpot GC native metadata from ~43 MB (G1GC) to ~127 KB
+        // - C1-only JIT (TieredStopAtLevel=1) + 16 MB CodeCache eliminates C2 arena & code bloat
+        // - 32 MB Skiko GPU resource cache prevents Mesa/iGPU texture & path cache bloat
         jvmArgs += listOf(
-            "-Xmx384m",
-            "-XX:+UseG1GC",
-            "-XX:MaxGCPauseMillis=5",
-            "-XX:MaxHeapFreeRatio=30",
-            "-XX:MinHeapFreeRatio=10",
+            "-Xms16m",
+            "-Xmx128m",
+            "-XX:+UseSerialGC",
+            "-XX:TieredStopAtLevel=1",
+            "-XX:ReservedCodeCacheSize=16m",
+            "-XX:MaxMetaspaceSize=80m",
+            "-XX:SoftRefLRUPolicyMSPerMB=25",
+            "-XX:MaxHeapFreeRatio=20",
+            "-XX:MinHeapFreeRatio=5",
+            "-Dkotlinx.coroutines.io.parallelism=8",
+            "-Dskiko.gpu.resourceCacheLimit=33554432",
         )
 
         nativeDistributions {

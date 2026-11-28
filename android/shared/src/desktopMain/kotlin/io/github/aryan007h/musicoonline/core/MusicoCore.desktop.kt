@@ -1,6 +1,7 @@
 package io.github.aryan007h.musicoonline.core
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -129,8 +130,11 @@ actual object MusicoCore {
             ?: throw CoreException("bridge contract: `$cmd` returned non-object data — wrap it Rust-side or use callElement")
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val jniDispatcher = Dispatchers.IO.limitedParallelism(4)
+
     actual suspend fun callElement(cmd: String, args: JsonObject): JsonElement =
-        withContext(Dispatchers.IO) {
+        withContext(jniDispatcher) {
             if (!_isLoaded) {
                 throw CoreException(_loadError ?: "Native Rust core library not loaded")
             }

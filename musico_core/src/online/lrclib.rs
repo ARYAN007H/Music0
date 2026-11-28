@@ -25,7 +25,6 @@
 //! base URL.  No network happens offline: the command is ensure_online
 //! gated like its siblings.
 
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -54,14 +53,9 @@ pub struct SyncedLyricsDto {
     pub plain: Option<String>,
 }
 
-static CLIENT: LazyLock<reqwest::blocking::Client> = LazyLock::new(|| {
-    reqwest::blocking::Client::builder()
-        .user_agent(USER_AGENT)
-        .connect_timeout(Duration::from_secs(3))
-        .timeout(API_TIMEOUT)
-        .build()
-        .unwrap_or_else(|_| reqwest::blocking::Client::new())
-});
+fn lrc_http_client() -> Option<reqwest::blocking::Client> {
+    super::client::shared_client()
+}
 
 /// Effective API base — `MUSICO_LRCLIB_API` overrides the default
 /// (proxy/mirror testing), matching the source fast path's env overrides.
@@ -218,8 +212,10 @@ fn pick_candidates<'a>(
 
 /// GET /api/get — single record or 404.
 fn api_get(params: &[(&str, &str)]) -> Option<LrcRecord> {
-    let resp = CLIENT
+    let resp = lrc_http_client()?
         .get(format!("{}/api/get", api_base()))
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .timeout(API_TIMEOUT)
         .query(params)
         .send()
         .ok()?;
@@ -231,8 +227,10 @@ fn api_get(params: &[(&str, &str)]) -> Option<LrcRecord> {
 
 /// GET /api/search — list of records (possibly empty).
 fn api_search(artist: &str, title: &str) -> Option<Vec<LrcRecord>> {
-    let resp = CLIENT
+    let resp = lrc_http_client()?
         .get(format!("{}/api/search", api_base()))
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .timeout(API_TIMEOUT)
         .query(&[("artist_name", artist), ("track_name", title)])
         .send()
         .ok()?;

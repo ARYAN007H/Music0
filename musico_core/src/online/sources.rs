@@ -438,27 +438,12 @@ fn source_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
-/// Dedicated HTTP client for source fetches. Separate from the InnerTube
-/// client (`client::http_client`) on purpose: these are untrusted third-party
-/// hosts with a much tighter timeout policy — the shared client's 20 s total
-/// budget would let one dead instance eat half the fast-path budget.
+/// Shared HTTP client for third-party source metadata and streaming fetches.
+/// Non-streaming metadata calls pass an explicit per-request `RequestBuilder::timeout`
+/// which overrides the 15 s default streaming read/send wait, while `STREAM_CLIENT`
+/// clones the same `Arc`-backed client so both share a single Tokio runtime thread
+/// and connection pool.
 static SOURCE_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
-    reqwest::blocking::Client::builder()
-        .user_agent(super::client::USER_AGENT)
-        .connect_timeout(CONNECT_TIMEOUT)
-        .redirect(source_redirect_policy())
-        .tcp_nodelay(true)
-        .pool_max_idle_per_host(4)
-        .pool_idle_timeout(Duration::from_secs(60))
-        .build()
-        .ok()
-});
-
-/// Dedicated streaming HTTP client with a tight connect timeout (2 s) and a
-/// 15 s idle read/send wait (`blocking::ClientBuilder::timeout` bounds each
-/// `Response::read` chunk without imposing a whole-request total deadline on
-/// streaming GETs that omit `RequestBuilder::timeout`).
-static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
     reqwest::blocking::Client::builder()
         .user_agent(super::client::USER_AGENT)
         .connect_timeout(CONNECT_TIMEOUT)
@@ -469,6 +454,10 @@ static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::ne
         .pool_idle_timeout(Duration::from_secs(60))
         .build()
         .ok()
+});
+
+static STREAM_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
+    SOURCE_CLIENT.clone()
 });
 
 /// Exposes the shared streaming HTTP client for desktop fallback direct-URL opens.

@@ -121,7 +121,7 @@ pub(crate) trait Transport {
 
 /// One client for the process: TLS setup and the internal runtime thread are
 /// paid once; reqwest pools connections across attempts and calls.
-fn shared_client() -> Option<reqwest::blocking::Client> {
+pub(crate) fn shared_client() -> Option<reqwest::blocking::Client> {
     static CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| http_client().ok());
     CLIENT.clone()
 }

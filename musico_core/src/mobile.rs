@@ -144,6 +144,21 @@ fn with_recommender<T>(f: impl FnOnce(&mut MusicRecommender) -> Result<T, String
 
 /// Spawns a single low-priority background thread that decodes & extracts
 /// acoustic features for cached tracks and registers them in `MusicRecommender`.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn trim_native_memory() {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> std::ffi::c_int;
+    }
+    // SAFETY: glibc `malloc_trim(0)` is thread-safe and returns unused arena
+    // pages back to the OS without invalidating live allocations.
+    unsafe {
+        let _ = malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn trim_native_memory() {}
+
 fn start_indexer_worker() {
     if INDEX_TX.get().is_some() {
         return;
@@ -201,6 +216,7 @@ fn start_indexer_worker() {
                         log::debug!("mobile indexer: skip {} ({e})", job.video_id);
                     }
                 }
+                trim_native_memory();
             }
         });
 }
@@ -1397,14 +1413,12 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         "app.update.check" => {
             const RELEASES_API: &str = "https://api.github.com/repos/ARYAN007H/Music0/releases/latest";
             let current = app_display_version();
-            let client = reqwest::blocking::Client::builder()
-                .user_agent(format!("Music0/{current}"))
-                .connect_timeout(std::time::Duration::from_secs(5))
-                .timeout(std::time::Duration::from_secs(15))
-                .build()
-                .map_err(|e| format!("updater client: {e}"))?;
+            let client = crate::online::client::shared_client()
+                .ok_or_else(|| "updater client unavailable".to_string())?;
             let reply: serde_json::Value = client
                 .get(RELEASES_API)
+                .header(reqwest::header::USER_AGENT, format!("Music0/{current}"))
+                .timeout(std::time::Duration::from_secs(15))
                 .send()
                 .map_err(|e| format!("release check: {e}"))?
                 .error_for_status()
@@ -1501,11 +1515,20 @@ fn dispatch(cmd: &str, args_json: &str) -> Result<serde_json::Value, String> {
         "player.toggle" => desktop_toggle(),
         "player.pause" => desktop_simple_cmd(|e| e.pause()),
         "player.resume" => desktop_simple_cmd(|e| e.resume()),
-        "player.stop" => desktop_simple_cmd(|e| e.stop()),
+        "player.stop" => {
+            let res = desktop_simple_cmd(|e| e.stop());
+            trim_native_memory();
+            res
+        }
         "player.seek" => desktop_seek(&args),
         "player.set_volume" => desktop_set_volume(&args),
         "player.set_eq" => desktop_set_eq(&args),
         "player.state" => desktop_state(),
+
+        "system.trim_memory" => {
+            trim_native_memory();
+            Ok(serde_json::json!({ "trimmed": true }))
+        }
 
         other => Err(format!("unknown command `{other}`")),
     }
@@ -1539,6 +1562,8 @@ fn desktop_play_file(args: &serde_json::Value) -> Result<serde_json::Value, Stri
     let mutex = desktop_player()?;
     let guard = mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.play(song).map_err(|e| e.to_string())?;
+    drop(guard);
+    trim_native_memory();
     Ok(serde_json::json!({ "playing": true }))
 }
 

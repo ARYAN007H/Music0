@@ -154,31 +154,33 @@ fn build_saavn_client(policy: reqwest::redirect::Policy) -> Option<reqwest::bloc
         .ok()
 }
 
-/// Dedicated API client: saavn is an independent upstream — its failures must
-/// not share connection-pool state with InnerTube traffic.
+/// Single shared JioSaavn client (one Tokio runtime thread + TLS store) whose
+/// redirect policy dispatches strictly on the initial request origin: CDN media
+/// URLs (`*.saavncdn.com`) stay confined to `*.saavncdn.com`, while API calls
+/// follow `validate_saavn_api_redirect`.
 static API_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
     build_saavn_client(reqwest::redirect::Policy::custom(|attempt| {
-        match validate_saavn_api_redirect(attempt.previous(), attempt.url()) {
+        let prev = attempt.previous();
+        let res = if prev.first().is_some_and(|u| is_safe_saavn_media_url(u.as_str())) {
+            validate_saavn_media_redirect(prev, attempt.url())
+        } else {
+            validate_saavn_api_redirect(prev, attempt.url())
+        };
+        match res {
             Ok(()) => attempt.follow(),
             Err(reason) => attempt.error(reason),
         }
     }))
 });
 
-/// Dedicated CDN media client: redirects are strictly confined to HTTPS `*.saavncdn.com`.
+/// Shares the underlying `Arc` client & Tokio runtime with `API_CLIENT`.
 static MEDIA_CLIENT: LazyLock<Option<reqwest::blocking::Client>> = LazyLock::new(|| {
-    build_saavn_client(reqwest::redirect::Policy::custom(|attempt| {
-        match validate_saavn_media_redirect(attempt.previous(), attempt.url()) {
-            Ok(()) => attempt.follow(),
-            Err(reason) => attempt.error(reason),
-        }
-    }))
+    API_CLIENT.clone()
 });
 
-/// Warms the JioSaavn HTTP clients' TLS root store off the UI/play path.
+/// Warms the shared JioSaavn HTTP client's TLS root store off the UI/play path.
 pub(crate) fn prewarm_client() {
     let _ = LazyLock::force(&API_CLIENT);
-    let _ = LazyLock::force(&MEDIA_CLIENT);
 }
 
 /// API base with `MUSICO_SAAVN_API` override applied (trailing `/` trimmed

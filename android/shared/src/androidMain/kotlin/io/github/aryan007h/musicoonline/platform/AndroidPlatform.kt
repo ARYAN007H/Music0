@@ -39,10 +39,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.core.content.FileProvider
+import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
+import coil3.request.crossfade
+import coil3.size.Precision
 import coil3.toBitmap
+import okio.Path.Companion.toOkioPath
 import io.github.aryan007h.musicoonline.core.OnlineTrack
 import io.github.aryan007h.musicoonline.player.MobileEqualizer
 import io.github.aryan007h.musicoonline.ui.player.ArtworkAtmosphere
@@ -60,7 +66,25 @@ object AndroidPlatformHost {
     private var appContext: Context? = null
 
     fun init(context: Context) {
-        appContext = context.applicationContext
+        val app = context.applicationContext
+        appContext = app
+        val imageCacheDir = File(app.cacheDir, "coil_images").apply { mkdirs() }
+        SingletonImageLoader.setSafe { ctx ->
+            ImageLoader.Builder(ctx)
+                .crossfade(true)
+                .memoryCache {
+                    MemoryCache.Builder()
+                        .maxSizePercent(ctx, 0.14)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(imageCacheDir.toOkioPath())
+                        .maxSizeBytes(50L * 1024L * 1024L)
+                        .build()
+                }
+                .build()
+        }
     }
 
     fun requireContext(): Context =
@@ -210,7 +234,11 @@ actual suspend fun decodeArtworkSamplePixels(url: String): IntArray? {
 actual suspend fun prefetchArtworkImage(url: String) {
     val ctx = AndroidPlatformHost.contextOrNull() ?: return
     runCatching {
-        val req = ImageRequest.Builder(ctx).data(url).build()
+        val req = ImageRequest.Builder(ctx)
+            .data(url)
+            .size(384, 384)
+            .precision(Precision.INEXACT)
+            .build()
         SingletonImageLoader.get(ctx).enqueue(req)
     }
 }

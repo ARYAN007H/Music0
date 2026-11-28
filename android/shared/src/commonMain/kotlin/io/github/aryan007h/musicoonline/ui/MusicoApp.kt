@@ -17,10 +17,14 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -98,6 +102,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -143,11 +149,13 @@ import io.github.aryan007h.musicoonline.ui.settings.SettingsScreen
 import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.MusicoMotion
+import io.github.aryan007h.musicoonline.ui.theme.rememberWindowAnimationsActive
 import io.github.aryan007h.musicoonline.ui.theme.MusicoShapes
 import io.github.aryan007h.musicoonline.ui.theme.MusicoTheme
 import io.github.aryan007h.musicoonline.ui.theme.hapticThud
 import io.github.aryan007h.musicoonline.ui.theme.hapticTick
 import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.safePositiveScale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonPrimitive
@@ -1264,19 +1272,19 @@ private fun DesktopNavigationRail(
                         .padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Surface(
-                        shape = ExpressiveShapes.Cookie10,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.size(32.dp),
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(ExpressiveShapes.Cookie10)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                state.displayName.trim().take(1).uppercase().ifEmpty { "M" },
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        }
+                        Text(
+                            state.displayName.trim().take(1).uppercase().ifEmpty { "M" },
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
                     }
                     Spacer(Modifier.width(10.dp))
                     Text(
@@ -1899,8 +1907,9 @@ private fun MiniPlayerLiveProgressBar(
         }
     }
 
-    LaunchedEffect(isPlaying, durationMs) {
-        if (!isPlaying || durationMs <= 0L) return@LaunchedEffect
+    val windowActive = rememberWindowAnimationsActive()
+    LaunchedEffect(isPlaying, durationMs, windowActive) {
+        if (!isPlaying || durationMs <= 0L || !windowActive) return@LaunchedEffect
         while (true) {
             withFrameNanos { now ->
                 if (anchorNanos < 0L) anchorNanos = now
@@ -1981,7 +1990,12 @@ private fun PillNavBar(
             shadowElevation = if (isDark) 10.dp else 5.dp,
         ) {
             Box(Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
-                val sel = if (!profileActive) itemBounds[current] else null
+                val sel = itemBounds[current]
+                val blobAlpha by animateFloatAsState(
+                    targetValue = if (!profileActive && sel != null) 1f else 0f,
+                    animationSpec = MusicoMotion.effectsFast(),
+                    label = "blobAlpha",
+                )
                 if (sel != null) {
                     val blobLeft by animateDpAsState(
                         targetValue = with(density) { sel.left.toDp() },
@@ -2008,6 +2022,7 @@ private fun PillNavBar(
                             .offset(x = blobLeft, y = blobTop)
                             .width((blobRight - blobLeft).coerceAtLeast(0.dp))
                             .height((blobBottom - blobTop).coerceAtLeast(0.dp))
+                            .graphicsLayer { alpha = blobAlpha.coerceIn(0f, 1f) }
                             .clip(MusicoShapes.pill)
                             .background(MaterialTheme.colorScheme.primary),
                     )
@@ -2021,39 +2036,69 @@ private fun PillNavBar(
                             dest = dest,
                             selected = current == dest.tab && !profileActive,
                             onClick = { onSelect(dest.tab) },
-                            onBounds = { rect -> itemBounds[dest.tab] = rect },
+                            onBounds = { rect ->
+                                if (rect.width > 0f && rect.height > 0f && itemBounds[dest.tab] != rect) {
+                                    itemBounds[dest.tab] = rect
+                                }
+                            },
                         )
                     }
                 }
             }
         }
 
-        // Detached M3 Expressive Cookie10 Profile Button beside the floating toolbar
-        Surface(
-            shape = ExpressiveShapes.Cookie10,
-            color = if (profileActive) {
+        // Detached M3 Expressive Cookie10 Profile Button beside the floating toolbar.
+        // Uses a single clipped tonal Box (no native shadowElevation on concave Outline.Generic)
+        // so Android HWUI RenderNode + RippleDrawable never clash across OEMs/API levels.
+        val profileSource = remember { MutableInteractionSource() }
+        val profilePressed by profileSource.collectIsPressedAsState()
+        val profileScale by animateFloatAsState(
+            targetValue = if (profilePressed) 0.90f else 1f,
+            animationSpec = MusicoMotion.spatialFast(),
+            label = "pillProfileScale",
+        )
+        val profileBg by animateColorAsState(
+            targetValue = if (profileActive) {
                 MaterialTheme.colorScheme.primary
             } else {
                 MaterialTheme.colorScheme.primaryContainer
             },
-            shadowElevation = if (isDark) 8.dp else 4.dp,
+            animationSpec = MusicoMotion.effectsFast(),
+            label = "pillProfileBg",
+        )
+        val profileFg by animateColorAsState(
+            targetValue = if (profileActive) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            },
+            animationSpec = MusicoMotion.effectsFast(),
+            label = "pillProfileFg",
+        )
+        Box(
             modifier = Modifier
                 .size(54.dp)
+                .graphicsLayer {
+                    val safe = safePositiveScale(profileScale)
+                    scaleX = safe
+                    scaleY = safe
+                }
                 .clip(ExpressiveShapes.Cookie10)
-                .pressable(onClick = onProfile, pressedScale = 0.90f),
+                .background(profileBg)
+                .pointerHoverIcon(PointerIcon.Hand)
+                .clickable(
+                    interactionSource = profileSource,
+                    indication = LocalIndication.current,
+                    onClick = onProfile,
+                ),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    displayName.trim().take(1).uppercase().ifEmpty { "M" },
-                    fontWeight = FontWeight.Black,
-                    fontSize = 18.sp,
-                    color = if (profileActive) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    },
-                )
-            }
+            Text(
+                displayName.trim().take(1).uppercase().ifEmpty { "M" },
+                fontWeight = FontWeight.Black,
+                fontSize = 18.sp,
+                color = profileFg,
+            )
         }
     }
 }

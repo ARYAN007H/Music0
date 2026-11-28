@@ -1,7 +1,10 @@
 package io.github.aryan007h.musicoonline.ui.settings
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +59,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.aryan007h.musicoonline.core.UpdateInfo
@@ -75,7 +80,8 @@ import io.github.aryan007h.musicoonline.ui.theme.ExpressiveShapes
 import io.github.aryan007h.musicoonline.ui.theme.Musico
 import io.github.aryan007h.musicoonline.ui.theme.Palette
 import io.github.aryan007h.musicoonline.ui.theme.ThemeMode
-import io.github.aryan007h.musicoonline.ui.theme.pressable
+import io.github.aryan007h.musicoonline.ui.theme.hapticTick
+import io.github.aryan007h.musicoonline.ui.theme.pressScale
 import kotlin.math.roundToInt
 
 /**
@@ -739,21 +745,33 @@ private fun PalettePicker(
             val previewSecondary = if (isDark) p.accent else p.light.secondary
             val previewTertiary = if (isDark) p.pop else p.light.tertiary
 
-            Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = if (selected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-                },
-                border = if (selected) {
-                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                } else {
-                    null
-                },
+            val cardShape = RoundedCornerShape(22.dp)
+            val cardSource = remember(p.id) { MutableInteractionSource() }
+            val cardColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            }
+            Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(22.dp))
-                    .pressable(onClick = { onPick(p) }, pressedScale = 0.94f),
+                    .pressScale(cardSource, pressedScale = 0.94f)
+                    .clip(cardShape)
+                    .background(cardColor)
+                    .then(
+                        if (selected) {
+                            Modifier.border(2.dp, MaterialTheme.colorScheme.primary, cardShape)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .clickable(
+                        interactionSource = cardSource,
+                        indication = LocalIndication.current,
+                    ) {
+                        hapticTick()
+                        onPick(p)
+                    },
             ) {
                 Box(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Column {
